@@ -1,0 +1,11 @@
+{
+  "name": "ep",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Numbat-shaped notepad calculator with shareable single-file form export",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --test"
+  }
+}

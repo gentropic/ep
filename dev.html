@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<!-- ep dev shell — loads sources from src/ as native ES modules, no build step. -->
+<!-- For iteration only; users get the built index.html. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ep — dev</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+
+<div class="app" id="app">
+  <div class="hdr">
+    <div class="hdr-left">
+      <span class="name" title="ep dev shell">ep</span>
+      <span class="file">ore_body (dev)</span>
+    </div>
+    <div class="hdr-right">
+      <button class="hbtn" id="formBtn">form</button>
+      <button class="hbtn" id="openBtn">open</button>
+      <button class="hbtn" id="exportBtn">export</button>
+      <input type="file" id="fileInput" accept=".ep,text/plain" style="display:none">
+    </div>
+  </div>
+
+  <div class="drop-overlay" id="dropOverlay">
+    <div class="drop-msg">
+      <div class="drop-msg-big">drop .ep file</div>
+      <div class="drop-msg-small">to load it into the editor</div>
+    </div>
+  </div>
+
+  <div class="panel" id="paramsPanel">
+    <div class="panel-hdr" data-target="paramsPanel">
+      <span><span class="at">@</span>params <span class="meta" id="paramMeta">· 5 inputs</span></span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="chip-grid" id="chips"></div>
+  </div>
+
+  <div class="show-source">
+    <button class="show-source-btn" id="showSourceBtn">show calculation ▾</button>
+  </div>
+
+  <div class="body" id="body"></div>
+
+  <div class="panel outputs" id="outputsPanel">
+    <div class="panel-hdr" data-target="outputsPanel">
+      <span><span class="at">@</span>outputs <span class="meta" id="outMeta">· 2 results</span></span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="chip-grid" id="outChips"></div>
+  </div>
+
+  <div class="form-spacer"></div>
+
+  <div class="accessory" id="accessory"></div>
+</div>
+
+<div class="scrim" id="scrim">
+  <div class="dialog">
+    <div class="dialog-hdr">Export ep program</div>
+    <div class="dialog-body">
+      <p>This program will be packaged as either plain ep-script source or a standalone HTML file — single file, no runtime dependencies, opens to form view by default.</p>
+      <p style="font-size:11px; color:var(--sw-text-soft);">ep-script syntax inspired by <strong>Numbat</strong> (David Peter, MIT). The exported source is largely Numbat-compatible.</p>
+      <div class="dialog-row">
+        <label>name</label>
+        <input id="exportName" value="ore_body">
+      </div>
+      <p style="margin-top:14px"><strong>Program source preview</strong></p>
+      <div class="dialog-src" id="exportSrc"></div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn" id="cancelBtn">Cancel</button>
+      <button class="btn" id="dlEpBtn">↓ .ep</button>
+      <button class="btn primary" id="dlHtmlBtn">↓ .html</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const INITIAL_STATE = {
+  body: [
+    {src: '# Ore body calculation — demonstrates the new features:'},
+    {src: '#   `#` comments (also `--`)'},
+    {src: '#   `_` digit separators (1_800)'},
+    {src: '#   `->` / `to` unit conversion'},
+    {src: '#   optional `: Dimension` type annotations'},
+    {src: ''},
+    {src: '@params {'},
+    {src: '  length            = 200 m'},
+    {src: '  width             = 50 m'},
+    {src: '  thickness         = 8 m'},
+    {src: '  density : Density = 2.7 g/cm3'},
+    {src: '  grade             = 1_800 ppb'},
+    {src: '}'},
+    {src: ''},
+    {src: '# Geometry and tonnage'},
+    {src: 'volume   = length * width * thickness'},
+    {src: 'tonnage  = volume * density'},
+    {src: 'metal    = tonnage * grade'},
+    {src: ''},
+    {src: '# Display the result in troy ounces using `->`'},
+    {src: 'metal_oz = metal -> ozt'},
+    {src: ''},
+    {src: '@outputs { tonnage, metal, metal_oz }'},
+  ],
+  ui: {
+    paramsCollapsed: false,
+    outputsCollapsed: false,
+    formView: false,
+    showSource: false,
+  },
+};
+</script>
+<script type="module" src="src/js/main.js"></script>
+
+</body></html>

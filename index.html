@@ -1,7 +1,6 @@
 <!DOCTYPE html>
-<!-- ep — notepad + form builder (mock for @gcu/ep) -->
-<!-- @params at top, @outputs at bottom. Both collapsible. -->
-<!-- Form-view toggle for preview. Export-as-HTML stub. -->
+<!-- ep — Numbat-shaped notepad calculator with shareable single-file form export -->
+<!-- Syntax inspired by Numbat (David Peter, MIT). Original directives: @params, @outputs. -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -715,7 +714,10 @@ const INITIAL_STATE = {
 
 'use strict';
 
-// ── @gcu/units (mock subset) ──────────────────────────────────
+// ─── units.js ────────────────────────────────────────────────────
+// Units, dimensions, the Q quantity primitive, and formatting.
+// Eventually replaced by ext/numbat/ when that lands.
+
 const UNITS = {
   mg:  {mul: 1e-3,  dim: {mass: 1}},
   g:   {mul: 1,     dim: {mass: 1}},
@@ -863,7 +865,10 @@ function fmtNum(n) {
   return s;
 }
 
-// ── Tokenizer / Parser ────────────────────────────────────────
+// ─── parser.js ───────────────────────────────────────────────────
+// Tokenizer and expression parser for ep-script.
+// Calls into units.js for quantity arithmetic.
+
 function tokenize(s) {
   const ci1 = s.indexOf('--'), ci2 = s.indexOf('#');
   let cut = Infinity;
@@ -1025,6 +1030,7 @@ function parseExpr(toks, scope) {
   if (p < toks.length) throw new Error('trailing input');
   return r;
 }
+
 function applyFn(name, q) {
   const v = q.v;
   switch (name) {
@@ -1055,14 +1061,11 @@ function applyFn(name, q) {
   }
 }
 
-// ── State + classify ──────────────────────────────────────────
-const state = JSON.parse(JSON.stringify(INITIAL_STATE));
-state.params = [];   // derived from @params { } block in body
-state.outputs = [];  // derived from @outputs { } directive lines
-state._scope = {};
-state._blockComplete = false;
-state._blocks = [];                              // [{open, close, kind, count}]
-state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bodyIdx (persistable)
+// ─── evaluator.js ────────────────────────────────────────────────
+// Pure evaluator: classify lines, parse dimension annotations, and evaluate a
+// body of ep-script statements into rows/params/outputs/scope. No DOM, no
+// singleton state — `evaluate(body)` returns everything its caller needs to
+// reconcile into a UI state object (state.js does that).
 
 function classify(src) {
   const t = src.trim();
@@ -1139,37 +1142,44 @@ function parseAnno(s) {
   return l;
 }
 
-function evaluateAll() {
+// Pure evaluator: takes a body array of {src} and returns a description of
+// everything derived from it. Does not mutate the input.
+//
+// Returns:
+//   rows[]:        parallel to body; each {kind, name, result, error, outputs, inParams}
+//   params[]:      [{name, valueSrc, anno, bodyIdx, result, error}]
+//   outputs[]:     string[] — names listed in @outputs { … }
+//   scope:         {[name]: Q} — bindings visible at end of evaluation
+//   blockComplete: boolean    — true if a @params { … } pair was found
+//   blocks[]:      [{open, close, kind, count}]
+function evaluate(body) {
   // Pre-scan: find @params block bounds (only valid if both `@params {` and a later `}` exist)
   let blockOpen = -1, blockClose = -1;
-  for (let i = 0; i < state.body.length; i++) {
-    const t = state.body[i].src.trim();
+  for (let i = 0; i < body.length; i++) {
+    const t = body[i].src.trim();
     if (blockOpen < 0 && /^@params\s*\{\s*$/.test(t)) { blockOpen = i; continue; }
     if (blockOpen >= 0 && blockClose < 0 && /^\}\s*$/.test(t)) { blockClose = i; break; }
   }
   const blockComplete = (blockOpen >= 0 && blockClose > blockOpen);
 
   const scope = {};
-  const newParams = [];
-  const oldByName = new Map(state.params.map(p => [p.name, p]));
-  state.outputs = [];
+  const params = [];
+  const outputs = [];
+  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
 
-  for (let i = 0; i < state.body.length; i++) {
-    const r = state.body[i];
-    const c = classify(r.src);
-    r.kind = c.kind;
-    r.name = c.name || null;
-    r.result = null;
-    r.error  = null;
-    r.outputs = null;
-    r.inParams = blockComplete && i >= blockOpen && i <= blockClose;
+  for (let i = 0; i < body.length; i++) {
+    const c = classify(body[i].src);
+    const row = rows[i];
+    row.kind = c.kind;
+    row.name = c.name || null;
+    row.inParams = blockComplete && i >= blockOpen && i <= blockClose;
 
     const inBlockBody = blockComplete && i > blockOpen && i < blockClose;
 
     if (inBlockBody) {
       if (c.kind === 'empty' || c.kind === 'comment') continue;
       if (c.kind !== 'binding') {
-        r.error = 'expected `name = expr` inside @params';
+        row.error = 'expected `name = expr` inside @params';
         continue;
       }
       const name = c.name;
@@ -1184,19 +1194,9 @@ function evaluateAll() {
         }
         scope[name] = q;
       } catch (e) { q = null; err = e.message; }
-      r.result = q;
-      r.error  = err;
-      const reused = oldByName.get(name);
-      if (reused) {
-        reused.valueSrc = c.expr;
-        reused.anno     = c.anno || null;
-        reused.bodyIdx  = i;
-        reused.result   = q;
-        reused.error    = err;
-        newParams.push(reused);
-      } else {
-        newParams.push({name, valueSrc: c.expr, anno: c.anno || null, bodyIdx: i, result: q, error: err});
-      }
+      row.result = q;
+      row.error  = err;
+      params.push({name, valueSrc: c.expr, anno: c.anno || null, bodyIdx: i, result: q, error: err});
       continue;
     }
 
@@ -1204,8 +1204,8 @@ function evaluateAll() {
     if (c.kind === 'empty' || c.kind === 'comment') continue;
     if (c.kind === 'params-open' || c.kind === 'block-close') continue;
     if (c.kind === 'outputs') {
-      r.outputs = c.names;
-      state.outputs.push(...c.names);
+      row.outputs = c.names;
+      outputs.push(...c.names);
       continue;
     }
     try {
@@ -1218,50 +1218,97 @@ function evaluateAll() {
             throw new Error(`annotated ${c.anno} but got [${fmtDim(q.d)}]`);
           }
         } catch (e) {
-          r.error = e.message;
+          row.error = e.message;
           continue;
         }
       }
-      r.result = q;
+      row.result = q;
       if (c.kind === 'binding') scope[c.name] = q;
-    } catch (e) { r.error = e.message; }
+    } catch (e) { row.error = e.message; }
   }
 
-  // Detect structure change for chip rendering decision
+  const blocks = [];
+  if (blockComplete) {
+    blocks.push({open: blockOpen, close: blockClose, kind: 'params', count: params.length});
+  }
+
+  return {rows, params, outputs, scope, blockComplete, blocks};
+}
+
+// ─── state.js ────────────────────────────────────────────────────
+// Program state singleton + evaluateAll(): runs the pure evaluator and
+// reconciles the result into `state`, preserving body-row and param object
+// identity so the renderer's DOM references stay valid across re-evaluations.
+//
+// INITIAL_STATE is a free global, defined by the host HTML between STATE markers.
+
+const state = JSON.parse(JSON.stringify(INITIAL_STATE));
+state.params = [];   // derived from @params { } block in body
+state.outputs = [];  // derived from @outputs { } directive lines
+state._scope = {};
+state._blockComplete = false;
+state._blocks = [];                              // [{open, close, kind, count}]
+state._lastFocused = null;                       // last focused chip/row input (for accessory bar)
+state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bodyIdx (persistable)
+
+function evaluateAll() {
+  const oldByName = new Map(state.params.map(p => [p.name, p]));
+  const r = evaluate(state.body);
+
+  // Reconcile body rows in place — the renderer holds direct refs (_resEl, _rowEl) on them.
+  for (let i = 0; i < state.body.length; i++) {
+    const dest = state.body[i];
+    const src  = r.rows[i];
+    dest.kind     = src.kind;
+    dest.name     = src.name;
+    dest.result   = src.result;
+    dest.error    = src.error;
+    dest.outputs  = src.outputs;
+    dest.inParams = src.inParams;
+  }
+
+  // Reconcile params: reuse prior objects by name so chip-side data carriers are stable.
+  const newParams = r.params.map(p => {
+    const reused = oldByName.get(p.name);
+    if (reused) {
+      reused.valueSrc = p.valueSrc;
+      reused.anno     = p.anno;
+      reused.bodyIdx  = p.bodyIdx;
+      reused.result   = p.result;
+      reused.error    = p.error;
+      return reused;
+    }
+    return p;
+  });
+
+  // Track structural change for chip rebuild decisions (currently informational).
   const oldNames = state.params.map(p => p.name);
   const newNames = newParams.map(p => p.name);
   state._paramsStructureChanged =
     newNames.length !== oldNames.length ||
     newNames.some((n, i) => n !== oldNames[i]);
 
-  state.params = newParams;
-  state._scope = scope;
-  state._blockComplete = blockComplete;
+  state.params         = newParams;
+  state.outputs        = r.outputs;
+  state._scope         = r.scope;
+  state._blockComplete = r.blockComplete;
+  state._blocks        = r.blocks;
 
-  // Recompute block ranges (generalized; currently only @params blocks exist)
-  state._blocks = [];
-  if (blockComplete) {
-    state._blocks.push({
-      open: blockOpen,
-      close: blockClose,
-      kind: 'params',
-      count: newParams.length,
-    });
-  }
-  // Drop collapsed entries that no longer point at a block opening
-  const validOpens = new Set(state._blocks.map(b => b.open));
+  // Drop collapsed entries that no longer point at a block opening.
+  const validOpens = new Set(r.blocks.map(b => b.open));
   state.ui.collapsedBlocks = (state.ui.collapsedBlocks || []).filter(idx => validOpens.has(idx));
 }
 
-// ── Render ────────────────────────────────────────────────────
-const app          = document.getElementById('app');
+// ─── render.js ───────────────────────────────────────────────────
+// All DOM rendering: input chips, body rows, output chips, results.
+
 const chipsEl      = document.getElementById('chips');
 const outChipsEl   = document.getElementById('outChips');
 const bodyEl       = document.getElementById('body');
 const paramMetaEl  = document.getElementById('paramMeta');
 const outMetaEl    = document.getElementById('outMeta');
-const paramsPanel  = document.getElementById('paramsPanel');
-const outputsPanel = document.getElementById('outputsPanel');
+// outputsPanel is owned by view.js; query it inline where needed to avoid a
+// duplicate top-level binding (flat scope after build).
 
 function renderChips() {
   chipsEl.innerHTML = '';
@@ -1295,7 +1342,7 @@ function renderChips() {
       if (bodyRow) bodyRow.value = state.body[bodyIdx].src;
       renderResults();
     });
-    inp.addEventListener('focus', () => { lastFocused = inp; });
+    inp.addEventListener('focus', () => { state._lastFocused = inp; });
     const res = document.createElement('div');
     res.className = 'chip-res';
     chip.append(lbl, inp, res);
@@ -1372,7 +1419,7 @@ function makeRow(r, i) {
       inp.setSelectionRange(src.selectionStart, src.selectionEnd);
     }
   });
-  src.addEventListener('focus', () => { lastFocused = src; });
+  src.addEventListener('focus', () => { state._lastFocused = src; });
   src.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1467,13 +1514,14 @@ function renderResults() {
 
 function renderOutputs() {
   outChipsEl.innerHTML = '';
+  const panel = document.getElementById('outputsPanel');
   const names = state.outputs;
   outMetaEl.textContent = `· ${names.length} result${names.length===1?'':'s'}`;
   if (!names.length) {
-    outputsPanel.style.display = 'none';
+    panel.style.display = 'none';
     return;
   }
-  outputsPanel.style.display = '';
+  panel.style.display = '';
   for (const name of names) {
     const chip = document.createElement('div');
     chip.className = 'chip readonly';
@@ -1535,8 +1583,10 @@ function renderOutputs() {
   }
 }
 
-// ── Accessory bar ─────────────────────────────────────────────
-let lastFocused = null;
+// ─── accessory.js ────────────────────────────────────────────────
+// Accessory bar: tap-to-insert tokens (operators, units, functions) into the
+// most recently focused input. Reads state._lastFocused, set by render.js.
+
 const TOKENS = [
   ['op', '+', '+'], ['op', '−', '-'], ['op', '×', '*'], ['op', '÷', '/'],
   ['op', '^', '^'], ['op', '(', '('], ['op', ')', ')'], ['op', '=', '='],
@@ -1548,6 +1598,7 @@ const TOKENS = [
   ['unit', 'kg', ' kg'], ['unit', 't', ' t'], ['unit', 'Mt', ' Mt'],
   ['unit', 'g/t', ' g/t'], ['unit', 'ppm', ' ppm'], ['unit', 'ozt', ' ozt'],
 ];
+
 const accEl = document.getElementById('accessory');
 TOKENS.forEach(([cls, lbl, ins]) => {
   const b = document.createElement('button');
@@ -1555,7 +1606,7 @@ TOKENS.forEach(([cls, lbl, ins]) => {
   b.textContent = lbl;
   b.addEventListener('mousedown', e => e.preventDefault());
   b.addEventListener('click', () => {
-    const t = lastFocused;
+    const t = state._lastFocused;
     if (!t) return;
     const start = t.selectionStart, end = t.selectionEnd;
     const v = t.value;
@@ -1567,7 +1618,16 @@ TOKENS.forEach(([cls, lbl, ins]) => {
   accEl.append(b);
 });
 
-// ── Panel collapse ────────────────────────────────────────────
+// ─── view.js ─────────────────────────────────────────────────────
+// Panel collapse, form-view toggle, show-source toggle, initial UI hydration.
+
+const app           = document.getElementById('app');
+const paramsPanel   = document.getElementById('paramsPanel');
+const outputsPanel  = document.getElementById('outputsPanel');
+const formBtn       = document.getElementById('formBtn');
+const showSourceBtn = document.getElementById('showSourceBtn');
+
+// Panel collapse — click the header to collapse/expand.
 document.querySelectorAll('.panel-hdr').forEach(h => {
   h.addEventListener('click', () => {
     const p = h.parentElement;
@@ -1577,9 +1637,7 @@ document.querySelectorAll('.panel-hdr').forEach(h => {
   });
 });
 
-// ── Form view toggle ──────────────────────────────────────────
-const formBtn = document.getElementById('formBtn');
-const showSourceBtn = document.getElementById('showSourceBtn');
+// Form-view toggle: switches between editor view and form view.
 formBtn.addEventListener('click', () => {
   state.ui.formView = !state.ui.formView;
   state.ui.showSource = false;
@@ -1589,6 +1647,7 @@ showSourceBtn.addEventListener('click', () => {
   state.ui.showSource = !state.ui.showSource;
   applyFormView();
 });
+
 function applyFormView() {
   app.classList.toggle('form',       state.ui.formView);
   app.classList.toggle('body-shown', state.ui.formView && state.ui.showSource);
@@ -1599,14 +1658,24 @@ function applyFormView() {
     : 'show calculation ▾';
 }
 
-// ── Export dialog ─────────────────────────────────────────────
-const scrim = document.getElementById('scrim');
-const exportBtn = document.getElementById('exportBtn');
-const cancelBtn = document.getElementById('cancelBtn');
-const dlEpBtn   = document.getElementById('dlEpBtn');
-const dlHtmlBtn = document.getElementById('dlHtmlBtn');
-const exportSrcEl = document.getElementById('exportSrc');
-const exportNameEl = document.getElementById('exportName');
+function applyInitialUI() {
+  if (state.ui.paramsCollapsed)  paramsPanel.classList.add('collapsed');
+  if (state.ui.outputsCollapsed) outputsPanel.classList.add('collapsed');
+  if (state.ui.formView)         applyFormView();
+}
+
+// ─── export.js ───────────────────────────────────────────────────
+// Export dialog: package the current program as .ep source or self-cloning .html.
+// The .html path reads its own outerHTML and swaps the INITIAL_STATE block via
+// the STATE markers — preserving this contract is critical to the round-trip.
+
+const scrim         = document.getElementById('scrim');
+const exportBtn     = document.getElementById('exportBtn');
+const cancelBtn     = document.getElementById('cancelBtn');
+const dlEpBtn       = document.getElementById('dlEpBtn');
+const dlHtmlBtn     = document.getElementById('dlHtmlBtn');
+const exportSrcEl   = document.getElementById('exportSrc');
+const exportNameEl  = document.getElementById('exportName');
 
 function serializeProgram() {
   return state.body.map(r => r.src).join('\n');
@@ -1651,7 +1720,9 @@ function downloadFile(text, name, type) {
   setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
-// ── Load / Import ─────────────────────────────────────────────
+// ─── io.js ───────────────────────────────────────────────────────
+// Load / Import — file picker and drag-and-drop. Both feed loadProgramText.
+
 const openBtn      = document.getElementById('openBtn');
 const fileInput    = document.getElementById('fileInput');
 const dropOverlay  = document.getElementById('dropOverlay');
@@ -1736,12 +1807,9 @@ window.addEventListener('drop', async (e) => {
   }
 });
 
-// ── Boot ──────────────────────────────────────────────────────
-function applyInitialUI() {
-  if (state.ui.paramsCollapsed)  paramsPanel.classList.add('collapsed');
-  if (state.ui.outputsCollapsed) outputsPanel.classList.add('collapsed');
-  if (state.ui.formView)         applyFormView();
-}
+// ─── main.js ─────────────────────────────────────────────────────
+// Entry point. Wires the modules that have setup-on-load side effects, then
+// runs the initial evaluation and render pass.
 
 evaluateAll();
 renderChips();
@@ -1750,5 +1818,4 @@ renderResults();
 applyInitialUI();
 </script>
 
-</body>
-</html>
+</body></html>
