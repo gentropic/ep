@@ -31,21 +31,29 @@ export class UnitRegistry {
   }
 
   // Define a unit.
-  //   canonicalName: long name ('meter')
-  //   opts.dim:         dimension vector (required)
-  //   opts.mul:         canonical multiplier (default 1 = base canonical)
-  //   opts.displayName: pretty form (default canonicalName)
-  //   opts.aliases:     extra lookup names ['m']
-  //   opts.prefixSet:   'metric' | null
+  //   canonicalName:      long name ('metre')
+  //   opts.dim:           dimension vector (required)
+  //   opts.mul:           canonical multiplier (default 1 = base canonical)
+  //   opts.displayName:   pretty form for auto-scale display
+  //                       (default: first shortAlias if any, else canonicalName)
+  //   opts.aliases:       LONG-form alternate names ['meter', 'meters']. NOT prefixed.
+  //   opts.shortAliases:  SHORT-form alternate names ['m']. Each combines with
+  //                       the metric prefix's short form (kilo + m = km).
+  //   opts.prefixSet:     'metric' | null
+  //
+  // Upstream Numbat's `@aliases(metres, meter, meters, m: short)` splits
+  // into aliases=[metres, meter, meters] and shortAliases=[m]. v0.1 callers
+  // that passed `aliases: ['m']` should migrate to `shortAliases: ['m']`.
   define(canonicalName, opts) {
     const dim = opts.dim;
     const mul = opts.mul ?? 1;
-    const displayName = opts.displayName ?? canonicalName;
-    const aliases = opts.aliases ?? [];
-    const prefixSet = opts.prefixSet ?? null;
+    const aliases      = opts.aliases ?? [];
+    const shortAliases = opts.shortAliases ?? [];
+    const displayName  = opts.displayName ?? shortAliases[0] ?? canonicalName;
+    const prefixSet    = opts.prefixSet ?? null;
 
     this._addEntry({mul, dim, displayName, fullName: canonicalName},
-                   [canonicalName, ...aliases]);
+                   [canonicalName, ...aliases, ...shortAliases]);
 
     if (prefixSet === 'metric') {
       for (const [longName, shortName, factor] of METRIC_PREFIXES) {
@@ -58,7 +66,7 @@ export class UnitRegistry {
           fullName: prefixedFull,
         };
         const lookups = [prefixedFull];
-        for (const alias of aliases) lookups.push(shortName + alias);
+        for (const sa of shortAliases) lookups.push(shortName + sa);
         this._addEntry(entry, lookups);
       }
     }

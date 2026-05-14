@@ -21,7 +21,7 @@ const SRC_FILES = [
 ];
 
 const PUBLIC_API = [
-  'Numbat', 'Quantity', 'UnitRegistry',
+  'Numbat', 'Quantity', 'UnitRegistry', 'DimRegistry',
   // Dimension primitives — useful for hosts that want to manipulate dim vectors
   // directly without going through Quantity.
   'dimEq', 'dimMul', 'dimDiv', 'dimPow', 'dimInv', 'dimEmpty', 'dimFormat',

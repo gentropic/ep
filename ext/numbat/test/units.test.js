@@ -20,11 +20,11 @@ test('has() reports membership for canonical and aliases', () => {
 
 test('metric prefix expansion generates expected variants', () => {
   const r = new UnitRegistry();
-  r.define('meter', { dim: {length: 1}, displayName: 'm', aliases: ['m'], prefixSet: 'metric' });
+  r.define('meter', { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
   // Long-form prefixed names
   assert.equal(r.resolve('kilometer').mul, 1e3);
   assert.equal(r.resolve('millimeter').mul, 1e-3);
-  // Short-form prefixed names (via alias)
+  // Short-form prefixed names (via shortAlias)
   assert.equal(r.resolve('km').mul, 1e3);
   assert.equal(r.resolve('mm').mul, 1e-3);
   assert.equal(r.resolve('cm').mul, 1e-2);
@@ -35,15 +35,15 @@ test('metric prefix expansion generates expected variants', () => {
 
 test('metric prefix variants share dimension with base', () => {
   const r = new UnitRegistry();
-  r.define('gram', { dim: {mass: 1}, displayName: 'g', aliases: ['g'], prefixSet: 'metric' });
+  r.define('gram', { dim: {mass: 1}, shortAliases: ['g'], prefixSet: 'metric' });
   assert.deepEqual(r.resolve('kg').dim, {mass: 1});
   assert.deepEqual(r.resolve('mg').dim, {mass: 1});
 });
 
 test('list(filterDim): only matching units', () => {
   const r = new UnitRegistry();
-  r.define('meter', { dim: {length: 1}, displayName: 'm', aliases: ['m'], prefixSet: 'metric' });
-  r.define('gram',  { dim: {mass: 1},   displayName: 'g', aliases: ['g'], prefixSet: 'metric' });
+  r.define('meter', { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
+  r.define('gram',  { dim: {mass: 1},   shortAliases: ['g'], prefixSet: 'metric' });
   const lengths = r.list({length: 1});
   const masses = r.list({mass: 1});
   assert.ok(lengths.length >= 5);
@@ -54,10 +54,31 @@ test('list(filterDim): only matching units', () => {
 
 test('non-prefixed unit registers exactly one entry', () => {
   const r = new UnitRegistry();
-  r.define('tonne', { dim: {mass: 1}, mul: 1e6, displayName: 't', aliases: ['t'] });
+  r.define('tonne', { dim: {mass: 1}, mul: 1e6, shortAliases: ['t'] });
   assert.deepEqual(r.resolve('tonne').mul, 1e6);
   assert.deepEqual(r.resolve('t').mul, 1e6);
   assert.equal(r.resolve('kilotonne'), null);  // no auto-prefix
+});
+
+test('aliases (long) and shortAliases (prefixable) handled separately', () => {
+  const r = new UnitRegistry();
+  // Mimics upstream's @aliases(metres, meter, meters, m: short)
+  r.define('metre', {
+    dim: {length: 1},
+    aliases: ['metres', 'meter', 'meters'],
+    shortAliases: ['m'],
+    prefixSet: 'metric',
+  });
+  // All long aliases resolve to the base (no prefix attached)
+  assert.equal(r.resolve('metre').mul, 1);
+  assert.equal(r.resolve('metres').mul, 1);
+  assert.equal(r.resolve('meter').mul, 1);
+  assert.equal(r.resolve('meters').mul, 1);
+  // Short alias gets prefixed
+  assert.equal(r.resolve('km').mul, 1e3);
+  // Long aliases do NOT get prefixed (no `kmeter` or `kmetres`)
+  assert.equal(r.resolve('kmeter'), null);
+  assert.equal(r.resolve('kmetres'), null);
 });
 
 test('first-come-first-served on alias conflicts', () => {

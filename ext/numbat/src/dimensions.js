@@ -49,3 +49,42 @@ export const dimFormat = (d) => {
   const parts = Object.entries(d).map(([k, v]) => v === 1 ? k : `${k}^${v}`);
   return parts.join('·') || '-';
 };
+
+// DimRegistry: maps Numbat-style dimension names (Length, Velocity) to dim
+// vectors. Base dimensions get a fresh lowercase axis key derived from their
+// name; derived dimensions store a computed vector built from arithmetic on
+// existing dimensions.
+//
+// Used by the .nbt loader (see load.js); the runtime Quantity/UnitRegistry
+// only cares about the dim vectors themselves.
+export class DimRegistry {
+  constructor() {
+    this._dims = new Map();
+  }
+
+  // Declare a base dimension. Allocates a new axis named after the dimension
+  // (lowercased). E.g. `defineBase('Length')` → registers Length as {length: 1}.
+  defineBase(name) {
+    if (this._dims.has(name)) throw new Error(`dimension already defined: ${name}`);
+    const axis = name.toLowerCase();
+    this._dims.set(name, { [axis]: 1 });
+  }
+
+  // Declare a derived dimension with an already-computed dim vector.
+  defineDerived(name, dim) {
+    if (this._dims.has(name)) throw new Error(`dimension already defined: ${name}`);
+    this._dims.set(name, dim);
+  }
+
+  resolve(name) {
+    return this._dims.get(name) ?? null;
+  }
+
+  has(name) {
+    return this._dims.has(name);
+  }
+
+  list() {
+    return [...this._dims.entries()].map(([name, dim]) => ({ name, dim }));
+  }
+}
