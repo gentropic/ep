@@ -140,9 +140,15 @@ export function parse(tokens, sourceName = '<input>') {
   function parseDimension(decorators) {
     eat();  // 'dimension'
     const nameTok = expectType('id', 'dimension name');
-    let expr = null;
-    if (atOp('=')) { eat(); expr = parseExpr(); }
-    return { type: 'DimensionDecl', name: nameTok.name, expr, decorators };
+    // Upstream allows alternate definitions joined by `=`:
+    //   `dimension Energy = Momentum^2 / Mass = Mass × Velocity^2 = Force × Length`
+    // Each alternate must evaluate to the same dim (loader checks this).
+    const exprs = [];
+    while (atOp('=')) {
+      eat();
+      exprs.push(parseExpr());
+    }
+    return { type: 'DimensionDecl', name: nameTok.name, exprs, decorators };
   }
 
   function parseUnit(decorators) {

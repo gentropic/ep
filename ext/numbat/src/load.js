@@ -144,12 +144,20 @@ export function loadModule(ast, env) {
 }
 
 function loadDimensionDecl(decl, env) {
-  if (decl.expr === null) {
+  if (decl.exprs.length === 0) {
     env.dims.defineBase(decl.name);
-  } else {
-    const dim = evalDimExpr(decl.expr, env);
-    env.dims.defineDerived(decl.name, dim);
+    return;
   }
+  const dim = evalDimExpr(decl.exprs[0], env);
+  // Alternate definitions must produce the same dim (upstream's redundant-
+  // equation notation for documentation).
+  for (let i = 1; i < decl.exprs.length; i++) {
+    const alt = evalDimExpr(decl.exprs[i], env);
+    if (!dimEq(dim, alt)) {
+      throw new Error(`dimension ${decl.name}: alternate definition #${i + 1} disagrees with primary`);
+    }
+  }
+  env.dims.defineDerived(decl.name, dim);
 }
 
 function loadUnitDecl(decl, env) {
@@ -168,7 +176,7 @@ function loadUnitDecl(decl, env) {
     if (decl.dim !== null) {
       const expected = evalDimExpr(decl.dim, env);
       if (!dimEq(expected, q.dim)) {
-        throw new Error(`dimension mismatch: annotated does not match value expression`);
+        throw new Error(`dimension mismatch: annotated [${JSON.stringify(expected)}] vs value [${JSON.stringify(q.dim)}]`);
       }
       dim = expected;
     } else {

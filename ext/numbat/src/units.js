@@ -65,8 +65,15 @@ export class UnitRegistry {
           displayName: prefixedDisplay,
           fullName: prefixedFull,
         };
+        // Generate all prefixed lookup names:
+        //   long  prefix + canonical  (kilometre)
+        //   long  prefix + long alias (kilometer, kilometres, kilometers)
+        //   short prefix + short alias (km)
+        // Upstream Numbat applies prefixes to all spellings (so US `decimeter`
+        // and UK `decimetre` both resolve).
         const lookups = [prefixedFull];
-        for (const sa of shortAliases) lookups.push(shortName + sa);
+        for (const alias of aliases)      lookups.push(longName + alias);
+        for (const sa    of shortAliases) lookups.push(shortName + sa);
         this._addEntry(entry, lookups);
       }
     }

@@ -27,7 +27,7 @@ test('use: deeper path', () => {
 
 test('dimension: base (no =)', () => {
   const m = parseSrc('dimension Length');
-  assert.deepEqual(m.decls[0], { type: 'DimensionDecl', name: 'Length', expr: null, decorators: [] });
+  assert.deepEqual(m.decls[0], { type: 'DimensionDecl', name: 'Length', exprs: [], decorators: [] });
 });
 
 test('dimension: derived from arithmetic', () => {
@@ -35,25 +35,36 @@ test('dimension: derived from arithmetic', () => {
   const d = m.decls[0];
   assert.equal(d.type, 'DimensionDecl');
   assert.equal(d.name, 'Velocity');
-  assert.deepEqual(d.expr, {
-    type: 'Binary', op: '/',
-    left:  { type: 'Ident', name: 'Length', span: d.expr.left.span },
-    right: { type: 'Ident', name: 'Time',   span: d.expr.right.span },
-  });
+  assert.equal(d.exprs.length, 1);
+  const e = d.exprs[0];
+  assert.equal(e.type, 'Binary');
+  assert.equal(e.op, '/');
+  assert.equal(e.left.name, 'Length');
+  assert.equal(e.right.name, 'Time');
 });
 
 test('dimension: Angle = 1 (scalar dimension)', () => {
   const m = parseSrc('dimension Angle = 1');
-  assert.deepEqual(m.decls[0].expr, { type: 'Num', value: 1, raw: '1' });
+  assert.deepEqual(m.decls[0].exprs[0], { type: 'Num', value: 1, raw: '1' });
 });
 
 test('dimension: exponent', () => {
   const m = parseSrc('dimension Area = Length^2');
-  const e = m.decls[0].expr;
+  const e = m.decls[0].exprs[0];
   assert.equal(e.type, 'Binary');
   assert.equal(e.op, '^');
   assert.equal(e.left.name, 'Length');
   assert.equal(e.right.value, 2);
+});
+
+test('dimension: multi-= alternate definitions parsed', () => {
+  const m = parseSrc('dimension Force = Mass * Acceleration = Momentum / Time');
+  const d = m.decls[0];
+  assert.equal(d.exprs.length, 2);
+  // first: Mass * Acceleration
+  assert.equal(d.exprs[0].op, '*');
+  // second: Momentum / Time
+  assert.equal(d.exprs[1].op, '/');
 });
 
 // ── unit declarations ─────────────────────────────────────────────

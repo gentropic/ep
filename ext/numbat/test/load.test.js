@@ -17,7 +17,7 @@ const buildEnv = () => {
   return makeEnv({ dims, units, values });
 };
 
-const dimExpr = (src, env) => evalDimExpr(parse(tokenize(`dimension Tmp = ${src}`)).decls[0].expr, env);
+const dimExpr = (src, env) => evalDimExpr(parse(tokenize(`dimension Tmp = ${src}`)).decls[0].exprs[0], env);
 const valueExpr = (src, env) => evalValueExpr(parse(tokenize(`let tmp = ${src}`)).decls[0].expr, env);
 
 // ── evalDimExpr ──────────────────────────────────────────────────
@@ -124,6 +124,32 @@ test('load: derived dimension', () => {
     dimension Velocity = Length / Time
   `)), env);
   assert.deepEqual(env.dims.resolve('Velocity'), { length: 1, time: -1 });
+});
+
+test('load: dimension with multi-= alternate definitions verifies equivalence', () => {
+  const env = buildEnv();
+  loadModule(parse(tokenize(`
+    dimension Length
+    dimension Time
+    dimension Mass
+    dimension Velocity = Length / Time
+    dimension Acceleration = Length / Time^2
+    dimension Momentum = Mass * Velocity
+    dimension Force = Mass * Acceleration = Momentum / Time
+  `)), env);
+  assert.deepEqual(env.dims.resolve('Force'), { mass: 1, length: 1, time: -2 });
+});
+
+test('load: dimension multi-= disagreement throws', () => {
+  const env = buildEnv();
+  assert.throws(
+    () => loadModule(parse(tokenize(`
+      dimension Length
+      dimension Time
+      dimension Bad = Length = Time
+    `)), env),
+    /alternate definition .* disagrees/,
+  );
 });
 
 test('load: dimension Angle = 1 → empty dim', () => {

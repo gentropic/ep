@@ -60,7 +60,7 @@ test('non-prefixed unit registers exactly one entry', () => {
   assert.equal(r.resolve('kilotonne'), null);  // no auto-prefix
 });
 
-test('aliases (long) and shortAliases (prefixable) handled separately', () => {
+test('aliases (long) and shortAliases (short) both get prefixed', () => {
   const r = new UnitRegistry();
   // Mimics upstream's @aliases(metres, meter, meters, m: short)
   r.define('metre', {
@@ -69,16 +69,22 @@ test('aliases (long) and shortAliases (prefixable) handled separately', () => {
     shortAliases: ['m'],
     prefixSet: 'metric',
   });
-  // All long aliases resolve to the base (no prefix attached)
+  // Base names (canonical + all aliases) at mul=1
   assert.equal(r.resolve('metre').mul, 1);
   assert.equal(r.resolve('metres').mul, 1);
   assert.equal(r.resolve('meter').mul, 1);
   assert.equal(r.resolve('meters').mul, 1);
-  // Short alias gets prefixed
+  assert.equal(r.resolve('m').mul, 1);
+  // Long prefix + canonical
+  assert.equal(r.resolve('kilometre').mul, 1e3);
+  // Long prefix + long aliases (US-spelling support)
+  assert.equal(r.resolve('kilometer').mul,  1e3);
+  assert.equal(r.resolve('kilometers').mul, 1e3);
+  assert.equal(r.resolve('decimeter').mul,  1e-1);
+  assert.equal(r.resolve('centimetre').mul, 1e-2);
+  // Short prefix + short alias
   assert.equal(r.resolve('km').mul, 1e3);
-  // Long aliases do NOT get prefixed (no `kmeter` or `kmetres`)
-  assert.equal(r.resolve('kmeter'), null);
-  assert.equal(r.resolve('kmetres'), null);
+  assert.equal(r.resolve('dm').mul, 1e-1);
 });
 
 test('first-come-first-served on alias conflicts', () => {

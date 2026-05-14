@@ -8,15 +8,25 @@ import { DimRegistry } from './dimensions.js';
 import { loadPrelude } from './prelude.js';
 import { format, formatParts } from './format.js';
 import { loadSource, makeEnv } from './load.js';
+import { VENDORED_MODULES } from './vendored.js';
 
 export class Numbat {
-  constructor() {
+  // opts:
+  //   prelude: 'v0.1' (default) — hand-crafted JS prelude, ep-compatible
+  //            'vendored'        — load upstream .nbt prelude (units::si + units::partsperx)
+  //            'none'            — no prelude; caller registers/loads modules itself
+  constructor(opts = {}) {
     this.registry = new UnitRegistry();
     this.dims     = new DimRegistry();
     this.values   = new Map();          // let bindings
     this.modules  = new Map();          // path → source text (registered .nbt)
     this.loaded   = new Set();          // paths already loaded (idempotent)
-    loadPrelude(this.registry);
+
+    const prelude = opts.prelude ?? 'v0.1';
+    if (prelude === 'v0.1')          loadPrelude(this.registry);
+    else if (prelude === 'vendored') this.loadVendoredPrelude();
+    else if (prelude === 'none')     { /* caller takes over */ }
+    else throw new Error(`unknown prelude option: ${prelude}`);
   }
 
   // Construct a Quantity from a value + unit name. With no unit, returns a
@@ -78,5 +88,17 @@ export class Numbat {
       resolveUse: (path) => this.use(path.join('::')),
     });
     loadSource(text, sourceName, env);
+  }
+
+  // Register every vendored .nbt module bundled at build time, then load
+  // the SI and partsperx modules (which transitively pull in core::dimensions,
+  // core::scalar, and math::constants). Provides a Numbat-compatible
+  // standard-library subset without a hand-crafted JS prelude.
+  loadVendoredPrelude() {
+    for (const [path, source] of Object.entries(VENDORED_MODULES)) {
+      this.registerModule(path, source);
+    }
+    this.use('units::si');
+    this.use('units::partsperx');
   }
 }
