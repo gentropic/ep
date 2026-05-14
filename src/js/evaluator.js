@@ -4,7 +4,7 @@
 // reconcile into a UI state object (state.js does that).
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { tokenize, parseExpr } from './parser.js';
+import { epTokenize as tokenize, epParseExpr as parseExpr } from './parser.js';
 
 export function classify(src) {
   const t = src.trim();

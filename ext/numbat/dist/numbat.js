@@ -326,6 +326,667 @@ function formatNumber(n) {
   return s;
 }
 
+// ─── tokenize.js ───────────────────────────────────────
+// Tokenizer for Numbat-script.
+//
+// Emits a flat array of tokens with span info (line/col/offset) for error
+// reporting. Keywords are split out from identifiers. Comments (`#` to EOL)
+// are skipped. Unicode letters and a handful of symbol identifiers (`%`,
+// `‰`, etc.) are accepted in identifier positions so upstream module aliases
+// like `@aliases(%: short)` and Greek-letter constants tokenize cleanly.
+//
+// Numbers support digit separators (`1_800`) and scientific notation
+// (`1.5e-3`). Number-and-unit adjacency (e.g. `5 m`) is NOT collapsed here —
+// the parser treats adjacency as implicit multiplication.
+
+const KEYWORDS = new Set([
+  'dimension', 'unit', 'let', 'fn', 'use',
+  'if', 'then', 'else', 'where', 'and', 'or', 'not',
+  'struct', 'mod', 'to',
+  'true', 'false',
+]);
+
+// Multi-character operators, sorted longest-first so the tokenizer prefers
+// the longer match (`::` before `:`, `->` before `-`).
+const MULTI_OPS = ['->', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
+
+// Single-character operators / punctuation.
+const SINGLE_OPS = '+-*/^=(){}[],:.<>!';
+
+const UNICODE_OP_ALIAS = {
+  '→': '->',
+  '×': '*',
+  '÷': '/',
+  '−': '-',
+  '·': '*',
+  '²': '^2',   // handled specially below — emits OP^ then NUM 2
+  '³': '^3',
+  'π': null,   // identifier, not operator
+};
+
+// Identifier-start: ASCII letter, underscore, `%`, or any non-ASCII codepoint.
+// This makes Greek letters and symbol-style aliases (`%`, `‰`, `°`) tokenizable
+// without lookup tables. The parser/loader decides which are valid in context.
+const isIdentStart = (c) =>
+  (c >= 'a' && c <= 'z') ||
+  (c >= 'A' && c <= 'Z') ||
+  c === '_' ||
+  c === '%' ||
+  c.charCodeAt(0) >= 0x80;
+
+const isIdentCont = (c) =>
+  // ² and ³ are unicode exponent shorthands handled by the special-case branch
+  // below; they must NOT extend an identifier (so `m²` tokenizes as `m`, `^`,
+  // `2` rather than as a single weird identifier `m²`).
+  c !== '²' && c !== '³' &&
+  (isIdentStart(c) || (c >= '0' && c <= '9'));
+
+function tokenize(source, sourceName = '<input>') {
+  const toks = [];
+  let i = 0, line = 1, col = 1;
+
+  const advance = (n = 1) => {
+    for (let k = 0; k < n; k++) {
+      if (source[i + k] === '\n') { line++; col = 1; }
+      else col++;
+    }
+    i += n;
+  };
+
+  const here = () => ({ line, col, offset: i, source: sourceName });
+
+  const emit = (type, fields, start) => {
+    toks.push({ type, ...fields, span: { ...start, end: i } });
+  };
+
+  while (i < source.length) {
+    const start = here();
+    const c = source[i];
+
+    // Whitespace
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { advance(); continue; }
+
+    // Comments: # to end of line. Numbat uses `###` for section headers but
+    // those are still just comments.
+    if (c === '#') {
+      while (i < source.length && source[i] !== '\n') advance();
+      continue;
+    }
+
+    // Decorator: @identifier
+    if (c === '@') {
+      advance();
+      const nameStart = i;
+      while (i < source.length && isIdentCont(source[i])) advance();
+      const name = source.slice(nameStart, i);
+      if (!name) throw new Error(`${sourceName}:${start.line}:${start.col}: expected identifier after '@'`);
+      emit('dec', { name }, start);
+      continue;
+    }
+
+    // String literal
+    if (c === '"') {
+      advance();
+      let value = '';
+      while (i < source.length && source[i] !== '"') {
+        if (source[i] === '\\' && i + 1 < source.length) {
+          const esc = source[i + 1];
+          value += esc === 'n' ? '\n'
+                : esc === 't' ? '\t'
+                : esc === 'r' ? '\r'
+                : esc;
+          advance(2);
+        } else {
+          value += source[i];
+          advance();
+        }
+      }
+      if (i >= source.length) throw new Error(`${sourceName}:${start.line}:${start.col}: unterminated string`);
+      advance();  // consume closing quote
+      emit('str', { value }, start);
+      continue;
+    }
+
+    // Number literal
+    if ((c >= '0' && c <= '9') || (c === '.' && source[i + 1] >= '0' && source[i + 1] <= '9')) {
+      const numStart = i;
+      let dot = false, eExp = false;
+      while (i < source.length) {
+        const ch = source[i];
+        if (ch >= '0' && ch <= '9') advance();
+        else if (ch === '_' && source[i + 1] >= '0' && source[i + 1] <= '9') advance();
+        else if (ch === '.' && !dot && !eExp) { dot = true; advance(); }
+        else if ((ch === 'e' || ch === 'E') && !eExp) {
+          eExp = true; advance();
+          if (source[i] === '+' || source[i] === '-') advance();
+        } else break;
+      }
+      const raw = source.slice(numStart, i);
+      const value = parseFloat(raw.replace(/_/g, ''));
+      emit('num', { value, raw }, start);
+      continue;
+    }
+
+    // Unicode exponents: ² → "^2", ³ → "^3"
+    if (c === '²' || c === '³') {
+      advance();
+      emit('op', { op: '^' }, start);
+      const numStart = here();
+      emit('num', { value: c === '²' ? 2 : 3, raw: c }, numStart);
+      continue;
+    }
+
+    // Multi-character operators
+    let matched = false;
+    for (const op of MULTI_OPS) {
+      if (source.startsWith(op, i)) {
+        advance(op.length);
+        emit('op', { op }, start);
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    // Unicode operator aliases (single-char)
+    if (UNICODE_OP_ALIAS[c] && UNICODE_OP_ALIAS[c] !== null) {
+      const op = UNICODE_OP_ALIAS[c];
+      advance();
+      emit('op', { op }, start);
+      continue;
+    }
+
+    // Identifier or keyword (must come AFTER unicode-op-alias check so π isn't
+    // an op alias, but it IS an identifier — UNICODE_OP_ALIAS['π'] is null so
+    // we fall through here).
+    if (isIdentStart(c)) {
+      const idStart = i;
+      while (i < source.length && isIdentCont(source[i])) advance();
+      const name = source.slice(idStart, i);
+      emit(KEYWORDS.has(name) ? 'kw' : 'id', { name }, start);
+      continue;
+    }
+
+    // Single-character operators
+    if (SINGLE_OPS.includes(c)) {
+      advance();
+      emit('op', { op: c }, start);
+      continue;
+    }
+
+    throw new Error(`${sourceName}:${start.line}:${start.col}: unexpected character ${JSON.stringify(c)}`);
+  }
+
+  return toks;
+}
+
+// ─── parse.js ──────────────────────────────────────────
+// Parser for Numbat-script.
+//
+// Consumes the token stream from tokenize.js and produces an AST. v0.2 covers
+// the *declarative* subset that upstream .nbt files use:
+//
+//   - `use path::path`
+//   - `dimension Name` / `dimension Name = expr`
+//   - `unit name[: DimExpr] [= ValueExpr]`
+//   - `let name[: DimExpr] = ValueExpr`
+//   - leading decorators on each declaration (@name, @url, @aliases,
+//     @metric_prefixes, @description, @example, ...)
+//
+// Expression grammar (lowest to highest precedence):
+//   conversion: addExpr ('->' addExpr)*               # `to` is a synonym
+//   addExpr:    mulExpr (('+' | '-') mulExpr)*
+//   mulExpr:    implMul (('*' | '/') implMul)*
+//   implMul:    power (power)*                        # implicit multiplication
+//   power:      unary ('^' power)?                    # right-associative
+//   unary:      '-' unary | primary
+//   primary:    NUM | IDENT | '(' expr ')'
+//
+// AST nodes:
+//   { type: 'Module', decls: [...] }
+//   { type: 'UseStmt', path: ['core', 'dimensions'], decorators: [...] }
+//   { type: 'DimensionDecl', name, expr|null, decorators }
+//   { type: 'UnitDecl', name, dim|null, expr|null, decorators }
+//   { type: 'LetDecl', name, dim|null, expr, decorators }
+//   { type: 'Decorator', name, args: [...] }
+//   { type: 'StrArg', value }
+//   { type: 'NameArg', name, modifier|null }
+//   { type: 'Num', value, raw }
+//   { type: 'Ident', name }
+//   { type: 'Binary', op, left, right }
+//   { type: 'Unary', op, expr }
+//   { type: 'Paren', expr }
+//
+// Statements other than the listed four (e.g., `fn`, `struct`, expression
+// statements at top level) are rejected with a clear error in v0.2 — they
+// arrive in v0.3+.
+
+function parse(tokens, sourceName = '<input>') {
+  let p = 0;
+
+  const peek = (offset = 0) => tokens[p + offset];
+  const eat  = () => tokens[p++];
+  const atOp = (op)   => peek() && peek().type === 'op' && peek().op === op;
+  const atKw = (name) => peek() && peek().type === 'kw' && peek().name === name;
+  const atType = (type) => peek() && peek().type === type;
+
+  const err = (tok, msg) => {
+    const span = tok?.span;
+    const loc = span ? `${span.source ?? sourceName}:${span.line}:${span.col}` : `${sourceName}:?:?`;
+    return new Error(`${loc}: ${msg}`);
+  };
+  const expectOp = (op) => {
+    if (!atOp(op)) throw err(peek(), `expected '${op}'`);
+    return eat();
+  };
+  const expectType = (type, what = type) => {
+    if (!atType(type)) {
+      const t = peek();
+      const got = t ? `${t.type}${t.name ? ` '${t.name}'` : t.op ? ` '${t.op}'` : ''}` : 'end of input';
+      throw err(t, `expected ${what}, got ${got}`);
+    }
+    return eat();
+  };
+
+  // ── declarations ────────────────────────────────────────────────
+
+  const decls = [];
+  while (p < tokens.length) {
+    decls.push(parseDecl());
+  }
+  return { type: 'Module', decls, source: sourceName };
+
+  function parseDecl() {
+    const decorators = [];
+    while (atType('dec')) decorators.push(parseDecorator());
+
+    const t = peek();
+    if (!t) throw err(null, 'unexpected end of input after decorators');
+    if (t.type === 'kw') {
+      switch (t.name) {
+        case 'use':       return parseUse(decorators);
+        case 'dimension': return parseDimension(decorators);
+        case 'unit':      return parseUnit(decorators);
+        case 'let':       return parseLet(decorators);
+        default:
+          throw err(t, `unsupported keyword '${t.name}' at top level (v0.2 handles: use, dimension, unit, let)`);
+      }
+    }
+    throw err(t, `expected a declaration keyword (use / dimension / unit / let)`);
+  }
+
+  function parseDecorator() {
+    const dec = eat();  // type 'dec'
+    const args = [];
+    if (atOp('(')) {
+      eat();
+      if (!atOp(')')) {
+        args.push(parseDecoratorArg());
+        while (atOp(',')) { eat(); args.push(parseDecoratorArg()); }
+      }
+      expectOp(')');
+    }
+    return { type: 'Decorator', name: dec.name, args, span: dec.span };
+  }
+
+  function parseDecoratorArg() {
+    const t = peek();
+    if (!t) throw err(null, 'unexpected end of input in decorator arg');
+    if (t.type === 'str') {
+      eat();
+      return { type: 'StrArg', value: t.value };
+    }
+    if (t.type === 'id' || t.type === 'kw') {
+      // Allow keywords as decorator-arg names too — they're string-ish here.
+      eat();
+      let modifier = null;
+      if (atOp(':')) {
+        eat();
+        const m = expectType('id', "modifier (short/long/none)");
+        modifier = m.name;
+      }
+      return { type: 'NameArg', name: t.name, modifier };
+    }
+    throw err(t, `expected string or identifier in decorator arg, got ${t.type}`);
+  }
+
+  function parseUse(decorators) {
+    eat();  // 'use'
+    const parts = [expectType('id', 'module path segment').name];
+    while (atOp('::')) {
+      eat();
+      parts.push(expectType('id', 'module path segment').name);
+    }
+    return { type: 'UseStmt', path: parts, decorators };
+  }
+
+  function parseDimension(decorators) {
+    eat();  // 'dimension'
+    const nameTok = expectType('id', 'dimension name');
+    let expr = null;
+    if (atOp('=')) { eat(); expr = parseExpr(); }
+    return { type: 'DimensionDecl', name: nameTok.name, expr, decorators };
+  }
+
+  function parseUnit(decorators) {
+    eat();  // 'unit'
+    const nameTok = expectType('id', 'unit name');
+    let dim = null, expr = null;
+    if (atOp(':')) { eat(); dim = parseExpr(); }
+    if (atOp('=')) { eat(); expr = parseExpr(); }
+    return { type: 'UnitDecl', name: nameTok.name, dim, expr, decorators };
+  }
+
+  function parseLet(decorators) {
+    eat();  // 'let'
+    const nameTok = expectType('id', 'binding name');
+    let dim = null;
+    if (atOp(':')) { eat(); dim = parseExpr(); }
+    expectOp('=');
+    const expr = parseExpr();
+    return { type: 'LetDecl', name: nameTok.name, dim, expr, decorators };
+  }
+
+  // ── expressions ─────────────────────────────────────────────────
+
+  function parseExpr() { return parseConversion(); }
+
+  function parseConversion() {
+    let l = parseAddExpr();
+    while (atOp('->') || atKw('to')) {
+      eat();
+      const right = parseAddExpr();
+      l = { type: 'Binary', op: '->', left: l, right };
+    }
+    return l;
+  }
+
+  function parseAddExpr() {
+    let l = parseMulExpr();
+    while (atOp('+') || atOp('-')) {
+      const op = eat().op;
+      l = { type: 'Binary', op, left: l, right: parseMulExpr() };
+    }
+    return l;
+  }
+
+  function parseMulExpr() {
+    let l = parseImplMul();
+    while (atOp('*') || atOp('/')) {
+      const op = eat().op;
+      l = { type: 'Binary', op, left: l, right: parseImplMul() };
+    }
+    return l;
+  }
+
+  function parseImplMul() {
+    let l = parsePower();
+    while (isExprStart(peek())) {
+      l = { type: 'Binary', op: '*', left: l, right: parsePower() };
+    }
+    return l;
+  }
+
+  function parsePower() {
+    const base = parseUnary();
+    if (atOp('^') || atOp('**')) {
+      eat();
+      const exp = parsePower();  // right-associative
+      return { type: 'Binary', op: '^', left: base, right: exp };
+    }
+    return base;
+  }
+
+  function parseUnary() {
+    if (atOp('-')) {
+      eat();
+      return { type: 'Unary', op: '-', expr: parseUnary() };
+    }
+    return parsePrimary();
+  }
+
+  function parsePrimary() {
+    const t = peek();
+    if (!t) throw err(null, 'unexpected end of input in expression');
+    if (t.type === 'num') { eat(); return { type: 'Num', value: t.value, raw: t.raw }; }
+    if (t.type === 'id')  { eat(); return { type: 'Ident', name: t.name, span: t.span }; }
+    if (t.type === 'op' && t.op === '(') {
+      eat();
+      const inner = parseExpr();
+      expectOp(')');
+      return { type: 'Paren', expr: inner };
+    }
+    throw err(t, `unexpected token in expression: ${t.type}${t.op ? ` '${t.op}'` : ''}${t.name ? ` '${t.name}'` : ''}`);
+  }
+
+  function isExprStart(t) {
+    if (!t) return false;
+    if (t.type === 'num' || t.type === 'id') return true;
+    if (t.type === 'op' && t.op === '(') return true;
+    return false;
+  }
+}
+
+// ─── load.js ───────────────────────────────────────────
+// Loader for parsed Numbat-script modules.
+//
+// Walks the AST produced by parse.js, evaluates dimension/value expressions,
+// applies decorators, and registers the results in a Numbat environment
+// (DimRegistry + UnitRegistry + a Map of let-binding values).
+//
+// Two interpreters share the AST:
+//   evalDimExpr(node, env)   → dim vector  (for `dimension X = expr` RHS)
+//   evalValueExpr(node, env) → Quantity    (for `unit X = expr` and `let` RHS)
+//
+// The env object passed in carries:
+//   dims:         DimRegistry
+//   units:        UnitRegistry
+//   values:       Map<string, Quantity>          (let bindings only)
+//   lookupValue:  (name) => Quantity | null      (lets first, then units)
+//   resolveUse:   (path: string[]) => void        (recursive module loading)
+//
+// v0.2 covers the declarative subset only — `fn`, `if`, structs, `->`
+// in value expressions all error with a clear message.
+
+// ── expression evaluators ────────────────────────────────────────
+
+function evalDimExpr(node, env) {
+  if (node.type === 'Num') {
+    if (node.value === 1) return {};
+    throw new Error(`dimension expression: numbers other than 1 not allowed (got ${node.value})`);
+  }
+  if (node.type === 'Ident') {
+    if (!env.dims.has(node.name)) throw new Error(`unknown dimension: ${node.name}`);
+    return env.dims.resolve(node.name);
+  }
+  if (node.type === 'Paren') return evalDimExpr(node.expr, env);
+  if (node.type === 'Binary') {
+    if (node.op === '^') {
+      const base = evalDimExpr(node.left, env);
+      if (node.right.type !== 'Num') {
+        throw new Error('dimension exponent must be a literal number');
+      }
+      return dimPow(base, node.right.value);
+    }
+    const l = evalDimExpr(node.left, env);
+    const r = evalDimExpr(node.right, env);
+    if (node.op === '*') return dimMul(l, r);
+    if (node.op === '/') return dimDiv(l, r);
+    throw new Error(`operator '${node.op}' not allowed in dimension expression`);
+  }
+  throw new Error(`unexpected node ${node.type} in dimension expression`);
+}
+
+function evalValueExpr(node, env) {
+  if (node.type === 'Num') return new Quantity(node.value, {});
+  if (node.type === 'Ident') {
+    const q = env.lookupValue(node.name);
+    if (!q) throw new Error(`unknown identifier: ${node.name}`);
+    return q;
+  }
+  if (node.type === 'Paren') return evalValueExpr(node.expr, env);
+  if (node.type === 'Unary' && node.op === '-') {
+    return evalValueExpr(node.expr, env).neg();
+  }
+  if (node.type === 'Binary') {
+    if (node.op === '->') {
+      throw new Error('-> conversion in value expressions not supported in v0.2');
+    }
+    if (node.op === '^') {
+      const base = evalValueExpr(node.left, env);
+      const exp = evalValueExpr(node.right, env);
+      if (!dimEmpty(exp.dim)) throw new Error('exponent must be dimensionless');
+      return base.pow(exp.value);
+    }
+    const l = evalValueExpr(node.left, env);
+    const r = evalValueExpr(node.right, env);
+    if (node.op === '+') return l.add(r);
+    if (node.op === '-') return l.sub(r);
+    if (node.op === '*') return l.mul(r);
+    if (node.op === '/') return l.div(r);
+    throw new Error(`operator '${node.op}' not supported in value expression`);
+  }
+  throw new Error(`unexpected node ${node.type} in value expression`);
+}
+
+// ── decorator extraction ─────────────────────────────────────────
+
+function decoratorInfo(decorators) {
+  const info = {
+    aliases: [],          // long-form alternate names
+    shortAliases: [],     // short-form (prefix-eligible) alternates
+    metricPrefixes: false,
+    displayName: null,    // from @name(...)
+    url: null,            // from @url(...) — stored but unused at runtime
+  };
+  for (const d of decorators) {
+    switch (d.name) {
+      case 'aliases':
+        for (const arg of d.args) {
+          if (arg.type !== 'NameArg') continue;
+          if (arg.modifier === 'short') info.shortAliases.push(arg.name);
+          else                          info.aliases.push(arg.name);
+        }
+        break;
+      case 'metric_prefixes':
+        info.metricPrefixes = true;
+        break;
+      case 'name': {
+        const a = d.args[0];
+        if (a?.type === 'StrArg') info.displayName = a.value;
+        break;
+      }
+      case 'url': {
+        const a = d.args[0];
+        if (a?.type === 'StrArg') info.url = a.value;
+        break;
+      }
+      // Other decorators (@description, @example, @elide, ...) silently ignored
+      // — they're metadata that doesn't affect registration.
+    }
+  }
+  return info;
+}
+
+// ── module loader ────────────────────────────────────────────────
+
+function loadModule(ast, env) {
+  for (const decl of ast.decls) {
+    try {
+      switch (decl.type) {
+        case 'UseStmt':       env.resolveUse(decl.path); break;
+        case 'DimensionDecl': loadDimensionDecl(decl, env); break;
+        case 'UnitDecl':      loadUnitDecl(decl, env); break;
+        case 'LetDecl':       loadLetDecl(decl, env); break;
+        default:
+          throw new Error(`unsupported declaration: ${decl.type}`);
+      }
+    } catch (e) {
+      const where = `${ast.source ?? '<module>'}: ${decl.name ?? decl.type}`;
+      throw new Error(`${where}: ${e.message}`);
+    }
+  }
+}
+
+function loadDimensionDecl(decl, env) {
+  if (decl.expr === null) {
+    env.dims.defineBase(decl.name);
+  } else {
+    const dim = evalDimExpr(decl.expr, env);
+    env.dims.defineDerived(decl.name, dim);
+  }
+}
+
+function loadUnitDecl(decl, env) {
+  const meta = decoratorInfo(decl.decorators);
+  let dim, mul;
+
+  if (decl.expr === null) {
+    if (decl.dim === null) {
+      throw new Error(`base unit '${decl.name}' requires a dimension annotation`);
+    }
+    dim = evalDimExpr(decl.dim, env);
+    mul = 1;
+  } else {
+    const q = evalValueExpr(decl.expr, env);
+    mul = q.value;
+    if (decl.dim !== null) {
+      const expected = evalDimExpr(decl.dim, env);
+      if (!dimEq(expected, q.dim)) {
+        throw new Error(`dimension mismatch: annotated does not match value expression`);
+      }
+      dim = expected;
+    } else {
+      dim = q.dim;
+    }
+  }
+
+  env.units.define(decl.name, {
+    dim,
+    mul,
+    aliases: meta.aliases,
+    shortAliases: meta.shortAliases,
+    displayName: meta.shortAliases[0] ?? decl.name,
+    prefixSet: meta.metricPrefixes ? 'metric' : null,
+  });
+}
+
+function loadLetDecl(decl, env) {
+  const q = evalValueExpr(decl.expr, env);
+  if (decl.dim !== null) {
+    const expected = evalDimExpr(decl.dim, env);
+    if (!dimEq(expected, q.dim)) {
+      throw new Error(`let '${decl.name}': annotated dimension does not match value expression`);
+    }
+  }
+  env.values.set(decl.name, q);
+}
+
+// ── convenience: tokenize + parse + load in one call ─────────────
+
+function loadSource(text, sourceName, env) {
+  const tokens = tokenize(text, sourceName);
+  const ast = parse(tokens, sourceName);
+  loadModule(ast, env);
+}
+
+// Build the env object used by the loader. Hosts that want to use the
+// loader directly (without going through the Numbat class) call this.
+function makeEnv({ dims, units, values, resolveUse }) {
+  return {
+    dims,
+    units,
+    values,
+    lookupValue: (name) => {
+      if (values.has(name)) return values.get(name);
+      const u = units.resolve(name);
+      if (u) return new Quantity(u.mul, u.dim);
+      return null;
+    },
+    resolveUse: resolveUse ?? (() => {}),
+  };
+}
+
 // ─── prelude.js ────────────────────────────────────────
 // Hand-crafted v0.1 prelude. Covers what ep currently uses (geological lane:
 // SI base + key derived + density + ppm/ppb/g/t). Replaced in v0.2 by .nbt
@@ -386,6 +1047,10 @@ function loadPrelude(registry) {
 class Numbat {
   constructor() {
     this.registry = new UnitRegistry();
+    this.dims     = new DimRegistry();
+    this.values   = new Map();          // let bindings
+    this.modules  = new Map();          // path → source text (registered .nbt)
+    this.loaded   = new Set();          // paths already loaded (idempotent)
     loadPrelude(this.registry);
   }
 
@@ -418,5 +1083,36 @@ class Numbat {
   formatParts(q) {
     return formatParts(q, this.registry);
   }
+
+  // ── .nbt module loading (v0.2) ───────────────────────────────
+
+  // Register a module's source text under its upstream path
+  // (e.g. 'core::dimensions'). No parsing happens until use() is called.
+  registerModule(path, source) {
+    this.modules.set(path, source);
+  }
+
+  // Load a registered module by path. Idempotent (loading the same path
+  // twice is a no-op). Recursive: `use` statements inside the module
+  // trigger nested loads.
+  use(path) {
+    if (this.loaded.has(path)) return;
+    this.loaded.add(path);
+    const source = this.modules.get(path);
+    if (source === undefined) throw new Error(`module not registered: ${path}`);
+    this.loadSource(source, path);
+  }
+
+  // Tokenize, parse, and load a Numbat-script source. Doesn't add to the
+  // module map; useful for ad-hoc input.
+  loadSource(text, sourceName = '<inline>') {
+    const env = makeEnv({
+      dims: this.dims,
+      units: this.registry,
+      values: this.values,
+      resolveUse: (path) => this.use(path.join('::')),
+    });
+    loadSource(text, sourceName, env);
+  }
 }
-export { Numbat, Quantity, UnitRegistry, DimRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber };
+export { Numbat, Quantity, UnitRegistry, DimRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber, tokenize, parse, loadSource, loadModule, makeEnv, evalDimExpr, evalValueExpr };

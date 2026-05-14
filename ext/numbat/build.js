@@ -16,6 +16,9 @@ const SRC_FILES = [
   'quantity.js',
   'units.js',
   'format.js',
+  'tokenize.js',
+  'parse.js',
+  'load.js',
   'prelude.js',
   'api.js',
 ];
@@ -27,6 +30,10 @@ const PUBLIC_API = [
   'dimEq', 'dimMul', 'dimDiv', 'dimPow', 'dimInv', 'dimEmpty', 'dimFormat',
   // Number formatter — exposed so hosts can format raw numbers consistently.
   'formatNumber',
+  // Parser/loader pieces (v0.2) — useful for hosts that want to embed Numbat
+  // source loading without going through the Numbat class.
+  'tokenize', 'parse', 'loadSource', 'loadModule', 'makeEnv',
+  'evalDimExpr', 'evalValueExpr',
 ];
 
 function topLevelNames(strippedSrc) {

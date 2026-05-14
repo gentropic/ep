@@ -3,7 +3,7 @@
 
 import { Q, UNITS, lit, qAdd, qSub, qMul, qDiv, qPow, qConvert, dEmpty } from './units.js';
 
-export function tokenize(s) {
+export function epTokenize(s) {
   const ci1 = s.indexOf('--'), ci2 = s.indexOf('#');
   let cut = Infinity;
   if (ci1 >= 0) cut = Math.min(cut, ci1);
@@ -77,7 +77,7 @@ export function tokenize(s) {
   return out;
 }
 
-export function parseExpr(toks, scope) {
+export function epParseExpr(toks, scope) {
   let p = 0;
   const peek = () => toks[p];
   const eat  = () => toks[p++];

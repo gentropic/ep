@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, parseExpr, applyFn } from '../src/js/parser.js';
+import { epTokenize as tokenize, epParseExpr as parseExpr, applyFn } from '../src/js/parser.js';
 import { Q, lit } from '../src/js/units.js';
 
 const tokTypes = toks => toks.map(t => t.type);

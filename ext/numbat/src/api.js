@@ -4,12 +4,18 @@
 
 import { Quantity } from './quantity.js';
 import { UnitRegistry } from './units.js';
+import { DimRegistry } from './dimensions.js';
 import { loadPrelude } from './prelude.js';
 import { format, formatParts } from './format.js';
+import { loadSource, makeEnv } from './load.js';
 
 export class Numbat {
   constructor() {
     this.registry = new UnitRegistry();
+    this.dims     = new DimRegistry();
+    this.values   = new Map();          // let bindings
+    this.modules  = new Map();          // path → source text (registered .nbt)
+    this.loaded   = new Set();          // paths already loaded (idempotent)
     loadPrelude(this.registry);
   }
 
@@ -41,5 +47,36 @@ export class Numbat {
 
   formatParts(q) {
     return formatParts(q, this.registry);
+  }
+
+  // ── .nbt module loading (v0.2) ───────────────────────────────
+
+  // Register a module's source text under its upstream path
+  // (e.g. 'core::dimensions'). No parsing happens until use() is called.
+  registerModule(path, source) {
+    this.modules.set(path, source);
+  }
+
+  // Load a registered module by path. Idempotent (loading the same path
+  // twice is a no-op). Recursive: `use` statements inside the module
+  // trigger nested loads.
+  use(path) {
+    if (this.loaded.has(path)) return;
+    this.loaded.add(path);
+    const source = this.modules.get(path);
+    if (source === undefined) throw new Error(`module not registered: ${path}`);
+    this.loadSource(source, path);
+  }
+
+  // Tokenize, parse, and load a Numbat-script source. Doesn't add to the
+  // module map; useful for ad-hoc input.
+  loadSource(text, sourceName = '<inline>') {
+    const env = makeEnv({
+      dims: this.dims,
+      units: this.registry,
+      values: this.values,
+      resolveUse: (path) => this.use(path.join('::')),
+    });
+    loadSource(text, sourceName, env);
   }
 }
