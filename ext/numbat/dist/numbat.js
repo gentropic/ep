@@ -68,6 +68,12 @@ class Quantity {
     this.disp = disp;
   }
 
+  // Deprecated short aliases retained for ep's pre-numbat-js code. New code
+  // should use .value / .dim directly. To be removed once ep finishes migrating
+  // (no fixed deadline — these are zero-cost getters).
+  get v() { return this.value; }
+  get d() { return this.dim; }
+
   add(other) {
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't add [${dimFormat(this.dim)}] + [${dimFormat(other.dim)}]`);
@@ -348,6 +354,11 @@ class Numbat {
     return this.registry.has(name);
   }
 
+  // Look up a unit. Returns {mul, dim, displayName, fullName} or null.
+  resolve(name) {
+    return this.registry.resolve(name);
+  }
+
   convertTo(q, unitName) {
     return q.convertTo(unitName, this.registry);
   }
@@ -360,4 +371,4 @@ class Numbat {
     return formatParts(q, this.registry);
   }
 }
-export { Numbat, Quantity, UnitRegistry };
+export { Numbat, Quantity, UnitRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber };

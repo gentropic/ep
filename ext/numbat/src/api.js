@@ -26,6 +26,11 @@ export class Numbat {
     return this.registry.has(name);
   }
 
+  // Look up a unit. Returns {mul, dim, displayName, fullName} or null.
+  resolve(name) {
+    return this.registry.resolve(name);
+  }
+
   convertTo(q, unitName) {
     return q.convertTo(unitName, this.registry);
   }

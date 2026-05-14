@@ -34,3 +34,7 @@ CLAUDE.md
 # Scratch
 /tmp/
 /scratch/
+
+# Commit-message tempfiles (see workflow note in CLAUDE.md)
+.commit-msg.tmp
+.commit-msg.*

@@ -13,6 +13,12 @@ export class Quantity {
     this.disp = disp;
   }
 
+  // Deprecated short aliases retained for ep's pre-numbat-js code. New code
+  // should use .value / .dim directly. To be removed once ep finishes migrating
+  // (no fixed deadline — these are zero-cost getters).
+  get v() { return this.value; }
+  get d() { return this.dim; }
+
   add(other) {
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't add [${dimFormat(this.dim)}] + [${dimFormat(other.dim)}]`);

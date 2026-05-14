@@ -714,144 +714,275 @@ const INITIAL_STATE = {
 
 'use strict';
 
-// ─── units.js ────────────────────────────────────────────────────
-// Units, dimensions, the Q quantity primitive, and formatting.
-// Eventually replaced by ext/numbat/ when that lands.
+// ─── (vendor) ext/numbat/dist/numbat.js ─────────────────────────
+// numbat-js v0.1 — built artifact, do not edit by hand.
+// Source: ext/numbat/src/. Rebuild with `node ext/numbat/build.js`.
 
-const UNITS = {
-  mg:  {mul: 1e-3,  dim: {mass: 1}},
-  g:   {mul: 1,     dim: {mass: 1}},
-  kg:  {mul: 1e3,   dim: {mass: 1}},
-  t:   {mul: 1e6,   dim: {mass: 1}},
-  kt:  {mul: 1e9,   dim: {mass: 1}},
-  Mt:  {mul: 1e12,  dim: {mass: 1}},
-  oz:  {mul: 28.3495,dim: {mass: 1}},
-  ozt: {mul: 31.1035,dim: {mass: 1}},
-  mm:  {mul: 1e-3,  dim: {length: 1}},
-  cm:  {mul: 1e-2,  dim: {length: 1}},
-  m:   {mul: 1,     dim: {length: 1}},
-  km:  {mul: 1e3,   dim: {length: 1}},
-  mm2: {mul: 1e-6,  dim: {length: 2}},
-  cm2: {mul: 1e-4,  dim: {length: 2}},
-  m2:  {mul: 1,     dim: {length: 2}},
-  ha:  {mul: 1e4,   dim: {length: 2}},
-  km2: {mul: 1e6,   dim: {length: 2}},
-  cm3: {mul: 1e-6,  dim: {length: 3}},
-  L:   {mul: 1e-3,  dim: {length: 3}},
-  m3:  {mul: 1,     dim: {length: 3}},
-  km3: {mul: 1e9,   dim: {length: 3}},
-  'g/cm3': {mul: 1e6, dim: {mass: 1, length: -3}},
-  'kg/m3': {mul: 1e3, dim: {mass: 1, length: -3}},
-  't/m3':  {mul: 1e6, dim: {mass: 1, length: -3}},
-  ppm:   {mul: 1e-6, dim: {}},
-  ppb:   {mul: 1e-9, dim: {}},
-  pct:   {mul: 1e-2, dim: {}},
-  'g/t': {mul: 1e-6, dim: {}},
-  deg: {mul: Math.PI/180, dim: {angle: 1}},
-  rad: {mul: 1,           dim: {angle: 1}},
-};
+// ─── dimensions.js ─────────────────────────────────────
+// Dimension primitives.
+//
+// A dimension is a sparse object {baseAxis: integerExponent}. Dimensions form
+// a free abelian group under multiplication (componentwise add); identity is
+// {} (scalar / dimensionless); inverse is negation.
+//
+// Base axis keys are lowercase strings: 'length', 'mass', 'time', 'angle',
+// 'current', 'temperature', 'substance', 'luminous'. v0.2+ lets users define
+// custom base dimensions; v0.1 uses these conventionally.
 
-const UDISP = {
-  mm2:'mm²', cm2:'cm²', m2:'m²', km2:'km²',
-  cm3:'cm³', m3:'m³', km3:'km³',
-  'g/cm3':'g/cm³', 'kg/m3':'kg/m³', 't/m3':'t/m³',
-};
-const disp = n => UDISP[n] || n;
-
-const dEq = (a, b) => {
-  const k = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const x of k) if ((a[x]||0) !== (b[x]||0)) return false;
+const dimEq = (a, b) => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) if ((a[k] || 0) !== (b[k] || 0)) return false;
   return true;
 };
-const dMul = (a, b) => {
-  const r = {};
-  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    const n = (a[k]||0) + (b[k]||0);
-    if (n) r[k] = n;
-  }
-  return r;
-};
-const dDiv = (a, b) => {
-  const r = {};
-  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    const n = (a[k]||0) - (b[k]||0);
-    if (n) r[k] = n;
-  }
-  return r;
-};
-const dEmpty = d => Object.keys(d).length === 0;
-const fmtDim = d => Object.entries(d).map(([k,v]) => v===1?k:`${k}^${v}`).join('·') || '-';
 
-class Q {
-  constructor(v, d, disp) { this.v = v; this.d = d; this.disp = disp || null; }
+const dimMul = (a, b) => {
+  const r = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const n = (a[k] || 0) + (b[k] || 0);
+    if (n) r[k] = n;
+  }
+  return r;
+};
+
+const dimDiv = (a, b) => {
+  const r = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const n = (a[k] || 0) - (b[k] || 0);
+    if (n) r[k] = n;
+  }
+  return r;
+};
+
+const dimPow = (d, n) => {
+  const r = {};
+  for (const k in d) {
+    const e = d[k] * n;
+    if (e) r[k] = e;
+  }
+  return r;
+};
+
+const dimInv = (d) => dimPow(d, -1);
+
+const dimEmpty = (d) => Object.keys(d).length === 0;
+
+const dimFormat = (d) => {
+  const parts = Object.entries(d).map(([k, v]) => v === 1 ? k : `${k}^${v}`);
+  return parts.join('·') || '-';
+};
+
+// ─── quantity.js ───────────────────────────────────────
+// Quantity: a value in canonical units plus a dimension vector plus an
+// optional display-unit tag (set by `->` / convertTo, preserved through unary
+// operations but lost in further arithmetic — matches Numbat semantics).
+//
+// Numbat is purely functional: every arithmetic method returns a new Quantity.
+
+class Quantity {
+  constructor(value, dim, disp = null) {
+    this.value = value;
+    this.dim = dim;
+    this.disp = disp;
+  }
+
+  // Deprecated short aliases retained for ep's pre-numbat-js code. New code
+  // should use .value / .dim directly. To be removed once ep finishes migrating
+  // (no fixed deadline — these are zero-cost getters).
+  get v() { return this.value; }
+  get d() { return this.dim; }
+
+  add(other) {
+    if (!dimEq(this.dim, other.dim)) {
+      throw new Error(`can't add [${dimFormat(this.dim)}] + [${dimFormat(other.dim)}]`);
+    }
+    return new Quantity(this.value + other.value, this.dim);
+  }
+
+  sub(other) {
+    if (!dimEq(this.dim, other.dim)) {
+      throw new Error(`can't subtract [${dimFormat(this.dim)}] − [${dimFormat(other.dim)}]`);
+    }
+    return new Quantity(this.value - other.value, this.dim);
+  }
+
+  mul(other) {
+    return new Quantity(this.value * other.value, dimMul(this.dim, other.dim));
+  }
+
+  div(other) {
+    return new Quantity(this.value / other.value, dimDiv(this.dim, other.dim));
+  }
+
+  // pow accepts either a number or a dimensionless Quantity
+  pow(exponent) {
+    const expValue = exponent instanceof Quantity ? exponent.value : exponent;
+    if (exponent instanceof Quantity && !dimEmpty(exponent.dim)) {
+      throw new Error('exponent must be dimensionless');
+    }
+    return new Quantity(Math.pow(this.value, expValue), dimPow(this.dim, expValue));
+  }
+
+  neg() {
+    return new Quantity(-this.value, this.dim, this.disp);
+  }
+
+  // Conversion needs a registry to look up the target unit. Canonical value
+  // is unchanged; the display-unit tag is set so the formatter honors it
+  // instead of auto-scaling.
+  convertTo(unitName, registry) {
+    const u = registry.resolve(unitName);
+    if (!u) throw new Error(`unknown unit: ${unitName}`);
+    if (!dimEq(this.dim, u.dim)) {
+      throw new Error(`can't convert [${dimFormat(this.dim)}] to ${unitName} [${dimFormat(u.dim)}]`);
+    }
+    return new Quantity(this.value, this.dim, unitName);
+  }
 }
-const lit = (v, u) => {
-  if (!u) return new Q(v, {});
-  const x = UNITS[u];
-  if (!x) throw new Error(`unknown unit: ${u}`);
-  return new Q(v * x.mul, x.dim);
-};
-const qAdd = (a, b) => {
-  if (!dEq(a.d, b.d)) throw new Error(`can't add [${fmtDim(a.d)}] + [${fmtDim(b.d)}]`);
-  return new Q(a.v + b.v, a.d);
-};
-const qSub = (a, b) => {
-  if (!dEq(a.d, b.d)) throw new Error(`can't subtract [${fmtDim(a.d)}] − [${fmtDim(b.d)}]`);
-  return new Q(a.v - b.v, a.d);
-};
-const qMul = (a, b) => new Q(a.v * b.v, dMul(a.d, b.d));
-const qDiv = (a, b) => new Q(a.v / b.v, dDiv(a.d, b.d));
-const qPow = (a, b) => {
-  if (!dEmpty(b.d)) throw new Error('exponent must be dimensionless');
-  const d = {};
-  for (const k in a.d) d[k] = a.d[k] * b.v;
-  return new Q(Math.pow(a.v, b.v), d);
-};
-const qConvert = (a, unitName) => {
-  const u = UNITS[unitName];
-  if (!u) throw new Error(`unknown unit: ${unitName}`);
-  if (!dEq(a.d, u.dim)) {
-    throw new Error(`can't convert [${fmtDim(a.d)}] to ${unitName} [${fmtDim(u.dim)}]`);
-  }
-  // Value is unchanged (canonical units internally); record preferred display
-  return new Q(a.v, a.d, unitName);
-};
 
-function fmt(q) {
-  if (dEmpty(q.d)) return [fmtNum(q.v), null];
-  // If Q has explicit display unit (from `->` conversion), honor it
-  if (q.disp && UNITS[q.disp] && dEq(UNITS[q.disp].dim, q.d)) {
-    return [fmtNum(q.v / UNITS[q.disp].mul), disp(q.disp)];
+// ─── units.js ──────────────────────────────────────────
+// UnitRegistry: declarative unit definitions with optional metric-prefix
+// auto-generation. All units stored at canonical-unit scale (multiplier from
+// the unit to its canonical base — e.g., kilometer.mul = 1000 when meter is
+// canonical for Length).
+
+// Metric prefixes for v0.1. The full upstream set comes in via .nbt loading
+// in v0.2+. 'micro' has both 'µ' and 'u' as common short forms.
+const METRIC_PREFIXES = [
+  ['tera',  'T',  1e12],
+  ['giga',  'G',  1e9],
+  ['mega',  'M',  1e6],
+  ['kilo',  'k',  1e3],
+  ['hecto', 'h',  1e2],
+  ['deca',  'da', 1e1],
+  // base — handled by the unprefixed registration
+  ['deci',  'd',  1e-1],
+  ['centi', 'c',  1e-2],
+  ['milli', 'm',  1e-3],
+  ['micro', 'µ',  1e-6],
+  ['micro', 'u',  1e-6],
+  ['nano',  'n',  1e-9],
+  ['pico',  'p',  1e-12],
+];
+
+class UnitRegistry {
+  constructor() {
+    this._units = new Map();    // lookup name -> {mul, dim, displayName, fullName}
+    this._entries = [];         // ordered, for iteration (auto-scale)
   }
-  const cands = Object.entries(UNITS).filter(([_, u]) => dEq(u.dim, q.d));
-  if (!cands.length) return [fmtNum(q.v), `[${fmtDim(q.d)}]`];
-  cands.sort((a, b) => b[1].mul - a[1].mul);
-  let best = null;
-  // First pass: tight range, prefer the largest unit that lands in [1, 1000)
-  for (const [name, u] of cands) {
-    const s = q.v / u.mul;
-    if (Math.abs(s) >= 1 && Math.abs(s) < 1000) { best = {name, s}; break; }
-  }
-  // Second pass: more permissive, so 80,000 m³ stays in m³ not 8e-5 km³
-  if (!best) {
-    for (const [name, u] of cands) {
-      const s = q.v / u.mul;
-      if (Math.abs(s) >= 0.01 && Math.abs(s) < 1e6) { best = {name, s}; break; }
+
+  // Define a unit.
+  //   canonicalName: long name ('meter')
+  //   opts.dim:         dimension vector (required)
+  //   opts.mul:         canonical multiplier (default 1 = base canonical)
+  //   opts.displayName: pretty form (default canonicalName)
+  //   opts.aliases:     extra lookup names ['m']
+  //   opts.prefixSet:   'metric' | null
+  define(canonicalName, opts) {
+    const dim = opts.dim;
+    const mul = opts.mul ?? 1;
+    const displayName = opts.displayName ?? canonicalName;
+    const aliases = opts.aliases ?? [];
+    const prefixSet = opts.prefixSet ?? null;
+
+    this._addEntry({mul, dim, displayName, fullName: canonicalName},
+                   [canonicalName, ...aliases]);
+
+    if (prefixSet === 'metric') {
+      for (const [longName, shortName, factor] of METRIC_PREFIXES) {
+        const prefixedDisplay = shortName + displayName;
+        const prefixedFull = longName + canonicalName;
+        const entry = {
+          mul: mul * factor,
+          dim,
+          displayName: prefixedDisplay,
+          fullName: prefixedFull,
+        };
+        const lookups = [prefixedFull];
+        for (const alias of aliases) lookups.push(shortName + alias);
+        this._addEntry(entry, lookups);
+      }
     }
   }
-  // Last resort: closest to magnitude 1 on log scale
+
+  _addEntry(entry, lookupNames) {
+    // First-come-first-served. Conflicts silently ignored in v0.1.
+    let added = false;
+    for (const name of lookupNames) {
+      if (!this._units.has(name)) {
+        this._units.set(name, entry);
+        added = true;
+      }
+    }
+    if (added) this._entries.push(entry);
+  }
+
+  resolve(name) {
+    return this._units.get(name) ?? null;
+  }
+
+  has(name) {
+    return this._units.has(name);
+  }
+
+  // List all unit entries, optionally filtered by exact dimension match.
+  // Used by the formatter to find candidate units for auto-scaling.
+  list(filterDim = null) {
+    if (!filterDim) return this._entries.slice();
+    return this._entries.filter(e => dimEq(filterDim, e.dim));
+  }
+}
+
+// ─── format.js ─────────────────────────────────────────
+// Format a Quantity to a human-readable string. Honors the disp tag set by
+// convertTo; otherwise auto-scales to the largest unit that lands in
+// [1, 1000) (with relaxed fallbacks for extreme magnitudes).
+
+function format(q, registry) {
+  const { num, unit } = formatParts(q, registry);
+  return unit ? `${num} ${unit}` : num;
+}
+
+function formatParts(q, registry) {
+  if (dimEmpty(q.dim)) return { num: formatNumber(q.value), unit: null };
+
+  // Explicit display unit (from -> conversion) wins over auto-scale.
+  if (q.disp) {
+    const u = registry.resolve(q.disp);
+    if (u && dimEq(u.dim, q.dim)) {
+      return { num: formatNumber(q.value / u.mul), unit: u.displayName };
+    }
+  }
+
+  const cands = registry.list(q.dim);
+  if (!cands.length) return { num: formatNumber(q.value), unit: `[${dimFormat(q.dim)}]` };
+
+  cands.sort((a, b) => b.mul - a.mul);
+  let best = null;
+  // Prefer the largest unit whose scaled value lands in [1, 1000).
+  for (const c of cands) {
+    const s = q.value / c.mul;
+    if (Math.abs(s) >= 1 && Math.abs(s) < 1000) { best = { entry: c, scaled: s }; break; }
+  }
+  // Relaxed: keep within a permissive window so 80,000 m³ stays in m³, not km³.
+  if (!best) {
+    for (const c of cands) {
+      const s = q.value / c.mul;
+      if (Math.abs(s) >= 0.01 && Math.abs(s) < 1e6) { best = { entry: c, scaled: s }; break; }
+    }
+  }
+  // Last resort: closest to magnitude 1 on log scale.
   if (!best) {
     cands.sort((a, b) => {
-      const la = Math.abs(Math.log10(Math.abs(q.v / a[1].mul) || 1e-30));
-      const lb = Math.abs(Math.log10(Math.abs(q.v / b[1].mul) || 1e-30));
+      const la = Math.abs(Math.log10(Math.abs(q.value / a.mul) || 1e-30));
+      const lb = Math.abs(Math.log10(Math.abs(q.value / b.mul) || 1e-30));
       return la - lb;
     });
-    const [name, u] = cands[0];
-    best = {name, s: q.v / u.mul};
+    best = { entry: cands[0], scaled: q.value / cands[0].mul };
   }
-  return [fmtNum(best.s), disp(best.name)];
+  return { num: formatNumber(best.scaled), unit: best.entry.displayName };
 }
-function fmtNum(n) {
+
+function formatNumber(n) {
   if (!isFinite(n)) return String(n);
   if (n === 0) return '0';
   const abs = Math.abs(n);
@@ -864,6 +995,149 @@ function fmtNum(n) {
   }
   return s;
 }
+
+// ─── prelude.js ────────────────────────────────────────
+// Hand-crafted v0.1 prelude. Covers what ep currently uses (geological lane:
+// SI base + key derived + density + ppm/ppb/g/t). Replaced in v0.2 by .nbt
+// module loading from upstream Numbat's vendored modules.
+
+function loadPrelude(registry) {
+  // Mass scales used in mining/commodity contexts. Registered BEFORE 'gram'
+  // so the auto-scaler prefers `t` / `kt` / `Mt` over the equivalent
+  // metric-prefixed gram variants (megagram, gigagram, teragram) on ties.
+  registry.define('tonne',      { dim: {mass: 1}, mul: 1e6,    displayName: 't',   aliases: ['t']   });
+  registry.define('kilotonne',  { dim: {mass: 1}, mul: 1e9,    displayName: 'kt',  aliases: ['kt']  });
+  registry.define('megatonne',  { dim: {mass: 1}, mul: 1e12,   displayName: 'Mt',  aliases: ['Mt']  });
+  registry.define('ounce',      { dim: {mass: 1}, mul: 28.3495,displayName: 'oz',  aliases: ['oz']  });
+  registry.define('troy_ounce', { dim: {mass: 1}, mul: 31.1035,displayName: 'ozt', aliases: ['ozt'] });
+
+  // SI base canonicals (with metric prefixes auto-generated).
+  // Mass: gram is canonical (ep convention); SI base is kilogram but gram
+  // is more convenient at calculator scale. v0.2 follows upstream's choice.
+  registry.define('gram',   { dim: {mass: 1},  displayName: 'g',   aliases: ['g'],   prefixSet: 'metric' });
+  registry.define('meter',  { dim: {length: 1},displayName: 'm',   aliases: ['m'],   prefixSet: 'metric' });
+  registry.define('second', { dim: {time: 1},  displayName: 's',   aliases: ['s'],   prefixSet: 'metric' });
+  registry.define('radian', { dim: {angle: 1}, displayName: 'rad', aliases: ['rad'] });
+
+  // Area — explicit squared units (parser-level `m^2` syntax in v0.3+).
+  registry.define('m2',  { dim: {length: 2}, displayName: 'm²',  aliases: ['m^2'] });
+  registry.define('cm2', { dim: {length: 2}, mul: 1e-4, displayName: 'cm²' });
+  registry.define('mm2', { dim: {length: 2}, mul: 1e-6, displayName: 'mm²' });
+  registry.define('km2', { dim: {length: 2}, mul: 1e6,  displayName: 'km²' });
+  registry.define('ha',  { dim: {length: 2}, mul: 1e4,  displayName: 'ha' });
+
+  // Volume — explicit cubed units.
+  registry.define('m3',    { dim: {length: 3}, displayName: 'm³',  aliases: ['m^3'] });
+  registry.define('cm3',   { dim: {length: 3}, mul: 1e-6, displayName: 'cm³' });
+  registry.define('km3',   { dim: {length: 3}, mul: 1e9,  displayName: 'km³' });
+  registry.define('liter', { dim: {length: 3}, mul: 1e-3, displayName: 'L', aliases: ['L'] });
+
+  // Density.
+  registry.define('g/cm3', { dim: {mass: 1, length: -3}, mul: 1e6, displayName: 'g/cm³' });
+  registry.define('kg/m3', { dim: {mass: 1, length: -3}, mul: 1e3, displayName: 'kg/m³' });
+  registry.define('t/m3',  { dim: {mass: 1, length: -3}, mul: 1e6, displayName: 't/m³' });
+
+  // Parts-per-X (mass fraction; treated as dimensionless, matching upstream).
+  registry.define('ppm', { dim: {}, mul: 1e-6, displayName: 'ppm' });
+  registry.define('ppb', { dim: {}, mul: 1e-9, displayName: 'ppb' });
+  registry.define('pct', { dim: {}, mul: 1e-2, displayName: '%', aliases: ['percent'] });
+  registry.define('g/t', { dim: {}, mul: 1e-6, displayName: 'g/t' });
+
+  // Angles.
+  registry.define('degree', { dim: {angle: 1}, mul: Math.PI / 180, displayName: 'deg', aliases: ['deg'] });
+}
+
+// ─── api.js ────────────────────────────────────────────
+// Public API: the Numbat class is the host's entry point. Wraps a unit
+// registry preloaded with the v0.1 prelude and offers convenience methods
+// closed over it.
+
+class Numbat {
+  constructor() {
+    this.registry = new UnitRegistry();
+    loadPrelude(this.registry);
+  }
+
+  // Construct a Quantity from a value + unit name. With no unit, returns a
+  // dimensionless Quantity at canonical value.
+  q(value, unitName) {
+    if (!unitName) return new Quantity(value, {});
+    const u = this.registry.resolve(unitName);
+    if (!u) throw new Error(`unknown unit: ${unitName}`);
+    return new Quantity(value * u.mul, u.dim);
+  }
+
+  hasUnit(name) {
+    return this.registry.has(name);
+  }
+
+  // Look up a unit. Returns {mul, dim, displayName, fullName} or null.
+  resolve(name) {
+    return this.registry.resolve(name);
+  }
+
+  convertTo(q, unitName) {
+    return q.convertTo(unitName, this.registry);
+  }
+
+  format(q) {
+    return format(q, this.registry);
+  }
+
+  formatParts(q) {
+    return formatParts(q, this.registry);
+  }
+}
+
+// ─── units.js ────────────────────────────────────────────────────
+// Adapter to ext/numbat (v0.1). Re-exports numbat-js primitives under ep's
+// existing API shape so parser.js / evaluator.js / render.js don't need to
+// change. Over time, callers should migrate to importing from numbat-js
+// directly (e.g. `import { Numbat, Quantity } from '../../ext/numbat/...'`).
+
+const N = new Numbat();
+
+// Quantity class — ep historically referred to it as `Q`.
+const Q = Quantity;
+
+// Constructors and arithmetic — adapt method API to ep's free-function names.
+const lit      = (v, u) => u ? N.q(v, u) : new Quantity(v, {});
+const qAdd     = (a, b) => a.add(b);
+const qSub     = (a, b) => a.sub(b);
+const qMul     = (a, b) => a.mul(b);
+const qDiv     = (a, b) => a.div(b);
+const qPow     = (a, b) => a.pow(b);
+const qConvert = (q, unitName) => N.convertTo(q, unitName);
+
+// Dimension primitives — ep's short names map to numbat-js's longer ones.
+const dEq    = dimEq;
+const dMul   = dimMul;
+const dDiv   = dimDiv;
+const dEmpty = dimEmpty;
+const fmtDim = dimFormat;
+
+// UNITS — Proxy mimicking ep's old plain-object shape. parser.js does both
+// truthy checks (`if (UNITS[word])`) and field access (`UNITS[u].mul`,
+// `UNITS[u].dim`), both of which work via Proxy.get returning the registry
+// entry or undefined. No iteration support needed: ep's evaluator no longer
+// touches UNITS to auto-scale (format does that internally).
+const UNITS = new Proxy({}, {
+  get: (_, name) => {
+    if (typeof name !== 'string') return undefined;
+    return N.resolve(name) ?? undefined;
+  },
+  has: (_, name) => typeof name === 'string' && N.hasUnit(name),
+});
+
+// Formatter — ep's fmt() returns [numString, unitString|null]; adapt from
+// numbat-js's formatParts() which returns {num, unit}.
+const fmt = q => {
+  const p = N.formatParts(q);
+  return [p.num, p.unit];
+};
+
+// Number formatter — direct re-export.
+const fmtNum = formatNumber;
 
 // ─── parser.js ───────────────────────────────────────────────────
 // Tokenizer and expression parser for ep-script.
