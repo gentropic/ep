@@ -1,0 +1,36 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# Node (if/when a build script lands)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+*.tgz
+.eslintcache
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Local-only project notes
+CLAUDE.md
+
+# Claude Code local overrides (keep .claude/settings.json committable)
+.claude/settings.local.json
+
+# Scratch
+/tmp/
+/scratch/

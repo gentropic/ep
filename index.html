@@ -1,0 +1,1754 @@
+<!DOCTYPE html>
+<!-- ep — notepad + form builder (mock for @gcu/ep) -->
+<!-- @params at top, @outputs at bottom. Both collapsible. -->
+<!-- Form-view toggle for preview. Export-as-HTML stub. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ep — notepad</title>
+<style>
+/* Switchboard tokens */
+:root {
+  --sw-bg-deep:     #C2C1BE;
+  --sw-bg:          #D2D1CE;
+  --sw-bg-raised:   #E4E3E1;
+  --sw-bg-bright:   #EDECEB;
+  --sw-text:        #232322;
+  --sw-text-mid:    #504F4C;
+  --sw-text-soft:   #7A7875;
+  --sw-border:      #B3B1AD;
+  --sw-border-soft: #C6C4C1;
+  --sw-orange:      #B54E1A;
+  --sw-teal:        #1B6B72;
+  --sw-amber:       #8E6518;
+  --sw-red:         #A8312A;
+  --sw-indigo:      #4E5580;
+  --sw-mono:        'Space Mono', 'JetBrains Mono', 'Consolas', monospace;
+  --sw-sans:        'Barlow', system-ui, sans-serif;
+  --sw-radius:      3px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sw-bg-deep:     #0E1012;
+    --sw-bg:          #15171A;
+    --sw-bg-raised:   #1D2024;
+    --sw-bg-bright:   #25282D;
+    --sw-text:        #DDDCDA;
+    --sw-text-mid:    #9E9C98;
+    --sw-text-soft:   #6E6C68;
+    --sw-border:      #2F3338;
+    --sw-border-soft: #24272B;
+    --sw-orange:      #D4672E;
+    --sw-teal:        #3A9BA3;
+    --sw-amber:       #C49540;
+    --sw-red:         #D05048;
+    --sw-indigo:      #7E86B8;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overscroll-behavior: none; }
+body {
+  font-family: var(--sw-sans);
+  background: var(--sw-bg-deep);
+  color: var(--sw-text);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  max-width: 440px;
+  margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--sw-bg);
+  border-left: 1px solid var(--sw-border);
+  border-right: 1px solid var(--sw-border);
+}
+
+/* Switchboard-themed scrollbars. Webkit-only (no scrollbar-width/color)
+   so Chromium 121+ doesn't disable our pseudo-element styling. */
+*::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+}
+*::-webkit-scrollbar-track {
+  background: var(--sw-bg-deep) !important;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--sw-text-soft) !important;
+  border-radius: 4px !important;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--sw-text-mid) !important;
+}
+*::-webkit-scrollbar-corner {
+  background: var(--sw-bg-deep) !important;
+}
+*::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Header */
+.hdr {
+  padding: 9px 12px;
+  background: var(--sw-bg-raised);
+  border-bottom: 1px solid var(--sw-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+.hdr-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.hdr-left .name {
+  color: var(--sw-orange);
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.hdr-left .file {
+  color: var(--sw-text-mid);
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hdr-left .file::before {
+  content: '· ';
+  color: var(--sw-text-soft);
+  margin-right: 2px;
+}
+.hdr-right { display: flex; gap: 4px; flex: 0 0 auto; }
+.hbtn {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  color: var(--sw-text-mid);
+  padding: 6px 9px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+}
+.hbtn:active { background: var(--sw-bg-deep); }
+.hbtn.on { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
+
+/* Panel (params + outputs share this) */
+.panel {
+  background: var(--sw-bg-raised);
+  border-bottom: 1px solid var(--sw-border);
+  flex: 0 0 auto;
+}
+.panel.outputs {
+  border-bottom: none;
+  border-top: 1px solid var(--sw-border);
+}
+.panel-hdr {
+  font-family: var(--sw-mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 8px 14px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  color: var(--sw-text-soft);
+}
+.panel-hdr .at      { color: var(--sw-orange); }
+.panel-hdr .meta    { font-size: 9px; }
+.panel-hdr .chevron { transition: transform 120ms; display: inline-block; }
+.panel.collapsed .panel-hdr .chevron { transform: rotate(-90deg); }
+.panel.collapsed .chip-grid { display: none; }
+.chip-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 0 8px 10px;
+}
+.chip {
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 6px 9px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: border-color 80ms, padding 120ms, transform 120ms;
+}
+.chip:focus-within { border-color: var(--sw-orange); }
+.chip.readonly     { background: var(--sw-bg); }
+.chip-lbl {
+  font-family: var(--sw-mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--sw-text-soft);
+  text-transform: uppercase;
+}
+.chip:focus-within .chip-lbl { color: var(--sw-orange); }
+.chip-val {
+  font-family: var(--sw-mono);
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--sw-text);
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+}
+.chip-out-val {
+  font-family: var(--sw-mono);
+  font-size: 15px;
+  color: var(--sw-text);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip-out-val .u { color: var(--sw-teal); }
+.chip-out-val.error { color: var(--sw-red); font-size: 11px; text-align: left; }
+.chip-res {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  color: var(--sw-text-soft);
+  text-align: right;
+  min-height: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip-res.error { color: var(--sw-red); font-size: 10px; }
+.chip-res .u    { color: var(--sw-teal); }
+
+/* Output-chip row: value flexes, copy button on the right */
+.chip-out-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip-out-row .chip-out-val { flex: 1; min-width: 0; }
+.chip-copy {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--sw-radius);
+  padding: 3px 6px;
+  cursor: pointer;
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  color: var(--sw-text-soft);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transition: background 100ms, color 100ms, border-color 100ms;
+}
+.chip-copy:hover {
+  color: var(--sw-text);
+  border-color: var(--sw-border);
+  background: var(--sw-bg-raised);
+}
+.chip-copy:active { background: var(--sw-bg-deep); }
+.chip-copy.copied {
+  color: var(--sw-green);
+  border-color: var(--sw-green);
+}
+
+/* Form view: bigger chips, prominent outputs */
+.app.form .chip { padding: 10px 12px 11px; }
+.app.form .chip-val      { font-size: 18px; }
+.app.form .chip-out-val  { font-size: 20px; }
+.app.form .chip-lbl      { font-size: 10px; }
+.app.form .chip-res      { font-size: 11px; }
+.app.form .body          { display: none; }
+.app.form.body-shown .body {
+  display: block;
+  flex: 0 0 auto;
+  max-height: 40vh;
+  border-top: 1px solid var(--sw-border-soft);
+  border-bottom: 1px solid var(--sw-border-soft);
+}
+.app.form .accessory     { display: none; }
+.app.form .show-source   { display: flex; }
+.app.form .panel.outputs { background: var(--sw-bg-bright); }
+.form-spacer             { display: none; }
+.app.form .form-spacer   { display: block; flex: 1 1 auto; background: var(--sw-bg); }
+
+.show-source {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: var(--sw-bg-raised);
+  border-bottom: 1px solid var(--sw-border);
+  flex: 0 0 auto;
+  cursor: pointer;
+  user-select: none;
+}
+.show-source::before,
+.show-source::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--sw-border);
+  margin: 0 12px;
+}
+.show-source-btn {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.show-source:hover .show-source-btn,
+.show-source:active .show-source-btn { color: var(--sw-text); }
+
+/* Body — the notepad */
+.body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 0 12px;
+  background: var(--sw-bg);
+  min-height: 80px;
+}
+.row {
+  display: flex;
+  align-items: baseline;
+  padding: 3px 14px;
+  gap: 10px;
+  border-left: 2px solid transparent;
+}
+.row:focus-within {
+  background: var(--sw-bg-raised);
+  border-left-color: var(--sw-orange);
+}
+.row.comment   .row-src { color: var(--sw-text-soft); font-style: italic; }
+.row.directive .row-src { color: var(--sw-orange); }
+.row.in-block {
+  background: rgba(0, 0, 0, 0.025);
+}
+@media (prefers-color-scheme: dark) {
+  .row.in-block { background: rgba(255, 255, 255, 0.025); }
+}
+.row.in-block .row-src { color: var(--sw-text-mid); }
+
+/* Block toggle chevron, only present on block-opening rows */
+.row-toggle {
+  flex: 0 0 auto;
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  width: 14px;
+  text-align: center;
+  color: var(--sw-text-soft);
+  cursor: pointer;
+  user-select: none;
+  margin-left: -4px;
+  transition: transform 100ms;
+}
+.row-toggle:hover { color: var(--sw-orange); }
+.row.collapsed .row-toggle { transform: rotate(-90deg); }
+.row-summary {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+  margin-left: 8px;
+  flex: 0 0 auto;
+}
+.row-summary .meta { color: var(--sw-text-mid); }
+.row-src {
+  font-family: var(--sw-mono);
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--sw-text);
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+}
+.row-src::placeholder { color: var(--sw-text-soft); opacity: 0.6; }
+.row-res {
+  font-family: var(--sw-mono);
+  font-size: 13px;
+  color: var(--sw-text-mid);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.row-res .u    { color: var(--sw-teal); }
+.row-res.error { color: var(--sw-red); font-size: 11px; }
+.row-res.binding::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sw-orange);
+  margin-right: 6px;
+  vertical-align: middle;
+  opacity: 0.85;
+}
+.row-res.output::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sw-teal);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Accessory bar */
+.accessory {
+  background: var(--sw-bg-raised);
+  border-top: 1px solid var(--sw-border);
+  padding: 6px;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 0 0 auto;
+}
+.accessory::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+.tok {
+  font-family: var(--sw-mono);
+  font-size: 13px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 7px 11px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  color: var(--sw-text);
+  white-space: nowrap;
+  user-select: none;
+}
+.tok:active { background: var(--sw-bg-deep); }
+.tok.op   { color: var(--sw-orange); font-weight: 700; }
+.tok.unit { color: var(--sw-teal); }
+.tok.fn   { color: var(--sw-indigo); }
+
+/* Export dialog */
+/* Drag-and-drop overlay */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(181, 78, 26, 0.18);
+  border: 3px dashed var(--sw-orange);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  pointer-events: none;
+}
+.drop-overlay.on { display: flex; }
+.drop-msg {
+  background: var(--sw-bg-raised);
+  border: 1px solid var(--sw-orange);
+  border-radius: var(--sw-radius);
+  padding: 24px 36px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.drop-msg-big {
+  font-family: var(--sw-mono);
+  font-size: 16px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--sw-orange);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.drop-msg-small {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+.scrim.on { display: flex; }
+.dialog {
+  background: var(--sw-bg);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+}
+.dialog-hdr {
+  padding: 12px 16px;
+  background: var(--sw-bg-raised);
+  border-bottom: 1px solid var(--sw-border);
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--sw-orange);
+  font-weight: 700;
+}
+.dialog-body {
+  padding: 12px 16px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--sw-text-mid);
+}
+.dialog-body p { margin: 8px 0; }
+.dialog-body code {
+  font-family: var(--sw-mono);
+  background: var(--sw-bg-raised);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+  color: var(--sw-text);
+}
+.dialog-src {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  background: var(--sw-bg-raised);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 10px;
+  margin: 8px 0 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre;
+  color: var(--sw-text);
+  line-height: 1.5;
+}
+.dialog-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+.dialog-row label {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+  flex: 0 0 60px;
+}
+.dialog-row input {
+  font-family: var(--sw-mono);
+  font-size: 13px;
+  flex: 1;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 6px 8px;
+  outline: none;
+  color: var(--sw-text);
+}
+.dialog-actions {
+  padding: 10px 12px;
+  background: var(--sw-bg-raised);
+  border-top: 1px solid var(--sw-border);
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.btn {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  color: var(--sw-text);
+  padding: 8px 12px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+}
+.btn:active { background: var(--sw-bg-deep); }
+.btn.primary { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
+.btn.primary:active { background: var(--sw-amber); }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <div class="hdr">
+    <div class="hdr-left">
+      <span class="name" title="ep — eval-print, notepad-flavor calculator. Syntax inspired by Numbat (David Peter, MIT).">ep</span>
+      <span class="file">ore_body</span>
+    </div>
+    <div class="hdr-right">
+      <button class="hbtn" id="formBtn">form</button>
+      <button class="hbtn" id="openBtn">open</button>
+      <button class="hbtn" id="exportBtn">export</button>
+      <input type="file" id="fileInput" accept=".ep,text/plain" style="display:none">
+    </div>
+  </div>
+
+  <div class="drop-overlay" id="dropOverlay">
+    <div class="drop-msg">
+      <div class="drop-msg-big">drop .ep file</div>
+      <div class="drop-msg-small">to load it into the editor</div>
+    </div>
+  </div>
+
+  <div class="panel" id="paramsPanel">
+    <div class="panel-hdr" data-target="paramsPanel">
+      <span><span class="at">@</span>params <span class="meta" id="paramMeta">· 5 inputs</span></span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="chip-grid" id="chips"></div>
+  </div>
+
+  <div class="show-source">
+    <button class="show-source-btn" id="showSourceBtn">show calculation ▾</button>
+  </div>
+
+  <div class="body" id="body"></div>
+
+  <div class="panel outputs" id="outputsPanel">
+    <div class="panel-hdr" data-target="outputsPanel">
+      <span><span class="at">@</span>outputs <span class="meta" id="outMeta">· 2 results</span></span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="chip-grid" id="outChips"></div>
+  </div>
+
+  <div class="form-spacer"></div>
+
+  <div class="accessory" id="accessory"></div>
+</div>
+
+<div class="scrim" id="scrim">
+  <div class="dialog">
+    <div class="dialog-hdr">Export ep program</div>
+    <div class="dialog-body">
+      <p>This program will be packaged as either plain ep-script source or a standalone HTML file — single file, no runtime dependencies, opens to form view by default.</p>
+      <p style="font-size:11px; color:var(--sw-text-soft);">ep-script syntax inspired by <strong>Numbat</strong> (David Peter, MIT). The exported source is largely Numbat-compatible.</p>
+      <div class="dialog-row">
+        <label>name</label>
+        <input id="exportName" value="ore_body">
+      </div>
+      <p style="margin-top:14px"><strong>Program source preview</strong></p>
+      <div class="dialog-src" id="exportSrc"></div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn" id="cancelBtn">Cancel</button>
+      <button class="btn" id="dlEpBtn">↓ .ep</button>
+      <button class="btn primary" id="dlHtmlBtn">↓ .html</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* MARKER:STATE_START */
+const INITIAL_STATE = {
+  body: [
+    {src: '# Ore body calculation — demonstrates the new features:'},
+    {src: '#   `#` comments (also `--`)'},
+    {src: '#   `_` digit separators (1_800)'},
+    {src: '#   `->` / `to` unit conversion'},
+    {src: '#   optional `: Dimension` type annotations'},
+    {src: ''},
+    {src: '@params {'},
+    {src: '  length            = 200 m'},
+    {src: '  width             = 50 m'},
+    {src: '  thickness         = 8 m'},
+    {src: '  density : Density = 2.7 g/cm3'},
+    {src: '  grade             = 1_800 ppb'},
+    {src: '}'},
+    {src: ''},
+    {src: '# Geometry and tonnage'},
+    {src: 'volume   = length * width * thickness'},
+    {src: 'tonnage  = volume * density'},
+    {src: 'metal    = tonnage * grade'},
+    {src: ''},
+    {src: '# Display the result in troy ounces using `->`'},
+    {src: 'metal_oz = metal -> ozt'},
+    {src: ''},
+    {src: '@outputs { tonnage, metal, metal_oz }'},
+  ],
+  ui: {
+    paramsCollapsed: false,
+    outputsCollapsed: false,
+    formView: false,
+    showSource: false,
+  },
+};
+/* MARKER:STATE_END */
+
+'use strict';
+
+// ── @gcu/units (mock subset) ──────────────────────────────────
+const UNITS = {
+  mg:  {mul: 1e-3,  dim: {mass: 1}},
+  g:   {mul: 1,     dim: {mass: 1}},
+  kg:  {mul: 1e3,   dim: {mass: 1}},
+  t:   {mul: 1e6,   dim: {mass: 1}},
+  kt:  {mul: 1e9,   dim: {mass: 1}},
+  Mt:  {mul: 1e12,  dim: {mass: 1}},
+  oz:  {mul: 28.3495,dim: {mass: 1}},
+  ozt: {mul: 31.1035,dim: {mass: 1}},
+  mm:  {mul: 1e-3,  dim: {length: 1}},
+  cm:  {mul: 1e-2,  dim: {length: 1}},
+  m:   {mul: 1,     dim: {length: 1}},
+  km:  {mul: 1e3,   dim: {length: 1}},
+  mm2: {mul: 1e-6,  dim: {length: 2}},
+  cm2: {mul: 1e-4,  dim: {length: 2}},
+  m2:  {mul: 1,     dim: {length: 2}},
+  ha:  {mul: 1e4,   dim: {length: 2}},
+  km2: {mul: 1e6,   dim: {length: 2}},
+  cm3: {mul: 1e-6,  dim: {length: 3}},
+  L:   {mul: 1e-3,  dim: {length: 3}},
+  m3:  {mul: 1,     dim: {length: 3}},
+  km3: {mul: 1e9,   dim: {length: 3}},
+  'g/cm3': {mul: 1e6, dim: {mass: 1, length: -3}},
+  'kg/m3': {mul: 1e3, dim: {mass: 1, length: -3}},
+  't/m3':  {mul: 1e6, dim: {mass: 1, length: -3}},
+  ppm:   {mul: 1e-6, dim: {}},
+  ppb:   {mul: 1e-9, dim: {}},
+  pct:   {mul: 1e-2, dim: {}},
+  'g/t': {mul: 1e-6, dim: {}},
+  deg: {mul: Math.PI/180, dim: {angle: 1}},
+  rad: {mul: 1,           dim: {angle: 1}},
+};
+
+const UDISP = {
+  mm2:'mm²', cm2:'cm²', m2:'m²', km2:'km²',
+  cm3:'cm³', m3:'m³', km3:'km³',
+  'g/cm3':'g/cm³', 'kg/m3':'kg/m³', 't/m3':'t/m³',
+};
+const disp = n => UDISP[n] || n;
+
+const dEq = (a, b) => {
+  const k = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const x of k) if ((a[x]||0) !== (b[x]||0)) return false;
+  return true;
+};
+const dMul = (a, b) => {
+  const r = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const n = (a[k]||0) + (b[k]||0);
+    if (n) r[k] = n;
+  }
+  return r;
+};
+const dDiv = (a, b) => {
+  const r = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const n = (a[k]||0) - (b[k]||0);
+    if (n) r[k] = n;
+  }
+  return r;
+};
+const dEmpty = d => Object.keys(d).length === 0;
+const fmtDim = d => Object.entries(d).map(([k,v]) => v===1?k:`${k}^${v}`).join('·') || '-';
+
+class Q {
+  constructor(v, d, disp) { this.v = v; this.d = d; this.disp = disp || null; }
+}
+const lit = (v, u) => {
+  if (!u) return new Q(v, {});
+  const x = UNITS[u];
+  if (!x) throw new Error(`unknown unit: ${u}`);
+  return new Q(v * x.mul, x.dim);
+};
+const qAdd = (a, b) => {
+  if (!dEq(a.d, b.d)) throw new Error(`can't add [${fmtDim(a.d)}] + [${fmtDim(b.d)}]`);
+  return new Q(a.v + b.v, a.d);
+};
+const qSub = (a, b) => {
+  if (!dEq(a.d, b.d)) throw new Error(`can't subtract [${fmtDim(a.d)}] − [${fmtDim(b.d)}]`);
+  return new Q(a.v - b.v, a.d);
+};
+const qMul = (a, b) => new Q(a.v * b.v, dMul(a.d, b.d));
+const qDiv = (a, b) => new Q(a.v / b.v, dDiv(a.d, b.d));
+const qPow = (a, b) => {
+  if (!dEmpty(b.d)) throw new Error('exponent must be dimensionless');
+  const d = {};
+  for (const k in a.d) d[k] = a.d[k] * b.v;
+  return new Q(Math.pow(a.v, b.v), d);
+};
+const qConvert = (a, unitName) => {
+  const u = UNITS[unitName];
+  if (!u) throw new Error(`unknown unit: ${unitName}`);
+  if (!dEq(a.d, u.dim)) {
+    throw new Error(`can't convert [${fmtDim(a.d)}] to ${unitName} [${fmtDim(u.dim)}]`);
+  }
+  // Value is unchanged (canonical units internally); record preferred display
+  return new Q(a.v, a.d, unitName);
+};
+
+function fmt(q) {
+  if (dEmpty(q.d)) return [fmtNum(q.v), null];
+  // If Q has explicit display unit (from `->` conversion), honor it
+  if (q.disp && UNITS[q.disp] && dEq(UNITS[q.disp].dim, q.d)) {
+    return [fmtNum(q.v / UNITS[q.disp].mul), disp(q.disp)];
+  }
+  const cands = Object.entries(UNITS).filter(([_, u]) => dEq(u.dim, q.d));
+  if (!cands.length) return [fmtNum(q.v), `[${fmtDim(q.d)}]`];
+  cands.sort((a, b) => b[1].mul - a[1].mul);
+  let best = null;
+  // First pass: tight range, prefer the largest unit that lands in [1, 1000)
+  for (const [name, u] of cands) {
+    const s = q.v / u.mul;
+    if (Math.abs(s) >= 1 && Math.abs(s) < 1000) { best = {name, s}; break; }
+  }
+  // Second pass: more permissive, so 80,000 m³ stays in m³ not 8e-5 km³
+  if (!best) {
+    for (const [name, u] of cands) {
+      const s = q.v / u.mul;
+      if (Math.abs(s) >= 0.01 && Math.abs(s) < 1e6) { best = {name, s}; break; }
+    }
+  }
+  // Last resort: closest to magnitude 1 on log scale
+  if (!best) {
+    cands.sort((a, b) => {
+      const la = Math.abs(Math.log10(Math.abs(q.v / a[1].mul) || 1e-30));
+      const lb = Math.abs(Math.log10(Math.abs(q.v / b[1].mul) || 1e-30));
+      return la - lb;
+    });
+    const [name, u] = cands[0];
+    best = {name, s: q.v / u.mul};
+  }
+  return [fmtNum(best.s), disp(best.name)];
+}
+function fmtNum(n) {
+  if (!isFinite(n)) return String(n);
+  if (n === 0) return '0';
+  const abs = Math.abs(n);
+  if (abs < 1e-4 || abs >= 1e9) return n.toExponential(3).replace('e+', 'e');
+  const s = parseFloat(n.toPrecision(5)).toString();
+  if (Math.abs(parseFloat(s)) >= 1000) {
+    const parts = s.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return parts.join('.');
+  }
+  return s;
+}
+
+// ── Tokenizer / Parser ────────────────────────────────────────
+function tokenize(s) {
+  const ci1 = s.indexOf('--'), ci2 = s.indexOf('#');
+  let cut = Infinity;
+  if (ci1 >= 0) cut = Math.min(cut, ci1);
+  if (ci2 >= 0) cut = Math.min(cut, ci2);
+  if (cut < Infinity) s = s.slice(0, cut);
+
+  s = s
+    .replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-')
+    .replace(/π/g, ' pi ').replace(/√/g, 'sqrt')
+    .replace(/²/g, '^2').replace(/³/g, '^3')
+    .replace(/→/g, ' -> ').replace(/➞/g, ' -> ')
+    .replace(/·/g, '*');
+
+  const toks = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(s[i+1]))) {
+      let j = i, dot = false, eExp = false;
+      while (j < s.length) {
+        const ch = s[j];
+        if (/[0-9]/.test(ch)) j++;
+        else if (ch === '_' && /[0-9]/.test(s[j+1])) j++;          // digit separator: 12_345
+        else if (ch === '.' && !dot && !eExp) { dot = true; j++; }
+        else if ((ch === 'e' || ch === 'E') && !eExp) {
+          eExp = true; j++;
+          if (s[j] === '+' || s[j] === '-') j++;
+        } else break;
+      }
+      const raw = s.slice(i, j).replace(/_/g, '');
+      toks.push({type: 'num', v: parseFloat(raw)});
+      i = j; continue;
+    }
+    // '->' as conversion (lookahead before falling through to single-char ops)
+    if (c === '-' && s[i+1] === '>') {
+      toks.push({type: 'op', v: '->'}); i += 2; continue;
+    }
+    if (/[a-zA-Z_]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[a-zA-Z0-9_]/.test(s[j])) j++;
+      let word = s.slice(i, j);
+      if (s[j] === '/' && /[a-zA-Z]/.test(s[j+1])) {
+        let k = j + 1;
+        while (k < s.length && /[a-zA-Z0-9]/.test(s[k])) k++;
+        const compound = word + '/' + s.slice(j+1, k);
+        if (UNITS[compound]) { word = compound; j = k; }
+      }
+      // `to` as conversion keyword
+      if (word === 'to') { toks.push({type: 'op', v: '->'}); i = j; continue; }
+      if (UNITS[word]) toks.push({type: 'unit', name: word});
+      else toks.push({type: 'id', name: word});
+      i = j; continue;
+    }
+    if (':'.includes(c))           { toks.push({type: 'op', v: ':'}); i++; continue; }
+    if ('+-*/^()'.includes(c))     { toks.push({type: 'op', v: c}); i++; continue; }
+    throw new Error(`unexpected: ${c}`);
+  }
+  const out = [];
+  for (let k = 0; k < toks.length; k++) {
+    const t = toks[k];
+    if (t.type === 'num' && toks[k+1] && toks[k+1].type === 'unit') {
+      out.push({type: 'qnum', v: t.v, u: toks[k+1].name});
+      k++;
+    } else if (t.type === 'unit') {
+      out.push({type: 'qnum', v: 1, u: t.name});
+    } else {
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+function parseExpr(toks, scope) {
+  let p = 0;
+  const peek = () => toks[p];
+  const eat  = () => toks[p++];
+  function expr() {
+    let l = addExpr();
+    while (peek() && peek().type === 'op' && peek().v === '->') {
+      eat();
+      // RHS must be a unit name; consume the next token as a unit reference
+      const t = peek();
+      if (!t || t.type !== 'qnum' || !t.u || t.v !== 1) {
+        throw new Error('expected unit name after ->');
+      }
+      eat();
+      l = qConvert(l, t.u);
+    }
+    return l;
+  }
+  function addExpr() {
+    let l = term();
+    while (peek() && peek().type === 'op' && (peek().v === '+' || peek().v === '-')) {
+      const op = eat().v;
+      const r = term();
+      l = op === '+' ? qAdd(l, r) : qSub(l, r);
+    }
+    return l;
+  }
+  function term() {
+    let l = factor();
+    while (peek() && peek().type === 'op' && (peek().v === '*' || peek().v === '/')) {
+      const op = eat().v;
+      const r = factor();
+      l = op === '*' ? qMul(l, r) : qDiv(l, r);
+    }
+    return l;
+  }
+  function factor() {
+    const b = unary();
+    if (peek() && peek().type === 'op' && peek().v === '^') {
+      eat();
+      const e = factor();
+      return qPow(b, e);
+    }
+    return b;
+  }
+  function unary() {
+    if (peek() && peek().type === 'op' && peek().v === '-') {
+      eat();
+      const v = unary();
+      return new Q(-v.v, v.d, v.disp);
+    }
+    return primary();
+  }
+  function primary() {
+    const t = peek();
+    if (!t) throw new Error('unexpected end');
+    if (t.type === 'qnum') { eat(); return lit(t.v, t.u); }
+    if (t.type === 'num')  { eat(); return new Q(t.v, {}); }
+    if (t.type === 'op' && t.v === '(') {
+      eat();
+      const e = expr();
+      if (!peek() || peek().v !== ')') throw new Error('expected )');
+      eat();
+      return e;
+    }
+    if (t.type === 'id') {
+      eat();
+      const name = t.name;
+      if (name === 'pi') return new Q(Math.PI, {});
+      if (name === 'e')  return new Q(Math.E,  {});
+      if (peek() && peek().type === 'op' && peek().v === '(') {
+        eat();
+        const arg = expr();
+        if (!peek() || peek().v !== ')') throw new Error('expected )');
+        eat();
+        return applyFn(name, arg);
+      }
+      if (Object.prototype.hasOwnProperty.call(scope, name)) return scope[name];
+      throw new Error(`undefined: ${name}`);
+    }
+    throw new Error('unexpected token');
+  }
+  if (toks.length === 0) throw new Error('empty');
+  const r = expr();
+  if (p < toks.length) throw new Error('trailing input');
+  return r;
+}
+function applyFn(name, q) {
+  const v = q.v;
+  switch (name) {
+    case 'sin':  return new Q(Math.sin(v), {});
+    case 'cos':  return new Q(Math.cos(v), {});
+    case 'tan':  return new Q(Math.tan(v), {});
+    case 'sqrt':
+      if (!dEmpty(q.d)) {
+        const nd = {};
+        for (const k in q.d) {
+          if (q.d[k] % 2 !== 0) throw new Error('sqrt: odd dim exponent');
+          nd[k] = q.d[k] / 2;
+        }
+        return new Q(Math.sqrt(v), nd);
+      }
+      return new Q(Math.sqrt(v), {});
+    case 'log':
+      if (!dEmpty(q.d)) throw new Error('log expects dimensionless');
+      return new Q(Math.log10(v), {});
+    case 'ln':
+      if (!dEmpty(q.d)) throw new Error('ln expects dimensionless');
+      return new Q(Math.log(v), {});
+    case 'abs':  return new Q(Math.abs(v), q.d);
+    case 'exp':
+      if (!dEmpty(q.d)) throw new Error('exp expects dimensionless');
+      return new Q(Math.exp(v), {});
+    default: throw new Error(`unknown fn: ${name}`);
+  }
+}
+
+// ── State + classify ──────────────────────────────────────────
+const state = JSON.parse(JSON.stringify(INITIAL_STATE));
+state.params = [];   // derived from @params { } block in body
+state.outputs = [];  // derived from @outputs { } directive lines
+state._scope = {};
+state._blockComplete = false;
+state._blocks = [];                              // [{open, close, kind, count}]
+state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bodyIdx (persistable)
+
+function classify(src) {
+  const t = src.trim();
+  if (t === '') return {kind: 'empty'};
+  if (t.startsWith('--') || t.startsWith('#')) return {kind: 'comment'};
+  if (/^@params\s*\{\s*$/.test(t))  return {kind: 'params-open'};
+  if (/^\}\s*$/.test(t))            return {kind: 'block-close'};
+  const om = t.match(/^@outputs\s*\{\s*([^}]*)\s*\}\s*$/);
+  if (om) return {kind: 'outputs', names: om[1].split(',').map(s => s.trim()).filter(Boolean)};
+  // Binding with optional type annotation: `name [: Type] = expr`
+  const bm = t.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([A-Z][a-zA-Z0-9_]*(?:\s*[/*]\s*[A-Z][a-zA-Z0-9_]*(?:\s*\^\s*-?\d+)?)*))?\s*=\s*(.+)$/);
+  if (bm) return {kind: 'binding', name: bm[1], anno: bm[2] || null, expr: bm[3]};
+  return {kind: 'expr', expr: t};
+}
+
+// Dimensions known by short name (for optional type annotations)
+const DIMENSION_OF = {
+  Scalar:    {},
+  Length:    {length: 1},
+  Mass:      {mass: 1},
+  Time:      {time: 1},
+  Angle:     {angle: 1},
+  Area:      {length: 2},
+  Volume:    {length: 3},
+  Density:   {mass: 1, length: -3},
+  Velocity:  {length: 1, time: -1},
+  Acceleration: {length: 1, time: -2},
+  Force:     {mass: 1, length: 1, time: -2},
+};
+
+// Parse a dimension annotation like "Mass / Volume" or "Length ^ 2"
+function parseAnno(s) {
+  const toks = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (/[A-Za-z_]/.test(c)) {
+      let j = i;
+      while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+      toks.push({t: 'id', v: s.slice(i, j)}); i = j; continue;
+    }
+    if ('*/^'.includes(c)) { toks.push({t: 'op', v: c}); i++; continue; }
+    if (/[-0-9]/.test(c)) {
+      let j = i; if (c === '-') j++;
+      while (j < s.length && /[0-9]/.test(s[j])) j++;
+      toks.push({t: 'num', v: parseInt(s.slice(i, j))}); i = j; continue;
+    }
+    throw new Error(`bad dim: ${c}`);
+  }
+  let p = 0;
+  const peek = () => toks[p];
+  function termD() {
+    const t = peek();
+    if (!t || t.t !== 'id') throw new Error('expected dimension name');
+    if (!(t.v in DIMENSION_OF)) throw new Error(`unknown dimension: ${t.v}`);
+    p++;
+    let d = {...DIMENSION_OF[t.v]};
+    if (peek() && peek().t === 'op' && peek().v === '^') {
+      p++;
+      const n = peek();
+      if (!n || n.t !== 'num') throw new Error('expected integer after ^');
+      p++;
+      const r = {}; for (const k in d) r[k] = d[k] * n.v; d = r;
+    }
+    return d;
+  }
+  let l = termD();
+  while (peek() && peek().t === 'op' && (peek().v === '*' || peek().v === '/')) {
+    const op = peek().v; p++;
+    const r = termD();
+    l = op === '*' ? dMul(l, r) : dDiv(l, r);
+  }
+  return l;
+}
+
+function evaluateAll() {
+  // Pre-scan: find @params block bounds (only valid if both `@params {` and a later `}` exist)
+  let blockOpen = -1, blockClose = -1;
+  for (let i = 0; i < state.body.length; i++) {
+    const t = state.body[i].src.trim();
+    if (blockOpen < 0 && /^@params\s*\{\s*$/.test(t)) { blockOpen = i; continue; }
+    if (blockOpen >= 0 && blockClose < 0 && /^\}\s*$/.test(t)) { blockClose = i; break; }
+  }
+  const blockComplete = (blockOpen >= 0 && blockClose > blockOpen);
+
+  const scope = {};
+  const newParams = [];
+  const oldByName = new Map(state.params.map(p => [p.name, p]));
+  state.outputs = [];
+
+  for (let i = 0; i < state.body.length; i++) {
+    const r = state.body[i];
+    const c = classify(r.src);
+    r.kind = c.kind;
+    r.name = c.name || null;
+    r.result = null;
+    r.error  = null;
+    r.outputs = null;
+    r.inParams = blockComplete && i >= blockOpen && i <= blockClose;
+
+    const inBlockBody = blockComplete && i > blockOpen && i < blockClose;
+
+    if (inBlockBody) {
+      if (c.kind === 'empty' || c.kind === 'comment') continue;
+      if (c.kind !== 'binding') {
+        r.error = 'expected `name = expr` inside @params';
+        continue;
+      }
+      const name = c.name;
+      let q = null, err = null;
+      try {
+        q = parseExpr(tokenize(c.expr), scope);
+        if (c.anno) {
+          const expected = parseAnno(c.anno);
+          if (!dEq(expected, q.d)) {
+            throw new Error(`annotated ${c.anno} but got [${fmtDim(q.d)}]`);
+          }
+        }
+        scope[name] = q;
+      } catch (e) { q = null; err = e.message; }
+      r.result = q;
+      r.error  = err;
+      const reused = oldByName.get(name);
+      if (reused) {
+        reused.valueSrc = c.expr;
+        reused.anno     = c.anno || null;
+        reused.bodyIdx  = i;
+        reused.result   = q;
+        reused.error    = err;
+        newParams.push(reused);
+      } else {
+        newParams.push({name, valueSrc: c.expr, anno: c.anno || null, bodyIdx: i, result: q, error: err});
+      }
+      continue;
+    }
+
+    // Lines outside any complete @params block
+    if (c.kind === 'empty' || c.kind === 'comment') continue;
+    if (c.kind === 'params-open' || c.kind === 'block-close') continue;
+    if (c.kind === 'outputs') {
+      r.outputs = c.names;
+      state.outputs.push(...c.names);
+      continue;
+    }
+    try {
+      const q = parseExpr(tokenize(c.expr), scope);
+      // Optional type annotation check
+      if (c.kind === 'binding' && c.anno) {
+        try {
+          const expected = parseAnno(c.anno);
+          if (!dEq(expected, q.d)) {
+            throw new Error(`annotated ${c.anno} but got [${fmtDim(q.d)}]`);
+          }
+        } catch (e) {
+          r.error = e.message;
+          continue;
+        }
+      }
+      r.result = q;
+      if (c.kind === 'binding') scope[c.name] = q;
+    } catch (e) { r.error = e.message; }
+  }
+
+  // Detect structure change for chip rendering decision
+  const oldNames = state.params.map(p => p.name);
+  const newNames = newParams.map(p => p.name);
+  state._paramsStructureChanged =
+    newNames.length !== oldNames.length ||
+    newNames.some((n, i) => n !== oldNames[i]);
+
+  state.params = newParams;
+  state._scope = scope;
+  state._blockComplete = blockComplete;
+
+  // Recompute block ranges (generalized; currently only @params blocks exist)
+  state._blocks = [];
+  if (blockComplete) {
+    state._blocks.push({
+      open: blockOpen,
+      close: blockClose,
+      kind: 'params',
+      count: newParams.length,
+    });
+  }
+  // Drop collapsed entries that no longer point at a block opening
+  const validOpens = new Set(state._blocks.map(b => b.open));
+  state.ui.collapsedBlocks = (state.ui.collapsedBlocks || []).filter(idx => validOpens.has(idx));
+}
+
+// ── Render ────────────────────────────────────────────────────
+const app          = document.getElementById('app');
+const chipsEl      = document.getElementById('chips');
+const outChipsEl   = document.getElementById('outChips');
+const bodyEl       = document.getElementById('body');
+const paramMetaEl  = document.getElementById('paramMeta');
+const outMetaEl    = document.getElementById('outMeta');
+const paramsPanel  = document.getElementById('paramsPanel');
+const outputsPanel = document.getElementById('outputsPanel');
+
+function renderChips() {
+  chipsEl.innerHTML = '';
+  state.params.forEach(p => {
+    const name = p.name;  // capture for closure stability across rebuilds
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.dataset.paramName = name;
+    const lbl = document.createElement('div');
+    lbl.className = 'chip-lbl';
+    lbl.textContent = p.anno ? `${name} : ${p.anno}` : name;
+    const inp = document.createElement('input');
+    inp.className = 'chip-val';
+    inp.value = p.valueSrc;
+    inp.spellcheck = false;
+    inp.autocapitalize = 'off';
+    inp.autocomplete = 'off';
+    inp.dataset.paramName = name;
+    inp.addEventListener('input', () => {
+      // Find this param by name (state.params may be rebuilt by evaluateAll)
+      const cur = state.params.find(x => x.name === name);
+      if (!cur) return;
+      const bodyIdx = cur.bodyIdx;
+      // Write through to the body source line, preserving prefix up to and including `=`
+      const line = state.body[bodyIdx];
+      const eq = line.src.indexOf('=');
+      line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + inp.value;
+      evaluateAll();
+      // Update the corresponding body row's input value without a full re-render
+      const bodyRow = bodyEl.querySelector(`[data-body-idx="${bodyIdx}"] .row-src`);
+      if (bodyRow) bodyRow.value = state.body[bodyIdx].src;
+      renderResults();
+    });
+    inp.addEventListener('focus', () => { lastFocused = inp; });
+    const res = document.createElement('div');
+    res.className = 'chip-res';
+    chip.append(lbl, inp, res);
+    chipsEl.append(chip);
+    p._resEl = res;
+  });
+  paramMetaEl.textContent = `· ${state.params.length} input${state.params.length===1?'':'s'}`;
+}
+
+function renderBody() {
+  bodyEl.innerHTML = '';
+  // Lines that belong to a collapsed block (after its open, up to and including its close) are skipped
+  const collapsedRanges = state._blocks
+    .filter(b => state.ui.collapsedBlocks.includes(b.open))
+    .map(b => ({open: b.open, close: b.close}));
+  const isHidden = i => collapsedRanges.some(r => i > r.open && i <= r.close);
+
+  state.body.forEach((r, i) => {
+    if (isHidden(i)) return;
+    makeRow(r, i);
+  });
+}
+
+// Find the block this row opens, if any
+function blockAt(i) {
+  return state._blocks.find(b => b.open === i) || null;
+}
+
+function makeRow(r, i) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.dataset.bodyIdx = String(i);
+  if (r.kind === 'comment')  row.classList.add('comment');
+  if (r.kind === 'outputs')  row.classList.add('directive');
+  if (r.inParams)            row.classList.add('in-block');
+
+  // Block-opening rows get a toggle chevron and a summary chip
+  const block = blockAt(i);
+  if (block) {
+    const collapsed = state.ui.collapsedBlocks.includes(i);
+    if (collapsed) row.classList.add('collapsed');
+    row.classList.add('in-block');  // visual cue on the opening line too
+    const toggle = document.createElement('span');
+    toggle.className = 'row-toggle';
+    toggle.textContent = '▾';
+    toggle.title = collapsed ? 'expand block' : 'collapse block';
+    toggle.addEventListener('mousedown', e => e.preventDefault());  // don't steal focus from active inputs
+    toggle.addEventListener('click', () => {
+      const cur = state.ui.collapsedBlocks;
+      const idx = cur.indexOf(i);
+      if (idx >= 0) cur.splice(idx, 1); else cur.push(i);
+      renderBody();
+    });
+    row.appendChild(toggle);
+  }
+
+  const src = document.createElement('input');
+  src.className = 'row-src';
+  src.value = r.src;
+  src.spellcheck = false;
+  src.autocapitalize = 'off';
+  src.autocomplete = 'off';
+  src.placeholder = i === state.body.length - 1 ? '…' : '';
+  src.addEventListener('input', () => {
+    r.src = src.value;
+    evaluateAll();
+    renderBody();
+    renderChips();
+    renderResults();
+    const newRow = bodyEl.querySelector(`[data-body-idx="${i}"]`);
+    if (newRow) {
+      const inp = newRow.querySelector('.row-src');
+      inp.focus();
+      inp.setSelectionRange(src.selectionStart, src.selectionEnd);
+    }
+  });
+  src.addEventListener('focus', () => { lastFocused = src; });
+  src.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // If this is a collapsed block opener, insert after the closing brace so the new row is visible
+      let insertAt = i + 1;
+      const blk = blockAt(i);
+      if (blk && state.ui.collapsedBlocks.includes(i)) {
+        insertAt = blk.close + 1;
+      }
+      state.body.splice(insertAt, 0, {src: ''});
+      evaluateAll();
+      renderBody();
+      renderChips();
+      renderResults();
+      const nextRow = bodyEl.querySelector(`[data-body-idx="${insertAt}"]`);
+      if (nextRow) nextRow.querySelector('.row-src').focus();
+    } else if (e.key === 'Backspace' && src.value === '' && state.body.length > 1) {
+      e.preventDefault();
+      state.body.splice(i, 1);
+      evaluateAll();
+      renderBody();
+      renderChips();
+      renderResults();
+      // Focus the nearest previous visible row
+      let prevIdx = i - 1;
+      let prev = null;
+      while (prevIdx >= 0) {
+        prev = bodyEl.querySelector(`[data-body-idx="${prevIdx}"]`);
+        if (prev) break;
+        prevIdx--;
+      }
+      if (prev) {
+        const inp = prev.querySelector('.row-src');
+        inp.focus();
+        inp.setSelectionRange(inp.value.length, inp.value.length);
+      }
+    }
+  });
+  const res = document.createElement('div');
+  res.className = 'row-res';
+  row.append(src, res);
+
+  // For collapsed block-opening rows, append a small summary
+  if (block && state.ui.collapsedBlocks.includes(i)) {
+    const summary = document.createElement('span');
+    summary.className = 'row-summary';
+    summary.innerHTML = `<span class="meta">…</span> ${block.count} input${block.count===1?'':'s'} <span class="meta">}</span>`;
+    row.append(summary);
+  }
+
+  bodyEl.append(row);
+  r._resEl = res;
+  r._rowEl = row;
+}
+
+function renderResults() {
+  for (const p of state.params) {
+    if (!p._resEl) continue;
+    if (p.error) {
+      p._resEl.className = 'chip-res error';
+      p._resEl.textContent = p.error;
+    } else if (p.result) {
+      const [n, u] = fmt(p.result);
+      p._resEl.className = 'chip-res';
+      p._resEl.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
+    } else {
+      p._resEl.className = 'chip-res';
+      p._resEl.textContent = '';
+    }
+  }
+  for (const r of state.body) {
+    if (!r._resEl) continue;
+    r._rowEl.classList.toggle('comment',   r.kind === 'comment');
+    r._rowEl.classList.toggle('directive', r.kind === 'outputs');
+    let isOutput = false;
+    if (r.kind === 'binding' && state.outputs.includes(r.name)) isOutput = true;
+    if (r.error) {
+      r._resEl.className = 'row-res error';
+      r._resEl.textContent = r.error;
+    } else if (r.result) {
+      const [n, u] = fmt(r.result);
+      const cls = 'row-res' + (r.kind === 'binding' ? (isOutput ? ' output' : ' binding') : '');
+      r._resEl.className = cls;
+      r._resEl.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
+    } else {
+      r._resEl.className = 'row-res';
+      r._resEl.textContent = '';
+    }
+  }
+  renderOutputs();
+}
+
+function renderOutputs() {
+  outChipsEl.innerHTML = '';
+  const names = state.outputs;
+  outMetaEl.textContent = `· ${names.length} result${names.length===1?'':'s'}`;
+  if (!names.length) {
+    outputsPanel.style.display = 'none';
+    return;
+  }
+  outputsPanel.style.display = '';
+  for (const name of names) {
+    const chip = document.createElement('div');
+    chip.className = 'chip readonly';
+    const lbl = document.createElement('div');
+    lbl.className = 'chip-lbl';
+    lbl.textContent = name;
+
+    const row = document.createElement('div');
+    row.className = 'chip-out-row';
+    const val = document.createElement('div');
+    val.className = 'chip-out-val';
+    const q = state._scope[name];
+    let copyText = '';
+    if (q == null) {
+      val.classList.add('error');
+      val.textContent = 'undefined';
+    } else {
+      const [n, u] = fmt(q);
+      val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
+      // Strip any thousands separators from the copyable text; keep unit
+      copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g,'^2').replace(/³/g,'^3') : '');
+    }
+    row.append(val);
+
+    if (q != null) {
+      const btn = document.createElement('button');
+      btn.className = 'chip-copy';
+      btn.textContent = 'copy';
+      btn.title = `copy "${copyText}"`;
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(copyText);
+          } else {
+            // Fallback for non-secure contexts
+            const ta = document.createElement('textarea');
+            ta.value = copyText;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          btn.textContent = 'copied';
+          btn.classList.add('copied');
+          setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1200);
+        } catch (err) {
+          btn.textContent = 'err';
+          setTimeout(() => { btn.textContent = 'copy'; }, 1200);
+        }
+      });
+      row.append(btn);
+    }
+
+    chip.append(lbl, row);
+    outChipsEl.append(chip);
+  }
+}
+
+// ── Accessory bar ─────────────────────────────────────────────
+let lastFocused = null;
+const TOKENS = [
+  ['op', '+', '+'], ['op', '−', '-'], ['op', '×', '*'], ['op', '÷', '/'],
+  ['op', '^', '^'], ['op', '(', '('], ['op', ')', ')'], ['op', '=', '='],
+  ['op', '→', ' -> '], ['op', 'to', ' to '],
+  ['fn', 'π', 'pi'], ['fn', '√', 'sqrt('],
+  ['fn', 'sin', 'sin('], ['fn', 'cos', 'cos('],
+  ['fn', 'ln', 'ln('], ['fn', 'log', 'log('],
+  ['unit', 'm', ' m'], ['unit', 'cm', ' cm'], ['unit', 'km', ' km'],
+  ['unit', 'kg', ' kg'], ['unit', 't', ' t'], ['unit', 'Mt', ' Mt'],
+  ['unit', 'g/t', ' g/t'], ['unit', 'ppm', ' ppm'], ['unit', 'ozt', ' ozt'],
+];
+const accEl = document.getElementById('accessory');
+TOKENS.forEach(([cls, lbl, ins]) => {
+  const b = document.createElement('button');
+  b.className = 'tok ' + cls;
+  b.textContent = lbl;
+  b.addEventListener('mousedown', e => e.preventDefault());
+  b.addEventListener('click', () => {
+    const t = lastFocused;
+    if (!t) return;
+    const start = t.selectionStart, end = t.selectionEnd;
+    const v = t.value;
+    t.value = v.slice(0, start) + ins + v.slice(end);
+    t.setSelectionRange(start + ins.length, start + ins.length);
+    t.focus();
+    t.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+  accEl.append(b);
+});
+
+// ── Panel collapse ────────────────────────────────────────────
+document.querySelectorAll('.panel-hdr').forEach(h => {
+  h.addEventListener('click', () => {
+    const p = h.parentElement;
+    p.classList.toggle('collapsed');
+    if (p.id === 'paramsPanel')  state.ui.paramsCollapsed  = p.classList.contains('collapsed');
+    if (p.id === 'outputsPanel') state.ui.outputsCollapsed = p.classList.contains('collapsed');
+  });
+});
+
+// ── Form view toggle ──────────────────────────────────────────
+const formBtn = document.getElementById('formBtn');
+const showSourceBtn = document.getElementById('showSourceBtn');
+formBtn.addEventListener('click', () => {
+  state.ui.formView = !state.ui.formView;
+  state.ui.showSource = false;
+  applyFormView();
+});
+showSourceBtn.addEventListener('click', () => {
+  state.ui.showSource = !state.ui.showSource;
+  applyFormView();
+});
+function applyFormView() {
+  app.classList.toggle('form',       state.ui.formView);
+  app.classList.toggle('body-shown', state.ui.formView && state.ui.showSource);
+  formBtn.classList.toggle('on', state.ui.formView);
+  formBtn.textContent = state.ui.formView ? 'editor' : 'form';
+  showSourceBtn.textContent = state.ui.showSource
+    ? 'hide calculation ▴'
+    : 'show calculation ▾';
+}
+
+// ── Export dialog ─────────────────────────────────────────────
+const scrim = document.getElementById('scrim');
+const exportBtn = document.getElementById('exportBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+const dlEpBtn   = document.getElementById('dlEpBtn');
+const dlHtmlBtn = document.getElementById('dlHtmlBtn');
+const exportSrcEl = document.getElementById('exportSrc');
+const exportNameEl = document.getElementById('exportName');
+
+function serializeProgram() {
+  return state.body.map(r => r.src).join('\n');
+}
+
+exportBtn.addEventListener('click', () => {
+  exportSrcEl.textContent = serializeProgram();
+  scrim.classList.add('on');
+});
+cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
+scrim.addEventListener('click', e => { if (e.target === scrim) scrim.classList.remove('on'); });
+
+dlEpBtn.addEventListener('click', () => {
+  const text = serializeProgram();
+  const name = (exportNameEl.value || 'program') + '.ep';
+  downloadFile(text, name, 'text/plain');
+  scrim.classList.remove('on');
+});
+
+dlHtmlBtn.addEventListener('click', () => {
+  const html = document.documentElement.outerHTML;
+  const newState = {
+    body: state.body.map(r => ({src: r.src})),
+    ui:   {...state.ui, formView: true, showSource: false},
+  };
+  const stateJs = 'const INITIAL_STATE = ' + JSON.stringify(newState, null, 2) + ';';
+  const newHtml = html.replace(
+    /\/\* MARKER:STATE_START \*\/[\s\S]*?\/\* MARKER:STATE_END \*\//,
+    `/* MARKER:STATE_START */\n${stateJs}\n/* MARKER:STATE_END */`
+  );
+  const name = (exportNameEl.value || 'program') + '.html';
+  downloadFile('<!DOCTYPE html>\n' + newHtml, name, 'text/html');
+  scrim.classList.remove('on');
+});
+
+function downloadFile(text, name, type) {
+  const blob = new Blob([text], {type});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
+// ── Load / Import ─────────────────────────────────────────────
+const openBtn      = document.getElementById('openBtn');
+const fileInput    = document.getElementById('fileInput');
+const dropOverlay  = document.getElementById('dropOverlay');
+const fileNameEl   = document.querySelector('.hdr-left .file');
+
+function loadProgramText(text, sourceName) {
+  // Replace body with the parsed lines; preserve UI state (collapsed panels, etc.)
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  // Trim trailing empty lines for cleanliness but keep one for new-row affordance
+  while (lines.length > 1 && lines[lines.length - 1].trim() === '') lines.pop();
+  state.body = lines.map(src => ({src}));
+  state.ui.collapsedBlocks = [];   // discard prior collapse state — references would be stale
+  evaluateAll();
+  renderChips();
+  renderBody();
+  renderResults();
+  if (sourceName) {
+    // Strip extension for header display
+    const baseName = sourceName.replace(/\.[^.]+$/, '');
+    if (fileNameEl) fileNameEl.textContent = baseName || sourceName;
+  }
+}
+
+openBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    loadProgramText(text, file.name);
+  } catch (err) {
+    console.error('Failed to read file:', err);
+  } finally {
+    // Reset so selecting the same file again still fires change
+    fileInput.value = '';
+  }
+});
+
+// Drag-and-drop on the whole window
+let dragDepth = 0;
+function hasFiles(e) {
+  if (!e.dataTransfer) return false;
+  const types = e.dataTransfer.types;
+  if (!types) return false;
+  return Array.from(types).includes('Files');
+}
+window.addEventListener('dragenter', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  dropOverlay.classList.add('on');
+});
+window.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+window.addEventListener('dragleave', (e) => {
+  if (!hasFiles(e)) return;
+  dragDepth--;
+  if (dragDepth <= 0) {
+    dragDepth = 0;
+    dropOverlay.classList.remove('on');
+  }
+});
+window.addEventListener('drop', async (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.classList.remove('on');
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  // Accept .ep, .txt, or any text/plain; warn on obvious mismatches
+  if (file.name && !/\.(ep|txt)$/i.test(file.name) && !file.type.startsWith('text/')) {
+    console.warn('File extension is not .ep — attempting to load anyway');
+  }
+  try {
+    const text = await file.text();
+    loadProgramText(text, file.name);
+  } catch (err) {
+    console.error('Failed to read dropped file:', err);
+  }
+});
+
+// ── Boot ──────────────────────────────────────────────────────
+function applyInitialUI() {
+  if (state.ui.paramsCollapsed)  paramsPanel.classList.add('collapsed');
+  if (state.ui.outputsCollapsed) outputsPanel.classList.add('collapsed');
+  if (state.ui.formView)         applyFormView();
+}
+
+evaluateAll();
+renderChips();
+renderBody();
+renderResults();
+applyInitialUI();
+</script>
+
+</body>
+</html>
