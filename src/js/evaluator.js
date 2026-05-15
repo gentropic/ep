@@ -283,6 +283,26 @@ export function evaluate(body) {
     if (inBlockBody) {
       if (c.kind === 'empty' || c.kind === 'comment') continue;
       if (c.kind !== 'binding') {
+        // Recover the binding name from a malformed `name [: anno] = …` line
+        // so the chip stays bound during mid-edit (e.g. the user briefly
+        // clears the value to retype it). Without this, classify fails on
+        // an empty expression, the param drops from state.params, and the
+        // chip's input handler can't find its binding on subsequent edits.
+        const recovery = body[i].src.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*(.*)$/);
+        if (recovery) {
+          const recName = recovery[1];
+          const recAnno = recovery[2] ? recovery[2].trim() : null;
+          const recExpr = (recovery[3] || '').trim();
+          const err = recExpr ? `couldn't parse: ${recExpr}` : 'empty expression';
+          params.push({
+            name: recName, valueSrc: recExpr, anno: recAnno,
+            bodyIdx: i, result: null, error: err,
+          });
+          row.kind  = 'binding';
+          row.name  = recName;
+          row.error = err;
+          continue;
+        }
         row.error = 'expected `name = expr` inside @params';
         continue;
       }
