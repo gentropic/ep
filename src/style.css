@@ -383,6 +383,25 @@ body {
 .show-source:hover .show-source-btn,
 .show-source:active .show-source-btn { color: var(--sw-text); }
 
+/* Read-only source display — used by the viewer artifact to let the
+   recipient verify the calculation without giving them an editor. */
+.source-view {
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  background: var(--sw-bg-raised);
+  border-top: 1px solid var(--sw-border);
+  border-bottom: 1px solid var(--sw-border);
+  padding: 12px 16px;
+  margin: 0;
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre;
+  color: var(--sw-text);
+  user-select: text;
+  flex: 0 0 auto;
+}
+
 /* Body — CodeMirror 6 editor with a right-side results gutter. CM6 handles
    undo/redo, navigation, word-jump, multi-line selection natively. Each
    gutter row is aligned to its CM6 line by the gutter() extension. */

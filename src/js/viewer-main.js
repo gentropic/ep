@@ -7,6 +7,8 @@
 import { evaluateAll } from './state.js';
 import { renderChips, renderResults } from './render.js';
 
+import { state } from './state.js';
+
 evaluateAll();
 renderChips();
 renderResults();
@@ -17,4 +19,24 @@ const hdrFileEl = document.getElementById('hdrFile');
 if (hdrFileEl && typeof INITIAL_STATE !== 'undefined' && INITIAL_STATE.name) {
   hdrFileEl.textContent = INITIAL_STATE.name;
   document.title = `${INITIAL_STATE.name} — ep`;
+}
+
+// "Show calculation" toggle — read-only source reveal. The recipient can
+// inspect the program without an editor; chips remain the only interaction
+// surface.
+const showSourceBtn = document.getElementById('showSourceBtn');
+const sourceView    = document.getElementById('sourceView');
+if (showSourceBtn && sourceView) {
+  let shown = false;
+  showSourceBtn.addEventListener('click', () => {
+    shown = !shown;
+    if (shown) {
+      sourceView.textContent = state.body.map(r => r.src).join('\n');
+      sourceView.style.display = '';
+      showSourceBtn.textContent = 'hide calculation ▴';
+    } else {
+      sourceView.style.display = 'none';
+      showSourceBtn.textContent = 'show calculation ▾';
+    }
+  });
 }
