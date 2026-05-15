@@ -843,7 +843,15 @@ function evalValueExpr(node, env) {
   }
   if (node.type === 'Binary') {
     if (node.op === '->') {
-      throw new Error('-> conversion in value expressions not supported in v0.2');
+      const left = evalValueExpr(node.left, env);
+      // Single-identifier target (with optional parens). Compound targets like
+      // `q -> m/s` need a compound display mechanism — v0.4+.
+      let target = node.right;
+      while (target.type === 'Paren') target = target.expr;
+      if (target.type === 'Ident') {
+        return left.convertTo(target.name, env.units);
+      }
+      throw new Error('-> target must be a single unit name (compound targets coming in v0.4+)');
     }
     if (node.op === '^') {
       const base = evalValueExpr(node.left, env);

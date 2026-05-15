@@ -107,6 +107,52 @@ test('evalValueExpr: unknown identifier throws', () => {
   assert.throws(() => valueExpr('mystery', env), /unknown identifier/);
 });
 
+// ── -> conversion in value expressions (v0.3) ────────────────────
+
+test('evalValueExpr: -> sets disp on a quantity', () => {
+  const env = buildEnv();
+  env.units.define('meter', { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
+  const q = valueExpr('3 km -> m', env);
+  assert.equal(q.value, 3000);    // canonical unchanged
+  assert.deepEqual(q.dim, {length: 1});
+  assert.equal(q.disp, 'm');
+});
+
+test('evalValueExpr: -> unwraps parens around target', () => {
+  const env = buildEnv();
+  env.units.define('meter', { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
+  const q = valueExpr('3 km -> (m)', env);
+  assert.equal(q.disp, 'm');
+});
+
+test('evalValueExpr: -> dim mismatch throws', () => {
+  const env = buildEnv();
+  env.units.define('meter', { dim: {length: 1}, shortAliases: ['m'] });
+  env.units.define('gram',  { dim: {mass: 1},   shortAliases: ['g'] });
+  assert.throws(() => valueExpr('3 meter -> gram', env), /can't convert/);
+});
+
+test('evalValueExpr: -> unknown target unit throws', () => {
+  const env = buildEnv();
+  env.units.define('meter', { dim: {length: 1}, shortAliases: ['m'] });
+  assert.throws(() => valueExpr('3 meter -> furlong', env), /unknown unit/);
+});
+
+test('evalValueExpr: -> compound target errors (v0.3 limitation)', () => {
+  const env = buildEnv();
+  env.units.define('meter',  { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
+  env.units.define('second', { dim: {time: 1},   shortAliases: ['s'], prefixSet: 'metric' });
+  assert.throws(() => valueExpr('3 km / s -> m / s', env), /single unit name|compound/);
+});
+
+test('evalValueExpr: `to` keyword works the same as ->', () => {
+  const env = buildEnv();
+  env.units.define('meter', { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
+  const q = valueExpr('3 km to m', env);
+  assert.equal(q.disp, 'm');
+  assert.equal(q.value, 3000);
+});
+
 // ── loadModule: dimensions ───────────────────────────────────────
 
 test('load: base dimension declaration', () => {
