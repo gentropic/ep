@@ -25,9 +25,10 @@
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 
-const STORE_KEY   = 'ep:programs';
-const CURRENT_KEY = 'ep:current';
-const DRAFT_KEY   = 'ep:draft';
+const STORE_KEY    = 'ep:programs';
+const CURRENT_KEY  = 'ep:current';
+const DRAFT_KEY    = 'ep:draft';
+const SETTINGS_KEY = 'ep:settings';
 
 export let currentProgramName = 'ore_body';
 let saveStatusTimer = null;
@@ -95,6 +96,41 @@ function readDraft() {
   } catch { return null; }
 }
 
+// User-level settings, distinct from per-program state. Stored as
+// localStorage["ep:settings"] = { sort, … }. Lives next to the programs
+// store; small enough that we just read+write the whole blob each time.
+export function getSetting(key, fallback) {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed[key] === undefined ? fallback : parsed[key];
+  } catch { return fallback; }
+}
+
+export function setSetting(key, value) {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    parsed[key] = value;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(parsed));
+  } catch (e) { console.warn('localStorage write (settings) failed:', e); }
+}
+
+// Pin / unpin a program — drawer renders pinned programs first regardless
+// of the current sort order. Flag lives on the per-program record.
+export function isPinned(name) {
+  const store = readStore();
+  return !!(store[name] && store[name].pinned);
+}
+
+export function togglePinned(name) {
+  const store = readStore();
+  if (!store[name]) return;
+  store[name].pinned = !store[name].pinned;
+  writeStore(store);
+  window.dispatchEvent(new CustomEvent('ep:storage-changed'));
+}
+
 export function uniqueProgramName(base) {
   const store = readStore();
   if (!store[base]) return base;
@@ -137,7 +173,11 @@ export function scheduleAutosave() {
 
 export function saveCurrentProgram(opts = {}) {
   const store = readStore();
+  // Merge: preserve fields that aren't part of state (e.g. `pinned`) so
+  // autosave doesn't strip them.
+  const prior = store[currentProgramName] || {};
   store[currentProgramName] = {
+    ...prior,
     body: state.body.map(r => r.src),
     updatedAt: Date.now(),
     scenarios: state.ui.scenarios || {},

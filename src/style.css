@@ -293,6 +293,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 80ms ease;     /* §5.5 — soften color flips during rapid edits */
 }
 .chip-res.error { color: var(--sw-red); font-size: 10px; }
 .chip-res .u    { color: var(--sw-teal); }
@@ -503,6 +504,7 @@ body {
   text-overflow: ellipsis;
   line-height: 21px;
   max-width: 100%;
+  transition: color 80ms ease;     /* §5.5 — match chip-res smoothing */
 }
 .ep-gutter-result .u    { color: var(--sw-teal); }
 .ep-gutter-result.error { color: var(--sw-red); font-size: 11px; }
@@ -919,6 +921,29 @@ body {
 }
 .drawer-section.drawer-search-wrap {
   padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.drawer-search-wrap .drawer-search { flex: 1; min-width: 0; }
+.drawer-sort-btn {
+  flex: 0 0 auto;
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 6px 8px;
+  cursor: pointer;
+  color: var(--sw-text-soft);
+}
+.drawer-sort-btn:hover { color: var(--sw-text); border-color: var(--sw-orange); }
+.drawer-item-pin {
+  color: var(--sw-orange);
+  font-size: 9px;
+  vertical-align: 1px;
+  margin-right: 1px;
 }
 .drawer-section-hdr {
   font-family: var(--sw-mono);

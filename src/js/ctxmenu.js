@@ -5,7 +5,7 @@
 // button all route through openProgramMenu().
 
 import { epConfirm, epPrompt } from './dialogs.js';
-import { readStore, writeStore, currentProgramName, setCurrentProgramName, loadProgramByName, newProgram } from './storage.js';
+import { readStore, writeStore, currentProgramName, setCurrentProgramName, loadProgramByName, newProgram, isPinned, togglePinned } from './storage.js';
 import { saveCurrentAsNewScenario } from './scenarios.js';
 import { showMenu } from './menu.js';
 // attachLongPress + closeMenu live in menu.js; callers that need them import
@@ -14,6 +14,7 @@ import { showMenu } from './menu.js';
 
 export function openProgramMenu(name, x, y, opts = {}) {
   showMenu([
+    { label: isPinned(name) ? 'unpin' : 'pin', action: () => togglePinned(name) },
     { label: 'rename',         action: () => renameProgram(name) },
     { label: 'duplicate',      action: () => duplicateProgram(name) },
     { label: 'save scenario…', action: () => {

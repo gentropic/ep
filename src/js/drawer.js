@@ -2,7 +2,7 @@
 // Open is hamburger-only (no swipe-open) to avoid conflicting with Android's
 // system back gesture.
 
-import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo } from './storage.js';
+import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting } from './storage.js';
 import { openProgramMenu } from './ctxmenu.js';
 import { attachLongPress, closeMenu } from './menu.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
@@ -15,6 +15,7 @@ const drawerCloseBtn = document.getElementById('drawerCloseBtn');
 const drawerListEl   = document.getElementById('drawerList');
 const drawerExamplesEl = document.getElementById('drawerExamples');
 const drawerSearchEl = document.getElementById('drawerSearch');
+const drawerSortBtn  = document.getElementById('drawerSortBtn');
 const newProgBtn     = document.getElementById('newProgBtn');
 const openFileBtn    = document.getElementById('openFileBtn');
 const drawerFileInput = document.getElementById('fileInput');
@@ -58,6 +59,21 @@ if (replayTutorialBtn) {
 if (drawerSearchEl) {
   drawerSearchEl.addEventListener('input', () => {
     searchFilter = drawerSearchEl.value.trim().toLowerCase();
+    renderDrawerList();
+  });
+}
+
+// Drawer sort — 'recent' (default, by updatedAt desc) or 'alpha' (by name).
+// Pinned programs always render first regardless of sort.
+function currentSort() { return getSetting('sort', 'recent'); }
+function updateSortBtn() {
+  if (drawerSortBtn) drawerSortBtn.textContent = currentSort();
+}
+if (drawerSortBtn) {
+  updateSortBtn();
+  drawerSortBtn.addEventListener('click', () => {
+    setSetting('sort', currentSort() === 'recent' ? 'alpha' : 'recent');
+    updateSortBtn();
     renderDrawerList();
   });
 }
@@ -183,9 +199,16 @@ renderDrawerExamples();
 export function renderDrawerList() {
   if (!drawerListEl) return;
   const store = readStore();
-  let names = Object.keys(store).sort((a, b) =>
-    (store[b].updatedAt || 0) - (store[a].updatedAt || 0)
-  );
+  const sort = currentSort();
+  const cmpRecent = (a, b) => (store[b].updatedAt || 0) - (store[a].updatedAt || 0);
+  const cmpAlpha  = (a, b) => a.localeCompare(b);
+  const baseCmp = sort === 'alpha' ? cmpAlpha : cmpRecent;
+  // Pinned first, then everything else by the chosen sort.
+  let names = Object.keys(store).sort((a, b) => {
+    const pa = !!store[a].pinned, pb = !!store[b].pinned;
+    if (pa !== pb) return pa ? -1 : 1;
+    return baseCmp(a, b);
+  });
   if (searchFilter) names = names.filter(n => n.toLowerCase().includes(searchFilter));
   drawerListEl.innerHTML = '';
   if (!names.length) {
@@ -204,7 +227,16 @@ export function renderDrawerList() {
     info.className = 'drawer-item-info';
     const nameEl = document.createElement('div');
     nameEl.className = 'drawer-item-name';
-    nameEl.textContent = name;
+    if (prog.pinned) {
+      const pin = document.createElement('span');
+      pin.className = 'drawer-item-pin';
+      pin.textContent = '◆';
+      pin.title = 'pinned';
+      nameEl.appendChild(pin);
+      nameEl.appendChild(document.createTextNode(' ' + name));
+    } else {
+      nameEl.textContent = name;
+    }
     info.appendChild(nameEl);
 
     const desc = programDescription(prog.body);
