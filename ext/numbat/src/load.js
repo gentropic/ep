@@ -222,6 +222,127 @@ function evalCmp(node, env) {
   }
 }
 
+// ── generic-fn machinery (v0.4) ──────────────────────────────────
+//
+// Numbat's dimension generics treat dimensions as a free abelian group.
+// `fn sqrt<T: Dim>(q: T^2) -> T = q^(1/2)` types as: "for any dimension T,
+// taking a Quantity with dim T^2 produces a Quantity with dim T." At a call
+// site, we *unify* the parameter's symbolic pattern with the concrete arg dim
+// to solve for T.
+//
+// A "symbolic dim vector" is a plain object whose keys are either base-axis
+// names (lowercase by convention — length, mass, time, ...) or generic
+// parameter names (whatever the user declared — typically uppercase: T, U).
+// The genericNames set tells us which keys to treat as variables.
+
+// Evaluate a type expression with generics in scope. Returns a symbolic dim
+// vector where generic-named keys carry their exponent.
+function evalSymDim(node, env, genericNames) {
+  if (node.type === 'Num') {
+    if (node.value !== 1) throw new Error(`dimension expression: numbers other than 1 not allowed`);
+    return {};
+  }
+  if (node.type === 'Ident') {
+    if (genericNames.has(node.name)) {
+      return { [node.name]: 1 };
+    }
+    if (!env.dims.has(node.name)) throw new Error(`unknown dimension: ${node.name}`);
+    return env.dims.resolve(node.name);
+  }
+  if (node.type === 'Paren') return evalSymDim(node.expr, env, genericNames);
+  if (node.type === 'Binary') {
+    if (node.op === '^') {
+      const base = evalSymDim(node.left, env, genericNames);
+      if (node.right.type !== 'Num') throw new Error('dimension exponent must be a number literal');
+      return dimPow(base, node.right.value);
+    }
+    const l = evalSymDim(node.left, env, genericNames);
+    const r = evalSymDim(node.right, env, genericNames);
+    if (node.op === '*') return dimMul(l, r);
+    if (node.op === '/') return dimDiv(l, r);
+    throw new Error(`operator '${node.op}' not allowed in type expression`);
+  }
+  throw new Error(`unexpected node ${node.type} in type expression`);
+}
+
+// Unify a symbolic pattern against a concrete dim, solving for generic vars.
+// Returns substitutions { genericName: dimVec }. Throws on no-solution.
+//
+// v0.4 supports patterns with at most ONE generic variable. Multi-variable
+// patterns (T * U where both are unknown) need linear-system solving over Z
+// and are deferred to a later version.
+function unifyOne(pattern, target, genericNames) {
+  const concrete = {};
+  const variable = {};
+  for (const [k, e] of Object.entries(pattern)) {
+    if (genericNames.has(k)) variable[k] = e;
+    else                     concrete[k] = e;
+  }
+  // residual = target / concrete  ← what variables must produce
+  const residual = dimDiv(target, concrete);
+  const varNames = Object.keys(variable);
+
+  if (varNames.length === 0) {
+    if (Object.keys(residual).length > 0) {
+      throw new Error(`unification failed: argument dim has extra axes ${JSON.stringify(residual)}`);
+    }
+    return {};
+  }
+  if (varNames.length === 1) {
+    const T = varNames[0];
+    const n = variable[T];
+    const subT = {};
+    for (const [k, e] of Object.entries(residual)) {
+      if (e % n !== 0) {
+        throw new Error(`unification failed: ${T}^${n} = ... — axis ${k} exponent ${e} not divisible by ${n}`);
+      }
+      subT[k] = e / n;
+    }
+    return { [T]: subT };
+  }
+  throw new Error(`unification: multi-variable patterns not supported (vars: ${varNames.join(', ')})`);
+}
+
+// Walk parameters, unify each annotated param's pattern with its concrete arg,
+// merge inferences. Throws if a generic is never inferred or inferences conflict.
+function solveGenerics(generics, params, argVals, env) {
+  const genericNames = new Set(generics.map(g => g.name));
+  const subs = {};
+  for (let i = 0; i < params.length; i++) {
+    const p = params[i];
+    if (!p.typeExpr) continue;
+    const arg = argVals[i];
+    if (typeof arg === 'boolean') continue;
+    const pattern = evalSymDim(p.typeExpr, env, genericNames);
+    const newSubs = unifyOne(pattern, arg.dim, genericNames);
+    for (const [T, sub] of Object.entries(newSubs)) {
+      if (subs[T] && !dimEq(subs[T], sub)) {
+        throw new Error(`generic ${T} inferred inconsistently: ${JSON.stringify(subs[T])} vs ${JSON.stringify(sub)}`);
+      }
+      subs[T] = sub;
+    }
+  }
+  for (const g of generics) {
+    if (!subs[g.name]) {
+      throw new Error(`generic ${g.name} could not be inferred from arguments`);
+    }
+  }
+  return subs;
+}
+
+// Substitute generic vars in a symbolic dim, producing a concrete dim.
+function substituteVars(symVec, subs) {
+  let result = {};
+  for (const [k, exp] of Object.entries(symVec)) {
+    if (subs[k]) {
+      result = dimMul(result, dimPow(subs[k], exp));
+    } else {
+      result = dimMul(result, { [k]: exp });
+    }
+  }
+  return result;
+}
+
 // Evaluate a function call. User-defined fns take precedence over builtins so
 // users can shadow them if they really want to.
 function evalCall(node, env) {
@@ -231,6 +352,19 @@ function evalCall(node, env) {
       throw new Error(`${node.name}: expected ${userFn.params.length} args, got ${node.args.length}`);
     }
     const argVals = node.args.map(a => evalValueExpr(a, env));
+    // Extern fn declaration (no body) — dispatch to host's BUILTIN_FNS.
+    if (userFn.body === null) {
+      const builtin = BUILTIN_FNS[node.name];
+      if (!builtin) {
+        const proc = BUILTIN_PROCS[node.name];
+        if (proc) return proc(argVals);
+        throw new Error(`extern fn ${node.name}: no built-in implementation provided by host`);
+      }
+      if (argVals.length !== 1) {
+        throw new Error(`${node.name}: extern builtin takes 1 arg, got ${argVals.length}`);
+      }
+      return builtin(argVals[0]);
+    }
     // Lexical scope: parameters layered on top of the outer scope's let-bindings.
     const fnValues = new Map(env.values);
     for (let i = 0; i < userFn.params.length; i++) {
@@ -256,10 +390,26 @@ function evalCall(node, env) {
       }
     }
     const fnEnv = buildFnEnv();
-    // Optional return-type check
+    // Solve generic parameters (if any) from concrete arg dims.
+    let subs = null;
+    if (userFn.generics && userFn.generics.length > 0) {
+      subs = solveGenerics(userFn.generics, userFn.params, argVals, env);
+    }
+
+    // Optional return-type check (with generic substitution)
     const result = evalValueExpr(userFn.body, fnEnv);
     if (userFn.returnType) {
-      const expected = evalDimExpr(userFn.returnType, env);
+      let expected;
+      if (subs) {
+        const genericNames = new Set(userFn.generics.map(g => g.name));
+        const symRet = evalSymDim(userFn.returnType, env, genericNames);
+        expected = substituteVars(symRet, subs);
+      } else {
+        expected = evalDimExpr(userFn.returnType, env);
+      }
+      if (typeof result === 'boolean') {
+        throw new Error(`${node.name}: returned Bool but annotated dim`);
+      }
       if (!dimEq(expected, result.dim)) {
         throw new Error(`${node.name}: return type mismatch (annotated [${JSON.stringify(expected)}] vs result [${JSON.stringify(result.dim)}])`);
       }
@@ -345,6 +495,7 @@ function loadFnDecl(decl, env) {
   // Store the AST + parameter info for later invocation. No type-check yet —
   // dimension annotations on params and return type are verified at call time.
   env.fns.set(decl.name, {
+    generics: decl.generics ?? [],
     params: decl.params,
     body: decl.body,
     returnType: decl.returnType,

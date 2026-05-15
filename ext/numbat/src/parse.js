@@ -98,7 +98,18 @@ export function parse(tokens, sourceName = '<input>') {
   function parseFn(decorators) {
     eat();  // 'fn'
     const nameTok = expectType('id', 'function name');
-    // No generics (`<T: Dim>`) in v0.3 — that's v0.4.
+    // Optional generic parameters: `<T: Dim, U: Dim>`. v0.4 supports the `Dim`
+    // kind; other kinds are parsed and stored but raise an error if used.
+    const generics = [];
+    if (atOp('<')) {
+      eat();
+      if (!atOp('>')) {
+        generics.push(parseGenericParam());
+        while (atOp(',')) { eat(); generics.push(parseGenericParam()); }
+      }
+      if (!atOp('>')) throw err(peek(), `expected '>' to close generic parameters`);
+      eat();
+    }
     expectOp('(');
     const params = [];
     if (!atOp(')')) {
@@ -113,8 +124,14 @@ export function parse(tokens, sourceName = '<input>') {
       eat();
       returnType = parseAddExpr();
     }
-    expectOp('=');
-    const body = parseExpr();
+    // The body is optional: a fn declared `fn abs<T: Dim>(x: T) -> T` (no `=`)
+    // is an *extern* declaration — its implementation lives in the host (our
+    // BUILTIN_FNS). Upstream uses this for math/list primitives.
+    let body = null;
+    if (atOp('=')) {
+      eat();
+      body = parseExpr();
+    }
     // Optional `where` clauses: `fn foo(x) = z where y = x * x and z = y * y`.
     // Each clause is `name = expr`, joined by the keyword `and`. Clauses are
     // evaluated in source order; each can reference parameters and prior
@@ -128,7 +145,18 @@ export function parse(tokens, sourceName = '<input>') {
         whereClauses.push(parseWhereClause());
       }
     }
-    return { type: 'FnDecl', name: nameTok.name, params, returnType, body, whereClauses, decorators };
+    return { type: 'FnDecl', name: nameTok.name, generics, params, returnType, body, whereClauses, decorators };
+  }
+
+  function parseGenericParam() {
+    const nameTok = expectType('id', 'generic parameter name');
+    let kind = 'Dim';
+    if (atOp(':')) {
+      eat();
+      const kindTok = expectType('id', "generic kind (e.g. 'Dim')");
+      kind = kindTok.name;
+    }
+    return { name: nameTok.name, kind };
   }
 
   function parseWhereClause() {
