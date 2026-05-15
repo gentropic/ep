@@ -5,7 +5,7 @@
 import { evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { applyInitialUI } from './view.js';
-import { bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram } from './storage.js';
+import { bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram, applyEphemeralUI } from './storage.js';
 import { openDrawer, closeDrawer } from './drawer.js';
 import { hasShareParam, consumeShareParam, adoptSharedProgram } from './share.js';
 import { startTutorial, isTutorialDone } from './tutorial.js';
@@ -23,6 +23,7 @@ function defaultBoot() {
   renderBody();
   renderResults();
   renderScenariosStrip();
+  applyEphemeralUI();
   if (!restored) {
     saveCurrentProgram({force: true});
   } else {
@@ -60,7 +61,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'n')                { e.preventDefault(); newProgram(); closeDrawer(); return; }
   if (k === 'o')                { e.preventDefault(); document.getElementById('fileInput').click(); return; }
-  if (k === 's')                { e.preventDefault(); saveCurrentProgram(); scheduleAutosave(); return; }
+  if (k === 's')                { e.preventDefault(); saveCurrentProgram(); return; }
   if (k === 'e')                { e.preventDefault(); document.getElementById('exportBtn').click(); return; }
   if (k === 'p' || k === 'k')   { e.preventDefault(); openDrawer({focusSearch: true}); return; }
 });

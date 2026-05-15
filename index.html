@@ -136,6 +136,12 @@ body {
   color: var(--sw-text-soft);
   margin-right: 2px;
 }
+.hdr-left .file.ephemeral { color: var(--sw-text); }
+.hdr-left .file.ephemeral::before {
+  content: '• ';
+  color: var(--sw-amber);
+  font-weight: 700;
+}
 .hdr-right { display: flex; gap: 4px; flex: 0 0 auto; }
 .hbtn {
   font-family: var(--sw-mono);
@@ -151,6 +157,12 @@ body {
 }
 .hbtn:active { background: var(--sw-bg-deep); }
 .hbtn.on { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
+.hbtn.save-ephemeral-btn {
+  background: var(--sw-amber);
+  color: var(--sw-bg-bright);
+  border-color: var(--sw-amber);
+}
+.hbtn.save-ephemeral-btn:hover { background: var(--sw-orange); border-color: var(--sw-orange); }
 
 /* Scenarios strip — horizontal chip scroller above the @params panel.
    Empty (display:none) unless the program has @params or saved scenarios. */
@@ -1071,6 +1083,7 @@ body {
       <span class="save-status" id="saveStatus"></span>
     </div>
     <div class="hdr-right">
+      <button class="hbtn save-ephemeral-btn" id="saveEphemeralBtn" style="display:none" title="Save this program to your saved list">save</button>
       <button class="hbtn" id="formBtn">form</button>
       <button class="hbtn" id="exportBtn">export</button>
       <input type="file" id="fileInput" accept=".ep,text/plain" style="display:none">
@@ -4406,6 +4419,13 @@ state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bod
 state.ui.scenarios       = state.ui.scenarios || {};        // { scenarioName: { paramName: valueSrc } }
 state.ui.activeScenario  = state.ui.activeScenario || null; // last-applied scenario name, or null
 
+// state._ephemeral: when true, autosave is disabled and the program isn't
+// persisted to localStorage until the user explicitly saves (Cmd+S or the
+// header save button). Set by example loads and "+ new program"; cleared by
+// any explicit save. Not under state.ui because it shouldn't round-trip
+// through .html / URL exports.
+state._ephemeral = false;
+
 function evaluateAll() {
   const oldByName = new Map(state.params.map(p => [p.name, p]));
   const r = evaluate(state.body);
@@ -4476,8 +4496,21 @@ let currentProgramName = 'ore_body';
 let saveStatusTimer = null;
 let autosaveTimer   = null;
 
-const hdrFileEl    = document.getElementById('hdrFile');
-const saveStatusEl = document.getElementById('saveStatus');
+const hdrFileEl       = document.getElementById('hdrFile');
+const saveStatusEl    = document.getElementById('saveStatus');
+const saveEphemeralBtn = document.getElementById('saveEphemeralBtn');
+
+// Updates the header UI to reflect whether the current program is ephemeral
+// (not yet committed to storage). Shows an amber "save" button + a dot on
+// the filename when ephemeral.
+function applyEphemeralUI() {
+  if (hdrFileEl) hdrFileEl.classList.toggle('ephemeral', !!state._ephemeral);
+  if (saveEphemeralBtn) saveEphemeralBtn.style.display = state._ephemeral ? '' : 'none';
+}
+
+if (saveEphemeralBtn) {
+  saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram());
+}
 
 function readStore() {
   try {
@@ -4518,6 +4551,9 @@ function showSaveStatus(status) {
 }
 
 function scheduleAutosave() {
+  // Ephemeral programs (examples / fresh untitled) don't autosave — the user
+  // commits them explicitly via Cmd+S or the header save button.
+  if (state._ephemeral) return;
   showSaveStatus('saving');
   if (autosaveTimer) clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => saveCurrentProgram(), 400);
@@ -4534,8 +4570,11 @@ function saveCurrentProgram(opts = {}) {
   writeStore(store);
   // Keep ep:current in sync — covers the case where an ephemeral example
   // load (which doesn't persist the name) gets promoted to a real saved
-  // program by the user's first edit.
+  // program by the user's first explicit save.
   try { localStorage.setItem(CURRENT_KEY, currentProgramName); } catch {}
+  // Explicit save commits the program — no longer ephemeral.
+  state._ephemeral = false;
+  applyEphemeralUI();
   showSaveStatus('saved');
   if (saveStatusTimer) clearTimeout(saveStatusTimer);
   saveStatusTimer = setTimeout(() => showSaveStatus(''), 1500);
@@ -4554,11 +4593,13 @@ function loadProgramByName(name) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = prog.scenarios || {};
   state.ui.activeScenario  = prog.activeScenario || null;
+  state._ephemeral         = false;
   setCurrentProgramName(name);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
+  applyEphemeralUI();
   window.dispatchEvent(new CustomEvent('ep:storage-changed'));
   return true;
 }
@@ -4579,12 +4620,13 @@ function newProgram() {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
-  setCurrentProgramName(name);
+  state._ephemeral         = true;     // ephemeral until first explicit save
+  setCurrentProgramName(name, false);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
-  saveCurrentProgram({force: true});
+  applyEphemeralUI();
 }
 
 // First non-blank `#` or `--` comment line — used as program description in
@@ -4622,6 +4664,7 @@ function bootProgramFromStorage() {
     state.ui.collapsedBlocks = [];
     state.ui.scenarios       = prog.scenarios || {};
     state.ui.activeScenario  = prog.activeScenario || null;
+    state._ephemeral         = false;
     setCurrentProgramName(stored, false);
     return true;
   }
@@ -5781,15 +5824,16 @@ function loadExample(example) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
-  // Pick a non-colliding slot now (so a future autosave doesn't overwrite
-  // an existing program with the same slug) but don't persist ep:current
-  // — that happens the first time autosave actually writes the record.
+  state._ephemeral         = true;
+  // Pick a non-colliding slot for when the user eventually commits, but
+  // don't persist ep:current — the example is ephemeral until then.
   setCurrentProgramName(uniqueProgramName(example.slug), false);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
   renderScenariosStrip();
+  applyEphemeralUI();
 }
 
 // ─── drawer.js ───────────────────────────────────────────────────
@@ -6504,6 +6548,7 @@ function defaultBoot() {
   renderBody();
   renderResults();
   renderScenariosStrip();
+  applyEphemeralUI();
   if (!restored) {
     saveCurrentProgram({force: true});
   } else {
@@ -6541,7 +6586,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'n')                { e.preventDefault(); newProgram(); closeDrawer(); return; }
   if (k === 'o')                { e.preventDefault(); document.getElementById('fileInput').click(); return; }
-  if (k === 's')                { e.preventDefault(); saveCurrentProgram(); scheduleAutosave(); return; }
+  if (k === 's')                { e.preventDefault(); saveCurrentProgram(); return; }
   if (k === 'e')                { e.preventDefault(); document.getElementById('exportBtn').click(); return; }
   if (k === 'p' || k === 'k')   { e.preventDefault(); openDrawer({focusSearch: true}); return; }
 });

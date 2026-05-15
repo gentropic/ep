@@ -127,6 +127,12 @@ body {
   color: var(--sw-text-soft);
   margin-right: 2px;
 }
+.hdr-left .file.ephemeral { color: var(--sw-text); }
+.hdr-left .file.ephemeral::before {
+  content: '• ';
+  color: var(--sw-amber);
+  font-weight: 700;
+}
 .hdr-right { display: flex; gap: 4px; flex: 0 0 auto; }
 .hbtn {
   font-family: var(--sw-mono);
@@ -142,6 +148,12 @@ body {
 }
 .hbtn:active { background: var(--sw-bg-deep); }
 .hbtn.on { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
+.hbtn.save-ephemeral-btn {
+  background: var(--sw-amber);
+  color: var(--sw-bg-bright);
+  border-color: var(--sw-amber);
+}
+.hbtn.save-ephemeral-btn:hover { background: var(--sw-orange); border-color: var(--sw-orange); }
 
 /* Scenarios strip — horizontal chip scroller above the @params panel.
    Empty (display:none) unless the program has @params or saved scenarios. */

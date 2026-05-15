@@ -17,6 +17,13 @@ state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bod
 state.ui.scenarios       = state.ui.scenarios || {};        // { scenarioName: { paramName: valueSrc } }
 state.ui.activeScenario  = state.ui.activeScenario || null; // last-applied scenario name, or null
 
+// state._ephemeral: when true, autosave is disabled and the program isn't
+// persisted to localStorage until the user explicitly saves (Cmd+S or the
+// header save button). Set by example loads and "+ new program"; cleared by
+// any explicit save. Not under state.ui because it shouldn't round-trip
+// through .html / URL exports.
+state._ephemeral = false;
+
 export function evaluateAll() {
   const oldByName = new Map(state.params.map(p => [p.name, p]));
   const r = evaluate(state.body);

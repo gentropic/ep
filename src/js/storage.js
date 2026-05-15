@@ -22,8 +22,21 @@ export let currentProgramName = 'ore_body';
 let saveStatusTimer = null;
 let autosaveTimer   = null;
 
-const hdrFileEl    = document.getElementById('hdrFile');
-const saveStatusEl = document.getElementById('saveStatus');
+const hdrFileEl       = document.getElementById('hdrFile');
+const saveStatusEl    = document.getElementById('saveStatus');
+const saveEphemeralBtn = document.getElementById('saveEphemeralBtn');
+
+// Updates the header UI to reflect whether the current program is ephemeral
+// (not yet committed to storage). Shows an amber "save" button + a dot on
+// the filename when ephemeral.
+export function applyEphemeralUI() {
+  if (hdrFileEl) hdrFileEl.classList.toggle('ephemeral', !!state._ephemeral);
+  if (saveEphemeralBtn) saveEphemeralBtn.style.display = state._ephemeral ? '' : 'none';
+}
+
+if (saveEphemeralBtn) {
+  saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram());
+}
 
 export function readStore() {
   try {
@@ -64,6 +77,9 @@ export function showSaveStatus(status) {
 }
 
 export function scheduleAutosave() {
+  // Ephemeral programs (examples / fresh untitled) don't autosave — the user
+  // commits them explicitly via Cmd+S or the header save button.
+  if (state._ephemeral) return;
   showSaveStatus('saving');
   if (autosaveTimer) clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => saveCurrentProgram(), 400);
@@ -80,8 +96,11 @@ export function saveCurrentProgram(opts = {}) {
   writeStore(store);
   // Keep ep:current in sync — covers the case where an ephemeral example
   // load (which doesn't persist the name) gets promoted to a real saved
-  // program by the user's first edit.
+  // program by the user's first explicit save.
   try { localStorage.setItem(CURRENT_KEY, currentProgramName); } catch {}
+  // Explicit save commits the program — no longer ephemeral.
+  state._ephemeral = false;
+  applyEphemeralUI();
   showSaveStatus('saved');
   if (saveStatusTimer) clearTimeout(saveStatusTimer);
   saveStatusTimer = setTimeout(() => showSaveStatus(''), 1500);
@@ -100,11 +119,13 @@ export function loadProgramByName(name) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = prog.scenarios || {};
   state.ui.activeScenario  = prog.activeScenario || null;
+  state._ephemeral         = false;
   setCurrentProgramName(name);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
+  applyEphemeralUI();
   window.dispatchEvent(new CustomEvent('ep:storage-changed'));
   return true;
 }
@@ -125,12 +146,13 @@ export function newProgram() {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
-  setCurrentProgramName(name);
+  state._ephemeral         = true;     // ephemeral until first explicit save
+  setCurrentProgramName(name, false);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
-  saveCurrentProgram({force: true});
+  applyEphemeralUI();
 }
 
 // First non-blank `#` or `--` comment line — used as program description in
@@ -168,6 +190,7 @@ export function bootProgramFromStorage() {
     state.ui.collapsedBlocks = [];
     state.ui.scenarios       = prog.scenarios || {};
     state.ui.activeScenario  = prog.activeScenario || null;
+    state._ephemeral         = false;
     setCurrentProgramName(stored, false);
     return true;
   }

@@ -3,7 +3,7 @@
 // (via uniqueProgramName), leaving the user's existing programs untouched.
 
 import { state, evaluateAll } from './state.js';
-import { uniqueProgramName, setCurrentProgramName } from './storage.js';
+import { uniqueProgramName, setCurrentProgramName, applyEphemeralUI } from './storage.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { renderScenariosStrip } from './scenarios.js';
 
@@ -139,13 +139,14 @@ export function loadExample(example) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
-  // Pick a non-colliding slot now (so a future autosave doesn't overwrite
-  // an existing program with the same slug) but don't persist ep:current
-  // — that happens the first time autosave actually writes the record.
+  state._ephemeral         = true;
+  // Pick a non-colliding slot for when the user eventually commits, but
+  // don't persist ep:current — the example is ephemeral until then.
   setCurrentProgramName(uniqueProgramName(example.slug), false);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
   renderScenariosStrip();
+  applyEphemeralUI();
 }
