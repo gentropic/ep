@@ -645,8 +645,27 @@ function parse(tokens, sourceName = '<input>') {
     }
     expectOp('=');
     const body = parseExpr();
-    // `where` clauses arrive in v0.3 step 4.
-    return { type: 'FnDecl', name: nameTok.name, params, returnType, body, decorators };
+    // Optional `where` clauses: `fn foo(x) = z where y = x * x and z = y * y`.
+    // Each clause is `name = expr`, joined by the keyword `and`. Clauses are
+    // evaluated in source order; each can reference parameters and prior
+    // clauses, and the body can reference all of them.
+    let whereClauses = null;
+    if (atKw('where')) {
+      eat();
+      whereClauses = [parseWhereClause()];
+      while (atKw('and')) {
+        eat();
+        whereClauses.push(parseWhereClause());
+      }
+    }
+    return { type: 'FnDecl', name: nameTok.name, params, returnType, body, whereClauses, decorators };
+  }
+
+  function parseWhereClause() {
+    const nameTok = expectType('id', 'where-clause binding name');
+    expectOp('=');
+    const expr = parseExpr();
+    return { name: nameTok.name, expr };
   }
 
   function parseFnParam() {
@@ -1044,7 +1063,8 @@ function evalCall(node, env) {
     for (let i = 0; i < userFn.params.length; i++) {
       fnValues.set(userFn.params[i].name, argVals[i]);
     }
-    const fnEnv = {
+    // Helper: rebuild env with the current fnValues snapshot.
+    const buildFnEnv = () => ({
       ...env,
       values: fnValues,
       lookupValue: (name) => {
@@ -1053,7 +1073,16 @@ function evalCall(node, env) {
         if (u) return new Quantity(u.mul, u.dim);
         return null;
       },
-    };
+    });
+    // Evaluate where clauses in declaration order; each clause sees the params
+    // and earlier clauses.
+    if (userFn.whereClauses) {
+      for (const clause of userFn.whereClauses) {
+        const v = evalValueExpr(clause.expr, buildFnEnv());
+        fnValues.set(clause.name, v);
+      }
+    }
+    const fnEnv = buildFnEnv();
     // Optional return-type check
     const result = evalValueExpr(userFn.body, fnEnv);
     if (userFn.returnType) {
@@ -1142,6 +1171,7 @@ function loadFnDecl(decl, env) {
     params: decl.params,
     body: decl.body,
     returnType: decl.returnType,
+    whereClauses: decl.whereClauses,
   });
 }
 

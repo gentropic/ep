@@ -190,7 +190,8 @@ function evalCall(node, env) {
     for (let i = 0; i < userFn.params.length; i++) {
       fnValues.set(userFn.params[i].name, argVals[i]);
     }
-    const fnEnv = {
+    // Helper: rebuild env with the current fnValues snapshot.
+    const buildFnEnv = () => ({
       ...env,
       values: fnValues,
       lookupValue: (name) => {
@@ -199,7 +200,16 @@ function evalCall(node, env) {
         if (u) return new Quantity(u.mul, u.dim);
         return null;
       },
-    };
+    });
+    // Evaluate where clauses in declaration order; each clause sees the params
+    // and earlier clauses.
+    if (userFn.whereClauses) {
+      for (const clause of userFn.whereClauses) {
+        const v = evalValueExpr(clause.expr, buildFnEnv());
+        fnValues.set(clause.name, v);
+      }
+    }
+    const fnEnv = buildFnEnv();
     // Optional return-type check
     const result = evalValueExpr(userFn.body, fnEnv);
     if (userFn.returnType) {
@@ -288,6 +298,7 @@ function loadFnDecl(decl, env) {
     params: decl.params,
     body: decl.body,
     returnType: decl.returnType,
+    whereClauses: decl.whereClauses,
   });
 }
 

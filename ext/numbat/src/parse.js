@@ -115,8 +115,27 @@ export function parse(tokens, sourceName = '<input>') {
     }
     expectOp('=');
     const body = parseExpr();
-    // `where` clauses arrive in v0.3 step 4.
-    return { type: 'FnDecl', name: nameTok.name, params, returnType, body, decorators };
+    // Optional `where` clauses: `fn foo(x) = z where y = x * x and z = y * y`.
+    // Each clause is `name = expr`, joined by the keyword `and`. Clauses are
+    // evaluated in source order; each can reference parameters and prior
+    // clauses, and the body can reference all of them.
+    let whereClauses = null;
+    if (atKw('where')) {
+      eat();
+      whereClauses = [parseWhereClause()];
+      while (atKw('and')) {
+        eat();
+        whereClauses.push(parseWhereClause());
+      }
+    }
+    return { type: 'FnDecl', name: nameTok.name, params, returnType, body, whereClauses, decorators };
+  }
+
+  function parseWhereClause() {
+    const nameTok = expectType('id', 'where-clause binding name');
+    expectOp('=');
+    const expr = parseExpr();
+    return { name: nameTok.name, expr };
   }
 
   function parseFnParam() {
