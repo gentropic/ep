@@ -1,21 +1,221 @@
-// All DOM rendering: input chips, body rows, output chips, results.
+// DOM rendering: input chips above, CodeMirror 6 editor + right-side results
+// gutter for the body, output chips below.
+//
+// Body model:
+//   The body is a CodeMirror 6 EditorView mounted in #body. Native undo/redo
+//   across the whole document, full keyboard navigation, multi-line selection
+//   all "just work." Per-line results render in CM6's right-side gutter via
+//   the gutter({side: 'after'}) extension, aligned 1:1 to source lines by CM6
+//   itself.
+//
+// Sync model:
+//   - body edit  → CM6 update listener splits doc by '\n', updates state.body,
+//                  evaluateAll, refreshes chip inputs and chip results. The
+//                  results gutter recomputes automatically via lineMarkerChange.
+//   - chip edit  → write-through to state.body[bodyIdx].src → evaluateAll →
+//                  dispatch a CM6 transaction reflecting the new doc. The
+//                  _syncingFromChip flag short-circuits the update listener so
+//                  we don't re-evaluate redundantly.
 
 import { state, evaluateAll } from './state.js';
 import { fmt } from './units.js';
 import { scheduleAutosave } from './storage.js';
 
-const chipsEl      = document.getElementById('chips');
-const outChipsEl   = document.getElementById('outChips');
-const bodyEl       = document.getElementById('body');
-const paramMetaEl  = document.getElementById('paramMeta');
-const outMetaEl    = document.getElementById('outMeta');
-// outputsPanel is owned by view.js; query it inline where needed to avoid a
-// duplicate top-level binding (flat scope after build).
+const chipsEl    = document.getElementById('chips');
+const outChipsEl = document.getElementById('outChips');
+const bodyEl     = document.getElementById('body');
+const paramMetaEl = document.getElementById('paramMeta');
+const outMetaEl   = document.getElementById('outMeta');
+
+let cmView = null;
+let _syncingFromChip = false;
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function resultMarkerHtml(lineIdx) {
+  const r = state.body[lineIdx];
+  if (!r) return null;
+  if (r.error) {
+    return { html: escapeHtml(r.error), cls: 'error' };
+  }
+  if (r.result) {
+    const [n, u] = fmt(r.result);
+    const isOutput = r.kind === 'binding' && state.outputs.includes(r.name);
+    const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
+    return { html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''), cls };
+  }
+  return null;
+}
+
+function mountCm6() {
+  const CM6 = globalThis.CM6;
+  if (!CM6) {
+    bodyEl.innerHTML = '<div style="padding:20px;color:var(--sw-red);font-family:var(--sw-mono);font-size:12px">CodeMirror 6 bundle not loaded.</div>';
+    return;
+  }
+
+  const {
+    EditorView, EditorState, keymap, history, historyKeymap,
+    gutter, GutterMarker, drawSelection, defaultKeymap,
+    StreamLanguage, syntaxHighlighting, HighlightStyle, tags,
+    foldGutter, foldKeymap, foldService,
+    bracketMatching, closeBrackets,
+  } = CM6;
+
+  // ── ep-script tokenizer (StreamLanguage) ────────────────────────
+  const KEYWORDS = /^(let|fn|if|then|else|where|dimension|unit|struct|use|to|per|and|or|not|true|false)\b/;
+  const CONSTANTS = /^(pi|tau|e|π|τ|φ)\b/;
+  const NUMBER   = /^[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9]+)?/;
+  const epLang = StreamLanguage.define({
+    name: 'ep-script',
+    token(stream) {
+      if (stream.eatSpace()) return null;
+      if (stream.match(/^#.*/))                                  return 'comment';
+      if (stream.match(/^--.*/))                                 return 'comment';
+      if (stream.match(/^@[a-zA-Z_][a-zA-Z0-9_]*/))              return 'meta';
+      if (stream.match(KEYWORDS))                                return 'keyword';
+      if (stream.match(CONSTANTS))                               return 'atom';
+      if (stream.match(NUMBER))                                  return 'number';
+      if (stream.match(/^"(\\.|[^"\\])*"/))                      return 'string';
+      if (stream.match(/^[A-Z][a-zA-Z0-9_]*/))                   return 'typeName';
+      if (stream.match(/^[a-zA-Z_][a-zA-Z0-9_]*/))               return 'variableName';
+      if (stream.match(/^(->|→|×|÷|−|≤|≥|≠|==|!=|<=|>=|\|>)/))   return 'operatorKeyword';
+      if (stream.match(/^[+\-*/^=<>!]/))                         return 'operator';
+      stream.next();
+      return null;
+    },
+    languageData: { commentTokens: { line: '#' } },
+  });
+
+  const epHighlight = HighlightStyle.define([
+    { tag: tags.comment,         color: 'var(--sw-text-soft)', fontStyle: 'italic' },
+    { tag: tags.lineComment,     color: 'var(--sw-text-soft)', fontStyle: 'italic' },
+    { tag: tags.meta,            color: 'var(--sw-orange)',    fontWeight: '700' },
+    { tag: tags.keyword,         color: 'var(--sw-orange)' },
+    { tag: tags.atom,            color: 'var(--sw-indigo)' },
+    { tag: tags.number,          color: 'var(--sw-text-mid)' },
+    { tag: tags.string,          color: 'var(--sw-teal)' },
+    { tag: tags.typeName,        color: 'var(--sw-teal)' },
+    { tag: tags.variableName,    color: 'var(--sw-text)' },
+    { tag: tags.operatorKeyword, color: 'var(--sw-orange)' },
+    { tag: tags.operator,        color: 'var(--sw-text-mid)' },
+  ]);
+
+  // Fold @params { ... } blocks via foldService. Returns the range from end
+  // of `@params {` line to before the matching `}` line; CM6's foldGutter
+  // renders a chevron next to lines with foldable content.
+  const epFold = foldService.of((state, lineStart, lineEnd) => {
+    const lineText = state.doc.sliceString(lineStart, lineEnd);
+    if (!/^\s*@params\s*\{\s*$/.test(lineText)) return null;
+    const openLineNo = state.doc.lineAt(lineStart).number;
+    for (let i = openLineNo + 1; i <= state.doc.lines; i++) {
+      const next = state.doc.line(i);
+      if (/^\s*\}\s*$/.test(next.text)) return { from: lineEnd, to: next.from - 1 };
+    }
+    return null;
+  });
+
+  // The result-gutter marker class. eq() lets CM6 skip DOM updates when the
+  // formatted result hasn't changed line-to-line.
+  class ResultMarker extends GutterMarker {
+    constructor(html, cls) { super(); this.html = html; this.cls = cls; }
+    eq(other) { return other && other.html === this.html && other.cls === this.cls; }
+    toDOM() {
+      const el = document.createElement('div');
+      el.className = 'ep-gutter-result' + (this.cls ? ' ' + this.cls : '');
+      el.innerHTML = this.html;
+      return el;
+    }
+  }
+
+  const resultGutter = gutter({
+    side: 'after',
+    class: 'ep-result-gutter',
+    lineMarker(view, line) {
+      const lineNo = view.state.doc.lineAt(line.from).number;  // 1-indexed
+      const m = resultMarkerHtml(lineNo - 1);
+      return m ? new ResultMarker(m.html, m.cls) : null;
+    },
+    lineMarkerChange() { return true; },
+  });
+
+  const initialDoc = state.body.map(r => r.src).join('\n');
+
+  bodyEl.innerHTML = '';
+  cmView = new EditorView({
+    state: EditorState.create({
+      doc: initialDoc,
+      extensions: [
+        epLang,
+        syntaxHighlighting(epHighlight),
+        bracketMatching(),
+        closeBrackets(),
+        foldGutter(),
+        epFold,
+        history(),
+        drawSelection(),
+        resultGutter,
+        keymap.of([
+          ...(historyKeymap || []),   // Mod-z / Mod-Shift-z / Mod-y
+          ...(foldKeymap || []),      // Cmd/Ctrl-Alt-[ / -] fold / unfold
+          ...(defaultKeymap || []),   // arrow keys, Home/End, word jumps, etc.
+        ]),
+        EditorView.updateListener.of((update) => {
+          if (!update.docChanged) return;
+          if (_syncingFromChip) return;
+          const text = update.state.doc.toString();
+          state.body = text.split('\n').map(src => ({src}));
+          evaluateAll();
+          syncChipInputsFromState();
+          renderChipResults();
+          renderOutputs();
+          scheduleAutosave();
+        }),
+        EditorView.theme({
+          '&': { height: '100%' },
+        }),
+      ],
+    }),
+    parent: bodyEl,
+  });
+
+  bodyEl.addEventListener('focusin', () => { state._lastFocused = cmView; });
+}
+
+function syncCmFromState() {
+  if (!cmView) return;
+  const text = state.body.map(r => r.src).join('\n');
+  const current = cmView.state.doc.toString();
+  if (current === text) return;
+  _syncingFromChip = true;
+  try {
+    cmView.dispatch({ changes: { from: 0, to: current.length, insert: text } });
+  } finally {
+    _syncingFromChip = false;
+  }
+}
+
+function syncChipInputsFromState() {
+  for (const p of state.params) {
+    if (!p._inputEl) continue;
+    if (p._inputEl === document.activeElement) continue;
+    if (p._inputEl.value !== p.valueSrc) p._inputEl.value = p.valueSrc;
+  }
+}
+
+// ── Chips ─────────────────────────────────────────────────────────
 
 export function renderChips() {
   chipsEl.innerHTML = '';
   state.params.forEach(p => {
-    const name = p.name;  // capture for closure stability across rebuilds
+    const name = p.name;
     const chip = document.createElement('div');
     chip.className = 'chip';
     chip.dataset.paramName = name;
@@ -30,19 +230,16 @@ export function renderChips() {
     inp.autocomplete = 'off';
     inp.dataset.paramName = name;
     inp.addEventListener('input', () => {
-      // Find this param by name (state.params may be rebuilt by evaluateAll)
       const cur = state.params.find(x => x.name === name);
       if (!cur) return;
       const bodyIdx = cur.bodyIdx;
-      // Write through to the body source line, preserving prefix up to and including `=`
       const line = state.body[bodyIdx];
       const eq = line.src.indexOf('=');
       line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + inp.value;
       evaluateAll();
-      // Update the corresponding body row's input value without a full re-render
-      const bodyRow = bodyEl.querySelector(`[data-body-idx="${bodyIdx}"] .row-src`);
-      if (bodyRow) bodyRow.value = state.body[bodyIdx].src;
-      renderResults();
+      syncCmFromState();
+      renderChipResults();
+      renderOutputs();
       scheduleAutosave();
     });
     inp.addEventListener('focus', () => { state._lastFocused = inp; });
@@ -50,138 +247,25 @@ export function renderChips() {
     res.className = 'chip-res';
     chip.append(lbl, inp, res);
     chipsEl.append(chip);
-    p._resEl = res;
+    p._resEl   = res;
+    p._inputEl = inp;
   });
-  paramMetaEl.textContent = `· ${state.params.length} input${state.params.length===1?'':'s'}`;
+  paramMetaEl.textContent = `· ${state.params.length} input${state.params.length === 1 ? '' : 's'}`;
 }
+
+// ── Body ──────────────────────────────────────────────────────────
 
 export function renderBody() {
-  bodyEl.innerHTML = '';
-  // Lines that belong to a collapsed block (after its open, up to and including its close) are skipped
-  const collapsedRanges = state._blocks
-    .filter(b => state.ui.collapsedBlocks.includes(b.open))
-    .map(b => ({open: b.open, close: b.close}));
-  const isHidden = i => collapsedRanges.some(r => i > r.open && i <= r.close);
-
-  state.body.forEach((r, i) => {
-    if (isHidden(i)) return;
-    makeRow(r, i);
-  });
-}
-
-// Find the block this row opens, if any
-function blockAt(i) {
-  return state._blocks.find(b => b.open === i) || null;
-}
-
-function makeRow(r, i) {
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.dataset.bodyIdx = String(i);
-  if (r.kind === 'comment')  row.classList.add('comment');
-  if (r.kind === 'outputs')  row.classList.add('directive');
-  if (r.inParams)            row.classList.add('in-block');
-
-  // Block-opening rows get a toggle chevron and a summary chip
-  const block = blockAt(i);
-  if (block) {
-    const collapsed = state.ui.collapsedBlocks.includes(i);
-    if (collapsed) row.classList.add('collapsed');
-    row.classList.add('in-block');  // visual cue on the opening line too
-    const toggle = document.createElement('span');
-    toggle.className = 'row-toggle';
-    toggle.textContent = '▾';
-    toggle.title = collapsed ? 'expand block' : 'collapse block';
-    toggle.addEventListener('mousedown', e => e.preventDefault());  // don't steal focus from active inputs
-    toggle.addEventListener('click', () => {
-      const cur = state.ui.collapsedBlocks;
-      const idx = cur.indexOf(i);
-      if (idx >= 0) cur.splice(idx, 1); else cur.push(i);
-      renderBody();
-    });
-    row.appendChild(toggle);
+  if (!cmView) {
+    mountCm6();
+    return;
   }
-
-  const src = document.createElement('input');
-  src.className = 'row-src';
-  src.value = r.src;
-  src.spellcheck = false;
-  src.autocapitalize = 'off';
-  src.autocomplete = 'off';
-  src.placeholder = i === state.body.length - 1 ? '…' : '';
-  src.addEventListener('input', () => {
-    r.src = src.value;
-    evaluateAll();
-    renderBody();
-    renderChips();
-    renderResults();
-    scheduleAutosave();
-    const newRow = bodyEl.querySelector(`[data-body-idx="${i}"]`);
-    if (newRow) {
-      const inp = newRow.querySelector('.row-src');
-      inp.focus();
-      inp.setSelectionRange(src.selectionStart, src.selectionEnd);
-    }
-  });
-  src.addEventListener('focus', () => { state._lastFocused = src; });
-  src.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // If this is a collapsed block opener, insert after the closing brace so the new row is visible
-      let insertAt = i + 1;
-      const blk = blockAt(i);
-      if (blk && state.ui.collapsedBlocks.includes(i)) {
-        insertAt = blk.close + 1;
-      }
-      state.body.splice(insertAt, 0, {src: ''});
-      evaluateAll();
-      renderBody();
-      renderChips();
-      renderResults();
-      scheduleAutosave();
-      const nextRow = bodyEl.querySelector(`[data-body-idx="${insertAt}"]`);
-      if (nextRow) nextRow.querySelector('.row-src').focus();
-    } else if (e.key === 'Backspace' && src.value === '' && state.body.length > 1) {
-      e.preventDefault();
-      state.body.splice(i, 1);
-      evaluateAll();
-      renderBody();
-      renderChips();
-      renderResults();
-      scheduleAutosave();
-      // Focus the nearest previous visible row
-      let prevIdx = i - 1;
-      let prev = null;
-      while (prevIdx >= 0) {
-        prev = bodyEl.querySelector(`[data-body-idx="${prevIdx}"]`);
-        if (prev) break;
-        prevIdx--;
-      }
-      if (prev) {
-        const inp = prev.querySelector('.row-src');
-        inp.focus();
-        inp.setSelectionRange(inp.value.length, inp.value.length);
-      }
-    }
-  });
-  const res = document.createElement('div');
-  res.className = 'row-res';
-  row.append(src, res);
-
-  // For collapsed block-opening rows, append a small summary
-  if (block && state.ui.collapsedBlocks.includes(i)) {
-    const summary = document.createElement('span');
-    summary.className = 'row-summary';
-    summary.innerHTML = `<span class="meta">…</span> ${block.count} input${block.count===1?'':'s'} <span class="meta">}</span>`;
-    row.append(summary);
-  }
-
-  bodyEl.append(row);
-  r._resEl = res;
-  r._rowEl = row;
+  syncCmFromState();
 }
 
-export function renderResults() {
+// ── Results ───────────────────────────────────────────────────────
+
+function renderChipResults() {
   for (const p of state.params) {
     if (!p._resEl) continue;
     if (p.error) {
@@ -196,25 +280,10 @@ export function renderResults() {
       p._resEl.textContent = '';
     }
   }
-  for (const r of state.body) {
-    if (!r._resEl) continue;
-    r._rowEl.classList.toggle('comment',   r.kind === 'comment');
-    r._rowEl.classList.toggle('directive', r.kind === 'outputs');
-    let isOutput = false;
-    if (r.kind === 'binding' && state.outputs.includes(r.name)) isOutput = true;
-    if (r.error) {
-      r._resEl.className = 'row-res error';
-      r._resEl.textContent = r.error;
-    } else if (r.result) {
-      const [n, u] = fmt(r.result);
-      const cls = 'row-res' + (r.kind === 'binding' ? (isOutput ? ' output' : ' binding') : '');
-      r._resEl.className = cls;
-      r._resEl.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
-    } else {
-      r._resEl.className = 'row-res';
-      r._resEl.textContent = '';
-    }
-  }
+}
+
+export function renderResults() {
+  renderChipResults();
   renderOutputs();
 }
 
@@ -222,7 +291,7 @@ export function renderOutputs() {
   outChipsEl.innerHTML = '';
   const panel = document.getElementById('outputsPanel');
   const names = state.outputs;
-  outMetaEl.textContent = `· ${names.length} result${names.length===1?'':'s'}`;
+  outMetaEl.textContent = `· ${names.length} result${names.length === 1 ? '' : 's'}`;
   if (!names.length) {
     panel.style.display = 'none';
     return;
@@ -247,8 +316,7 @@ export function renderOutputs() {
     } else {
       const [n, u] = fmt(q);
       val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
-      // Strip any thousands separators from the copyable text; keep unit
-      copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g,'^2').replace(/³/g,'^3') : '');
+      copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');
     }
     row.append(val);
 
@@ -263,7 +331,6 @@ export function renderOutputs() {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(copyText);
           } else {
-            // Fallback for non-secure contexts
             const ta = document.createElement('textarea');
             ta.value = copyText;
             ta.style.position = 'fixed';
@@ -276,7 +343,7 @@ export function renderOutputs() {
           btn.textContent = 'copied';
           btn.classList.add('copied');
           setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1200);
-        } catch (err) {
+        } catch {
           btn.textContent = 'err';
           setTimeout(() => { btn.textContent = 'copy'; }, 1200);
         }

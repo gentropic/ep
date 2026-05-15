@@ -37,9 +37,14 @@ const JS_DIR = join(SRC, 'js');
 // Co-located libraries: each entry has a build script and the resulting dist
 // file. ep's build invokes the build script then concatenates the dist into
 // the final index.html before its own sources.
+// Each entry: dist = built artifact to inline; build = optional builder
+// script (omitted means the dist is committed as a prebuilt artifact, e.g.
+// CM6's bundle which requires npm + rollup that we don't want in ep's main
+// build path).
 const VENDORS = [
   { build: 'ext/numbat/build.js', dist: 'ext/numbat/dist/numbat.js' },
   { build: 'ext/qrcode/build.js', dist: 'ext/qrcode/dist/qrcode.js' },
+  {                                dist: 'ext/cm6/cm6.min.js' },
 ];
 
 // Concat order for ep's own sources: dependencies before dependents.
@@ -98,6 +103,7 @@ function stripModules(src, file, opts = {}) {
 function buildVendors() {
   if (process.env.EP_SKIP_VENDOR_BUILD === '1') return;
   for (const v of VENDORS) {
+    if (!v.build) continue;  // prebuilt vendor (e.g., CM6 — rebuild via cd ext/cm6 && npm i && node build.js)
     const buildPath = join(ROOT, v.build);
     const r = spawnSync(process.execPath, [buildPath], { stdio: 'inherit' });
     if (r.status !== 0) throw new Error(`vendor build failed: ${v.build}`);

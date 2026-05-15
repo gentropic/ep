@@ -24,6 +24,17 @@ TOKENS.forEach(([cls, lbl, ins]) => {
   b.addEventListener('click', () => {
     const t = state._lastFocused;
     if (!t) return;
+    // CM6 EditorView: dispatch a transaction at the current selection.
+    if (t.dispatch && t.state && t.state.selection) {
+      const sel = t.state.selection.main;
+      t.dispatch({
+        changes:   { from: sel.from, to: sel.to, insert: ins },
+        selection: { anchor: sel.from + ins.length },
+      });
+      t.focus();
+      return;
+    }
+    // Plain input / textarea fallback (chip inputs).
     const start = t.selectionStart, end = t.selectionEnd;
     const v = t.value;
     t.value = v.slice(0, start) + ins + v.slice(end);

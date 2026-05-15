@@ -1,0 +1,112 @@
+// CM6 rollup entry — exports all symbols needed by ep (and auditable).
+// Bundled as IIFE exposing window.CM6.
+
+export {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightSpecialChars,
+  ViewPlugin,
+  Decoration,
+  WidgetType,
+  ViewUpdate,
+  drawSelection,
+  gutter,
+  GutterMarker,
+} from '@codemirror/view';
+
+export {
+  EditorState,
+  Compartment,
+  StateEffect,
+  StateField,
+  Transaction,
+} from '@codemirror/state';
+
+export {
+  minimalSetup,
+} from 'codemirror';
+
+export {
+  javascript,
+} from '@codemirror/lang-javascript';
+
+export {
+  css,
+} from '@codemirror/lang-css';
+
+export {
+  python,
+} from '@codemirror/lang-python';
+
+export {
+  html,
+} from '@codemirror/lang-html';
+
+export {
+  indentWithTab,
+  insertNewlineAndIndent,
+  toggleComment,
+  history,
+  historyKeymap,
+  defaultKeymap,
+  undo,
+  redo,
+} from '@codemirror/commands';
+
+export {
+  bracketMatching,
+  syntaxTree,
+  syntaxHighlighting,
+  HighlightStyle,
+  indentOnInput,
+  indentUnit,
+  StreamLanguage,
+  LanguageSupport,
+  Language,
+  defineLanguageFacet,
+  indentService,
+} from '@codemirror/language';
+
+export {
+  parseMixed,
+  Parser, NodeType, NodeSet, NodeProp, Tree,
+} from '@lezer/common';
+
+export {
+  closeBrackets,
+  acceptCompletion,
+} from '@codemirror/autocomplete';
+
+export {
+  autocompletion,
+  CompletionContext,
+} from '@codemirror/autocomplete';
+
+export {
+  tags,
+  styleTags,
+} from '@lezer/highlight';
+
+export {
+  openSearchPanel,
+  closeSearchPanel,
+  search,
+  searchKeymap,
+  highlightSelectionMatches,
+} from '@codemirror/search';
+
+export {
+  foldGutter,
+  foldKeymap,
+  foldAll,
+  unfoldAll,
+  foldCode,
+  foldService,
+} from '@codemirror/language';
+
+export {
+  linter,
+  lintGutter,
+} from '@codemirror/lint';

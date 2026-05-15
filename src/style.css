@@ -318,83 +318,93 @@ body {
 .show-source:hover .show-source-btn,
 .show-source:active .show-source-btn { color: var(--sw-text); }
 
-/* Body — the notepad */
+/* Body — CodeMirror 6 editor with a right-side results gutter. CM6 handles
+   undo/redo, navigation, word-jump, multi-line selection natively. Each
+   gutter row is aligned to its CM6 line by the gutter() extension. */
 .body {
   flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 8px 0 12px;
   background: var(--sw-bg);
   min-height: 80px;
-}
-.row {
   display: flex;
-  align-items: baseline;
-  padding: 3px 14px;
-  gap: 10px;
-  border-left: 2px solid transparent;
+  flex-direction: column;
+  overflow: hidden;
 }
-.row:focus-within {
-  background: var(--sw-bg-raised);
-  border-left-color: var(--sw-orange);
+.body .cm-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  outline: none;
+  background: var(--sw-bg);
+  color: var(--sw-text);
 }
-.row.comment   .row-src { color: var(--sw-text-soft); font-style: italic; }
-.row.directive .row-src { color: var(--sw-orange); }
-.row.in-block {
-  background: rgba(0, 0, 0, 0.025);
-}
-@media (prefers-color-scheme: dark) {
-  .row.in-block { background: rgba(255, 255, 255, 0.025); }
-}
-.row.in-block .row-src { color: var(--sw-text-mid); }
-
-/* Block toggle chevron, only present on block-opening rows */
-.row-toggle {
-  flex: 0 0 auto;
+.body .cm-editor.cm-focused { outline: none; }
+.body .cm-scroller {
   font-family: var(--sw-mono);
+  font-size: 14px;
+  line-height: 21px;
+}
+.body .cm-content {
+  padding: 8px 0;
+  caret-color: var(--sw-orange);
+}
+.body .cm-line {
+  padding: 0 14px;
+}
+.body .cm-selectionBackground,
+.body .cm-content ::selection {
+  background: rgba(181, 78, 26, 0.22);
+}
+.body .cm-cursor,
+.body .cm-dropCursor { border-left-color: var(--sw-orange); }
+.body .cm-gutters {
+  background: transparent;
+  border: none;
+  color: var(--sw-text-mid);
+}
+.body .cm-foldGutter {
   font-size: 11px;
-  width: 14px;
+  width: 16px;
+}
+.body .cm-foldGutter .cm-gutterElement {
   text-align: center;
   color: var(--sw-text-soft);
   cursor: pointer;
-  user-select: none;
-  margin-left: -4px;
-  transition: transform 100ms;
 }
-.row-toggle:hover { color: var(--sw-orange); }
-.row.collapsed .row-toggle { transform: rotate(-90deg); }
-.row-summary {
-  font-family: var(--sw-mono);
-  font-size: 11px;
+.body .cm-foldGutter .cm-gutterElement:hover { color: var(--sw-orange); }
+.body .cm-foldPlaceholder {
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 1px 6px;
+  margin: 0 4px;
   color: var(--sw-text-soft);
-  margin-left: 8px;
-  flex: 0 0 auto;
+  font-size: 11px;
 }
-.row-summary .meta { color: var(--sw-text-mid); }
-.row-src {
-  font-family: var(--sw-mono);
-  font-size: 14px;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--sw-text);
-  padding: 0;
-  flex: 1;
-  min-width: 0;
+.body .cm-matchingBracket {
+  background: rgba(181, 78, 26, 0.18);
+  outline: 1px solid var(--sw-orange);
+  border-radius: 2px;
 }
-.row-src::placeholder { color: var(--sw-text-soft); opacity: 0.6; }
-.row-res {
+.body .ep-result-gutter {
   font-family: var(--sw-mono);
-  font-size: 13px;
-  color: var(--sw-text-mid);
+  font-size: 12px;
   text-align: right;
+  min-width: 120px;
+}
+.body .ep-result-gutter .cm-gutterElement {
+  padding: 0 14px 0 8px;
+  line-height: 21px;
+  height: 21px;
+}
+.ep-gutter-result {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 45%;
+  line-height: 21px;
+  max-width: 100%;
 }
-.row-res .u    { color: var(--sw-teal); }
-.row-res.error { color: var(--sw-red); font-size: 11px; }
-.row-res.binding::before {
+.ep-gutter-result .u    { color: var(--sw-teal); }
+.ep-gutter-result.error { color: var(--sw-red); font-size: 11px; }
+.ep-gutter-result.binding::before {
   content: '';
   display: inline-block;
   width: 6px;
@@ -405,7 +415,7 @@ body {
   vertical-align: middle;
   opacity: 0.85;
 }
-.row-res.output::before {
+.ep-gutter-result.output::before {
   content: '';
   display: inline-block;
   width: 6px;

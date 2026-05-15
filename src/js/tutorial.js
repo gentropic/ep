@@ -44,15 +44,8 @@ const STEPS = [
   },
   {
     title: 'the chips are just source',
-    body: 'The @params { } block in the body is the chips above — edit either side and both update.',
-    target: () => {
-      const rows = document.querySelectorAll('#body .row');
-      for (const r of rows) {
-        const inp = r.querySelector('.row-src');
-        if (inp && /^\s*@params\s*\{/.test(inp.value)) return r;
-      }
-      return null;
-    },
+    body: 'The chips above mirror the @params { } block in the source below — edit either side and both update.',
+    target: () => document.getElementById('paramsPanel'),
     manual: true,
   },
   {
