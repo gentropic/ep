@@ -95,6 +95,52 @@ function mustBeDimensionless(q, fnName) {
   if (!dimEmpty(q.dim)) throw new Error(`${fnName}: argument must be dimensionless`);
 }
 
+// Variadic built-in procedures. Differ from BUILTIN_FNS in that they accept
+// an args array directly (so they can be 1/2/3-arg overloaded) and may return
+// a "void" sentinel — we use Quantity(0, {}) since v0.3 doesn't have a
+// dedicated Unit/Void type.
+const BUILTIN_PROCS = {
+  // assert(bool): error if false. Used by upstream test programs.
+  assert(args) {
+    if (args.length !== 1) throw new Error(`assert: expected 1 arg, got ${args.length}`);
+    const b = args[0];
+    if (typeof b !== 'boolean') throw new Error('assert: expected Bool argument');
+    if (!b) throw new Error('assertion failed');
+    return new Quantity(0, {});
+  },
+  // assert_eq(a, b)        — strict equality (same dim, same value)
+  // assert_eq(a, b, eps)   — approximate equality (|a - b| <= eps)
+  // Works on Quantity-vs-Quantity (with dim check) or Bool-vs-Bool.
+  assert_eq(args) {
+    if (args.length < 2 || args.length > 3) {
+      throw new Error(`assert_eq: expected 2 or 3 args, got ${args.length}`);
+    }
+    const [a, b, eps] = args;
+    if (typeof a === 'boolean' || typeof b === 'boolean') {
+      if (typeof a !== typeof b) throw new Error('assert_eq: cannot compare Bool with Quantity');
+      if (eps !== undefined) throw new Error('assert_eq: tolerance not meaningful for Bool');
+      if (a !== b) throw new Error(`assert_eq failed: ${a} ≠ ${b}`);
+      return new Quantity(0, {});
+    }
+    if (!dimEq(a.dim, b.dim)) {
+      throw new Error(`assert_eq: dim mismatch [${JSON.stringify(a.dim)}] vs [${JSON.stringify(b.dim)}]`);
+    }
+    if (eps === undefined) {
+      if (a.value !== b.value) {
+        throw new Error(`assert_eq failed: ${a.value} ≠ ${b.value}`);
+      }
+    } else {
+      if (!dimEq(a.dim, eps.dim)) {
+        throw new Error(`assert_eq: tolerance must have same dim as compared values`);
+      }
+      if (Math.abs(a.value - b.value) > eps.value) {
+        throw new Error(`assert_eq failed: |${a.value} - ${b.value}| = ${Math.abs(a.value - b.value)} > ${eps.value}`);
+      }
+    }
+    return new Quantity(0, {});
+  },
+};
+
 const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 
 export function evalValueExpr(node, env) {
@@ -226,6 +272,10 @@ function evalCall(node, env) {
       throw new Error(`${node.name}: built-in takes 1 argument, got ${node.args.length}`);
     }
     return builtin(evalValueExpr(node.args[0], env));
+  }
+  const proc = BUILTIN_PROCS[node.name];
+  if (proc) {
+    return proc(node.args.map(a => evalValueExpr(a, env)));
   }
   throw new Error(`unknown function: ${node.name}`);
 }
