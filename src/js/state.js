@@ -14,6 +14,8 @@ state._blockComplete = false;
 state._blocks = [];                              // [{open, close, kind, count}]
 state._lastFocused = null;                       // last focused chip/row input (for accessory bar)
 state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bodyIdx (persistable)
+state.ui.scenarios       = state.ui.scenarios || {};        // { scenarioName: { paramName: valueSrc } }
+state.ui.activeScenario  = state.ui.activeScenario || null; // last-applied scenario name, or null
 
 export function evaluateAll() {
   const oldByName = new Map(state.params.map(p => [p.name, p]));

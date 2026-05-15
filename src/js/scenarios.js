@@ -1,0 +1,231 @@
+// Param scenarios: named presets of @params values that the user can swap
+// between in one program. The strip above the @params panel renders one
+// chip per scenario plus a `+ scenario` chip to save the current values.
+//
+// Scenarios live on state.ui (so they round-trip through export and URL
+// share) and are persisted via storage.js's program record.
+
+import { state, evaluateAll } from './state.js';
+import { renderChips, renderBody, renderResults } from './render.js';
+import { saveCurrentProgram } from './storage.js';
+import { epPrompt, epConfirm } from './dialogs.js';
+import { attachLongPress, closeCtxMenu } from './ctxmenu.js';
+
+const stripEl = document.getElementById('scenariosStrip');
+
+function getScenarios()   { return state.ui.scenarios || (state.ui.scenarios = {}); }
+function getActive()      { return state.ui.activeScenario || null; }
+function setActive(name)  { state.ui.activeScenario = name || null; }
+
+// Snapshot the current @params chip values keyed by param name.
+function captureCurrentParams() {
+  const out = {};
+  for (const p of state.params) out[p.name] = p.valueSrc;
+  return out;
+}
+
+// Whether the active scenario's stored values still match the current params.
+// Returns true if any value diverges (dirty), false if everything matches.
+function isActiveDirty() {
+  const active = getActive();
+  if (!active) return false;
+  const sc = getScenarios()[active];
+  if (!sc) return true;  // active scenario no longer exists
+  for (const p of state.params) {
+    if (!(p.name in sc)) continue;
+    if (p.valueSrc !== sc[p.name]) return true;
+  }
+  return false;
+}
+
+async function saveCurrentAsNewScenario() {
+  if (state.params.length === 0) {
+    await epConfirm({
+      title: 'No params to capture',
+      message: 'Add an @params block first.',
+      okLabel: 'OK',
+    });
+    return;
+  }
+  const raw = await epPrompt({
+    title: 'Save scenario',
+    message: 'Capture the current parameter values under a name.',
+    label: 'name',
+    value: '',
+    okLabel: 'Save',
+  });
+  if (raw == null) return;
+  const name = String(raw).trim();
+  if (!name) return;
+  const scenarios = getScenarios();
+  scenarios[name] = captureCurrentParams();
+  setActive(name);
+  saveCurrentProgram({force: true});
+  renderScenariosStrip();
+}
+
+function overwriteActiveScenario() {
+  const active = getActive();
+  if (!active) return;
+  const scenarios = getScenarios();
+  scenarios[active] = captureCurrentParams();
+  saveCurrentProgram({force: true});
+  renderScenariosStrip();
+}
+
+export function applyScenario(name) {
+  const sc = getScenarios()[name];
+  if (!sc) return;
+  for (const p of state.params) {
+    if (!(p.name in sc)) continue;
+    const line = state.body[p.bodyIdx];
+    if (!line) continue;
+    const eq = line.src.indexOf('=');
+    if (eq < 0) continue;
+    line.src = line.src.slice(0, eq + 1) + ' ' + sc[p.name];
+  }
+  setActive(name);
+  evaluateAll();
+  renderChips();
+  renderBody();
+  renderResults();
+  saveCurrentProgram({force: true});
+  renderScenariosStrip();
+}
+
+async function renameScenario(oldName) {
+  const raw = await epPrompt({
+    title: 'Rename scenario',
+    label: 'name',
+    value: oldName,
+    okLabel: 'Rename',
+  });
+  if (raw == null) return;
+  const newName = String(raw).trim();
+  if (!newName || newName === oldName) return;
+  const scenarios = getScenarios();
+  if (scenarios[newName]) {
+    await epConfirm({
+      title: 'Name in use',
+      message: `A scenario named "${newName}" already exists.`,
+      okLabel: 'OK',
+    });
+    return;
+  }
+  scenarios[newName] = scenarios[oldName];
+  delete scenarios[oldName];
+  if (getActive() === oldName) setActive(newName);
+  saveCurrentProgram({force: true});
+  renderScenariosStrip();
+}
+
+async function deleteScenario(name) {
+  const ok = await epConfirm({
+    title: 'Delete scenario?',
+    message: `"${name}" will be removed. (The current @params values stay as-is.)`,
+    okLabel: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  const scenarios = getScenarios();
+  delete scenarios[name];
+  if (getActive() === name) setActive(null);
+  saveCurrentProgram({force: true});
+  renderScenariosStrip();
+}
+
+// Small ctx menu for scenario chips. Reuses .ctx-menu styling.
+function openScenarioMenu(name, x, y, opts = {}) {
+  closeCtxMenu();
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+
+  const mk = (label, fn, danger) => {
+    const b = document.createElement('button');
+    b.className = 'ctx-menu-item' + (danger ? ' danger' : '');
+    b.textContent = label;
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      closeCtxMenu();
+      fn();
+    });
+    return b;
+  };
+
+  menu.appendChild(mk('rename', () => renameScenario(name)));
+  const sep = document.createElement('div');
+  sep.className = 'ctx-menu-sep';
+  menu.appendChild(sep);
+  menu.appendChild(mk('delete', () => deleteScenario(name), true));
+
+  document.body.appendChild(menu);
+  // ctxmenu's openCtxMenuEl bookkeeping is private — best we do here is
+  // let the global escape / scroll handlers close any stray menu via the
+  // close mechanism (which removes any .ctx-menu we appended).
+  // Position
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = opts.alignRight ? x - mw : x;
+  let top  = y;
+  if (left + mw > vw - 8) left = vw - mw - 8;
+  if (left < 8)           left = 8;
+  if (top + mh > vh - 8)  top = y - mh - 8;
+  if (top < 8)            top = 8;
+  menu.style.left = left + 'px';
+  menu.style.top  = top + 'px';
+
+  // Close on outside click — one-shot.
+  const onDocClick = (e) => {
+    if (!menu.contains(e.target)) {
+      menu.remove();
+      window.removeEventListener('click', onDocClick, true);
+    }
+  };
+  setTimeout(() => window.addEventListener('click', onDocClick, true), 0);
+}
+
+export function renderScenariosStrip() {
+  if (!stripEl) return;
+  stripEl.innerHTML = '';
+
+  const scenarios = getScenarios();
+  const names = Object.keys(scenarios);
+  const active = getActive();
+  const dirty = isActiveDirty();
+
+  // Hide entirely when there are no @params and no saved scenarios.
+  if (state.params.length === 0 && names.length === 0) {
+    stripEl.style.display = 'none';
+    return;
+  }
+  stripEl.style.display = '';
+
+  for (const name of names) {
+    const chip = document.createElement('button');
+    chip.className = 'scenario-chip' + (name === active && !dirty ? ' active' : '');
+    chip.textContent = name;
+    chip.addEventListener('click', () => applyScenario(name));
+    attachLongPress(chip, (px, py) => openScenarioMenu(name, px, py));
+    stripEl.appendChild(chip);
+  }
+
+  // `+ scenario` (or "save 'X'" if the active scenario is dirty).
+  if (state.params.length > 0) {
+    const add = document.createElement('button');
+    add.className = 'scenario-chip add';
+    if (active && dirty) {
+      add.textContent = `save ${active}`;
+      add.title = `Overwrite scenario "${active}" with the current values`;
+      add.addEventListener('click', overwriteActiveScenario);
+    } else {
+      add.textContent = '+ scenario';
+      add.title = 'Save the current @params values as a scenario';
+      add.addEventListener('click', saveCurrentAsNewScenario);
+    }
+    stripEl.appendChild(add);
+  }
+}
+
+// Re-render the strip whenever params or storage state changes.
+window.addEventListener('ep:storage-changed', renderScenariosStrip);
+window.addEventListener('ep:params-changed',  renderScenariosStrip);

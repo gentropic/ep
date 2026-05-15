@@ -1,7 +1,12 @@
 // Program persistence and autosave.
 //
 // Schema:
-//   localStorage["ep:programs"] = { [name]: {body: string[], updatedAt: ms} }
+//   localStorage["ep:programs"] = { [name]: {
+//     body: string[],
+//     updatedAt: ms,
+//     scenarios?: { [scenarioName]: { [paramName]: valueSrc } },
+//     activeScenario?: string,
+//   } }
 //   localStorage["ep:current"]  = name
 //
 // readStore() and writeStore() are the only two functions to swap if the
@@ -69,6 +74,8 @@ export function saveCurrentProgram(opts = {}) {
   store[currentProgramName] = {
     body: state.body.map(r => r.src),
     updatedAt: Date.now(),
+    scenarios: state.ui.scenarios || {},
+    activeScenario: state.ui.activeScenario || null,
   };
   writeStore(store);
   showSaveStatus('saved');
@@ -87,6 +94,8 @@ export function loadProgramByName(name) {
   if (!prog) return false;
   state.body = (prog.body || []).map(src => ({src}));
   state.ui.collapsedBlocks = [];
+  state.ui.scenarios       = prog.scenarios || {};
+  state.ui.activeScenario  = prog.activeScenario || null;
   setCurrentProgramName(name);
   evaluateAll();
   renderChips();
@@ -110,6 +119,8 @@ export function newProgram() {
     {src: '@outputs { y }'},
   ];
   state.ui.collapsedBlocks = [];
+  state.ui.scenarios       = {};
+  state.ui.activeScenario  = null;
   setCurrentProgramName(name);
   evaluateAll();
   renderChips();
@@ -148,8 +159,11 @@ export function bootProgramFromStorage() {
   try { stored = localStorage.getItem(CURRENT_KEY); } catch {}
   const store = readStore();
   if (stored && store[stored]) {
-    state.body = (store[stored].body || []).map(src => ({src}));
+    const prog = store[stored];
+    state.body = (prog.body || []).map(src => ({src}));
     state.ui.collapsedBlocks = [];
+    state.ui.scenarios       = prog.scenarios || {};
+    state.ui.activeScenario  = prog.activeScenario || null;
     setCurrentProgramName(stored, false);
     return true;
   }

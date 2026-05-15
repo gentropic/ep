@@ -189,6 +189,7 @@ function mountCm6() {
             else                                syncChipInputsFromState();
             renderChipResults();
             renderOutputs();
+            window.dispatchEvent(new CustomEvent('ep:params-changed'));
             scheduleAutosave();
           } catch (e) {
             // Never let an evaluator hiccup wedge CM6's update cycle.
@@ -257,6 +258,7 @@ export function renderChips() {
       syncCmFromState();
       renderChipResults();
       renderOutputs();
+      window.dispatchEvent(new CustomEvent('ep:params-changed'));
       scheduleAutosave();
     });
     inp.addEventListener('focus', () => { state._lastFocused = inp; });

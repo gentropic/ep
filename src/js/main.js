@@ -9,6 +9,7 @@ import { bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgra
 import { openDrawer, closeDrawer } from './drawer.js';
 import { hasShareParam, consumeShareParam, adoptSharedProgram } from './share.js';
 import { startTutorial, isTutorialDone } from './tutorial.js';
+import { renderScenariosStrip } from './scenarios.js';
 import './accessory.js';
 import './export.js';
 import './io.js';
@@ -21,6 +22,7 @@ function defaultBoot() {
   renderChips();
   renderBody();
   renderResults();
+  renderScenariosStrip();
   if (!restored) {
     saveCurrentProgram({force: true});
   } else {

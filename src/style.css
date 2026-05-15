@@ -143,6 +143,50 @@ body {
 .hbtn:active { background: var(--sw-bg-deep); }
 .hbtn.on { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
 
+/* Scenarios strip — horizontal chip scroller above the @params panel.
+   Empty (display:none) unless the program has @params or saved scenarios. */
+.scenarios-strip {
+  background: var(--sw-bg-raised);
+  border-bottom: 1px solid var(--sw-border);
+  padding: 6px 8px;
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 0 0 auto;
+}
+.scenarios-strip::-webkit-scrollbar { display: none !important; height: 0 !important; }
+.scenario-chip {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  color: var(--sw-text-mid);
+  padding: 5px 10px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.scenario-chip:hover {
+  border-color: var(--sw-orange);
+  color: var(--sw-text);
+}
+.scenario-chip.active {
+  background: var(--sw-orange);
+  color: var(--sw-bg-bright);
+  border-color: var(--sw-amber);
+}
+.scenario-chip.add {
+  border-style: dashed;
+  color: var(--sw-text-soft);
+}
+.scenario-chip.add:hover {
+  color: var(--sw-orange);
+}
+
 /* Panel (params + outputs share this) */
 .panel {
   background: var(--sw-bg-raised);
