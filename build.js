@@ -39,6 +39,7 @@ const JS_DIR = join(SRC, 'js');
 // the final index.html before its own sources.
 const VENDORS = [
   { build: 'ext/numbat/build.js', dist: 'ext/numbat/dist/numbat.js' },
+  { build: 'ext/qrcode/build.js', dist: 'ext/qrcode/dist/qrcode.js' },
 ];
 
 // Concat order for ep's own sources: dependencies before dependents.

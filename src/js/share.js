@@ -7,10 +7,12 @@
 //
 // We don't vendor lz-string because CompressionStream is now universal in
 // evergreen browsers and our base64url alphabet is URL-safe by construction.
+// QR rendering uses the vendored encoder in ext/qrcode/.
 
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { uniqueProgramName, setCurrentProgramName, saveCurrentProgram } from './storage.js';
+import { encodeQR, qrToSvg } from '../../ext/qrcode/dist/qrcode.js';
 
 const PARAM_KEY = 'p';
 
@@ -74,6 +76,18 @@ export async function consumeShareParam() {
   catch (e) { console.warn('share-url decode failed:', e); }
   history.replaceState(null, '', location.pathname);
   return text;
+}
+
+// Render a URL (or any text) as an inline SVG QR code. Picks ECC level M
+// for a balance of density and error tolerance. Returns an SVG string.
+export function qrSvgFor(text, opts = {}) {
+  const qr = encodeQR(text, { ecc: opts.ecc || 'M' });
+  return qrToSvg(qr, {
+    moduleSize: opts.moduleSize || 4,
+    margin:     opts.margin     ?? 2,
+    foreground: opts.foreground || 'currentColor',
+    background: opts.background || 'none',
+  });
 }
 
 // Load a shared program as a fresh storage slot named "shared", "shared_2", etc.

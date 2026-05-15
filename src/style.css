@@ -573,6 +573,18 @@ body {
   color: var(--sw-text);
   width: 100%;
 }
+.share-qr {
+  margin: 8px auto 0;
+  padding: 10px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--sw-text);
+}
+.share-qr svg { display: block; max-width: 100%; height: auto; }
 .dialog-row {
   display: flex;
   gap: 8px;

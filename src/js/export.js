@@ -4,7 +4,7 @@
 
 import { state } from './state.js';
 import { currentProgramName } from './storage.js';
-import { generateShareUrl } from './share.js';
+import { generateShareUrl, qrSvgFor } from './share.js';
 
 const scrim         = document.getElementById('scrim');
 const exportBtn     = document.getElementById('exportBtn');
@@ -16,6 +16,7 @@ const shareBtn      = document.getElementById('shareBtn');
 const shareRow      = document.getElementById('shareRow');
 const shareUrlEl    = document.getElementById('shareUrl');
 const shareLenEl    = document.getElementById('shareLen');
+const shareQrEl     = document.getElementById('shareQr');
 const exportSrcEl   = document.getElementById('exportSrc');
 const exportNameEl  = document.getElementById('exportName');
 
@@ -30,6 +31,7 @@ exportBtn.addEventListener('click', () => {
   shareRow.style.display = 'none';
   shareUrlEl.value = '';
   shareLenEl.textContent = '';
+  shareQrEl.innerHTML = '';
   scrim.classList.add('on');
 });
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
@@ -92,6 +94,12 @@ shareBtn.addEventListener('click', async () => {
     shareRow.style.display = '';
     shareUrlEl.value = url;
     shareLenEl.textContent = `· ${url.length} chars`;
+    try {
+      shareQrEl.innerHTML = qrSvgFor(url, {moduleSize: 4, margin: 2});
+    } catch (e) {
+      // Payload too big for the largest QR version — show a note and continue with the link only.
+      shareQrEl.innerHTML = `<span style="font-size:10px;color:var(--sw-text-soft)">QR: ${e.message}</span>`;
+    }
     if (navigator.share) {
       try {
         await navigator.share({title: 'ep program', text: `ep program: ${currentProgramName || 'untitled'}`, url});
