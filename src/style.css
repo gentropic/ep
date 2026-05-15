@@ -487,24 +487,32 @@ body {
  * !important on the gutter AND its cells overrides CM6's intrinsic
  * sizing so the body wraps at a constant width regardless of content.
  *
- * Inner ep-gutter-result truncates with ellipsis; the marker's title
- * attribute (and the §4.2 in-source underline) preserve the full text. */
+ * Width is sized for short values (e.g. "80,000 m³", "2.7 g/cm³"), not
+ * for full error text. Errors get ellipsis-truncated; the full text is
+ * still accessible via the marker's title attribute (and the §4.2
+ * in-source underline tooltip).
+ *
+ * Sized via a CSS variable so the breakpoints below can tighten it on
+ * narrow viewports without repeating the rule. */
+.body {
+  --ep-gutter-w: 120px;
+}
 .body .ep-result-gutter {
   font-family: var(--sw-mono);
   font-size: 12px;
   text-align: right;
-  width: 180px !important;
-  min-width: 180px !important;
-  max-width: 180px !important;
-  flex: 0 0 180px !important;
+  width: var(--ep-gutter-w) !important;
+  min-width: var(--ep-gutter-w) !important;
+  max-width: var(--ep-gutter-w) !important;
+  flex: 0 0 var(--ep-gutter-w) !important;
   box-sizing: border-box;
 }
 .body .ep-result-gutter .cm-gutterElement {
-  padding: 0 14px 0 8px;
+  padding: 0 10px 0 6px;
   line-height: 21px;
   height: 21px;
-  width: 180px !important;
-  max-width: 180px !important;
+  width: var(--ep-gutter-w) !important;
+  max-width: var(--ep-gutter-w) !important;
   overflow: hidden;
   white-space: nowrap;
   box-sizing: border-box;
@@ -516,6 +524,15 @@ body {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* Narrow screens — tighten further so the body content has room to breathe. */
+@media (max-width: 720px) {
+  .body { --ep-gutter-w: 90px; }
+}
+@media (max-width: 480px) {
+  .body { --ep-gutter-w: 72px; }
+  .body .ep-result-gutter .cm-gutterElement { padding: 0 4px 0 4px; }
+  .ep-gutter-result.error { font-size: 10px; }
 }
 .ep-gutter-result {
   display: block;
