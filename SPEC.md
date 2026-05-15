@@ -4,9 +4,9 @@
 
 The language ep-script is **Numbat-shaped** — syntax inspired by [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT) — with deliberate simplifications and two form-builder directives (`@params`, `@outputs`) original to ep.
 
-**Status:** pre-0.1. This document describes what the working mock proves and what production should preserve. Expect drift during implementation.
+**Status:** 0.1-shaped. The Phase 1–3 plan from earlier versions of this doc has landed: source-split build, CodeMirror 6 editor, full numbat-js evaluator co-located under `ext/numbat/`, drawer + multi-program persistence, URL+QR sharing, examples library, scenarios, viewer-only export. What was design substrate is now working artifact. Sections below are annotated with **Shipped** / **Future** where useful.
 
-**Working artifact:** `index.html` in this folder is the program. Vanilla JS, ~1700 LOC, no dependencies. When sources are split for development (see *File layout* below), this file will be produced by `build.js` from `src/` rather than edited directly. Read it alongside this doc.
+**Working artifact:** `index.html` at the repo root is the deployed program (~1.3 MB single file — most of that is the inlined CM6, numbat-js, and the embedded viewer template). Built by `build.js` from `src/` and `ext/`. Read alongside this doc; when it disagrees with the doc, the code wins. The Enhancements roadmap section at the bottom remains the primary source for design rationale on individual features.
 
 ---
 
@@ -28,13 +28,13 @@ ep is *not*:
 
 ## Two views, one source
 
-The same program has two presentations:
+The same program has three presentations:
 
-**Designer view.** What the program author sees. Editor body shows the full source. `@params { }` block is visible as text with a chevron to collapse it; chips appear above as an editing affordance for the inputs. `@outputs { }` directive is visible as text; chips appear below for the results. Accessory bar of tokens/units sits at the bottom.
+**Designer view.** What the program author sees. CodeMirror 6 editor body shows the full source with syntax highlighting + fold gutter for `@params` blocks. Chips above for `@params` inputs; chips below for `@outputs` results, each with copy buttons. Right-side gutter shows per-line results aligned to source lines. Accessory bar of tokens/units sits at the bottom.
 
-**Form view.** What a consumer of the program sees. Editor body is hidden behind a "show calculation" toggle. Big input chips at top, big output chips at bottom with copy buttons. Accessory bar hidden. This is what the exported `.html` opens to by default.
+**Form view.** What a consumer of the program sees inside the designer. Same artifact, but the editor body is hidden behind a "show calculation" toggle. Big chips top and bottom. Accessory bar hidden. Toggled via the `form / editor` button in the header.
 
-A `form / editor` toggle in the header flips between them in the designer; exported HTML respects the same flag.
+**Viewer artifact.** The `.html` export is a separate, slimmer artifact (~280 KB vs ~1.3 MB for the designer) built from `src/viewer-template.html`. It includes only the chip rendering pipeline + numbat-js evaluator — no CM6, no drawer, no share, no editor toggle. The source is locked behind a "show calculation" reveal that's read-only. This is the "purpose-built calculator for one program" delivery format.
 
 ---
 
@@ -53,12 +53,17 @@ A `form / editor` toggle in the header flips between them in the designer; expor
 |---|---|
 | binding | `volume = length * width * thickness` |
 | typed binding | `density : Density = 2.7 g/cm3` |
+| `let` binding | `let volume = length * width * thickness` (alias for bare binding) |
 | anonymous expression | `area * 2` (shows result; doesn't bind) |
 | comment | `# explanation` or `-- explanation` |
+| `fn` declaration | `fn compound(p, r, n) = p * (1 + r)^n` |
+| `if`/`then`/`else` | `kicker = if future > threshold then 0.05 * future else 0` (expression-level) |
+| `dimension` decl | `dimension Frequency = 1 / Time` |
+| `unit` decl | `unit hertz: Frequency = 1 / second` |
 | `@params { … }` block | reactive input panel (multi-line) |
-| `@outputs { names }` directive | output panel selection (single line) |
+| `@outputs { … }` directive | output panel selection (single line or multi-line; each name takes an optional `: unit`) |
 
-No `let`, no `fn`, no `if/then/else` statement form, no `while`/`for`, no `return`. The language is pure expressions plus directives.
+Multi-line `fn` bodies, `struct` declarations, `where` clauses across multiple lines, and `use module::path` aren't supported at the line classifier level yet. `where` clauses on single-line `fn` definitions work.
 
 ### Expressions
 
@@ -140,13 +145,22 @@ Programs without an `@params { }` block don't show a top chip panel. Naked bindi
 
 ### `@outputs { … }` directive
 
-A single line listing names of bindings to promote to the output panel:
+Lists names of bindings to promote to the output panel. Single-line or multi-line; each name optionally takes a `: unit` display override.
 
 ```ep
-@outputs { tonnage, metal, metal_oz }
+@outputs { tonnage, metal, metal_oz }            # single-line, no overrides
+
+@outputs {                                       # multi-line, with overrides
+  volume:   ft^3,
+  tonnage:  Mt,
+  metal:    kg,
+  pressure: lb/ft^2,
+}
 ```
 
-The block is purely a layout directive — it doesn't define or modify the named bindings, just promotes them to the bottom chip panel where each gets a copy button. Names must refer to existing bindings; missing names show as `undefined` in the output chip.
+The block is purely a layout + display directive — it doesn't define or modify the named bindings, just promotes them to the bottom chip panel where each gets a copy button. Names must refer to existing bindings; missing names show as `undefined` in the output chip.
+
+When a unit is provided, both the output chip and the binding's right-gutter result render in that unit. The unit text is resolved as a Numbat expression — compound forms like `ft^3`, `kg/m^2`, `lb/ft^3`, `km/h` work without needing pre-registered aliases. Dimension-mismatch errors surface on the affected chip.
 
 Programs without an `@outputs { }` directive don't show a bottom panel.
 
@@ -167,23 +181,13 @@ Bindings are visible to all subsequent statements in source order.
 
 ### Scope
 
-Single global scope. No `let`-locals, no function scope (because no `fn` yet).
-
-When `fn` lands (deferred to a later version), function parameters and `let` bindings inside fn bodies will form local scopes. Top-level scope visibility rules will be unchanged.
+Single global scope at the program level. `fn` parameters and any `let` bindings inside an `fn` body form local scopes (numbat-js handles this).
 
 ### Reactivity / evaluation order
 
-Programs are evaluated as a DAG:
+ep evaluates the program top-to-bottom: each line resolves against the bindings defined above it. There's no topological sort or DAG analysis — on any edit, the whole program re-runs. With the numbat-js tree-walker this stays cheap at calculator scale.
 
-1. Parse all bindings (params, body, output names).
-2. Resolve names — each binding's body references zero or more other bindings.
-3. Topologically sort. Cycles detected and reported.
-4. Evaluate in order.
-5. On any source edit: identify the transitive downstream set of changed bindings; re-evaluate only those.
-
-Identical to auditable's notebook reactivity model. Users coming from auditable need no new mental model.
-
-**Current mock:** does full-recompute on every edit. Production should do incremental DAG reactivity (see *Performance future* below).
+A real incremental DAG (re-evaluate only the transitive downstream set of a changed binding) is in the Performance section below; not built and not gating any current use case.
 
 ### Errors
 
@@ -217,19 +221,18 @@ The body source is the single source of truth. Chip panels are views.
 
 ### Collapsible blocks
 
-Block-opening rows (e.g., `@params {`) carry a chevron toggle. Tapping it collapses the block to its opening line plus a summary (`@params { … 5 inputs }`); chevron rotates. Tapping again expands. Per-block collapse state lives in `state.ui.collapsedBlocks` and survives export.
-
-The mechanism is generic — when `fn name() = { … }` or other multi-line forms land, they get the same affordance for free.
+`@params {` lines are foldable in the CM6 editor via the left-side fold gutter (chevron next to the line). Fold state isn't persisted yet — refresh expands. Body-side fold for other multi-line blocks (`fn` etc.) when those land.
 
 ### Export
 
-Three formats from the export dialog:
+Four outputs from the export dialog:
 
-- **`.ep` source** — plain text of `state.body`. Round-trips back through `open`/drag-drop without loss.
-- **`.html` standalone** — self-cloning HTML. The page reads its own `outerHTML`, replaces the `INITIAL_STATE` block (delimited by `/* MARKER:STATE_START */` / `/* MARKER:STATE_END */` sentinels), and offers the result as a download. The exported file is structurally identical to ep itself, with the program baked in as initial state and `formView: true` set as default UI. No PWA manifest, no service worker — it's a single HTML file that opens with double-click on any platform.
-- *(future)* QR-shareable form via `@gcu/pointer` — not implemented; gated on the broader GCU asset addressing work.
+- **`.ep` source** — plain text of `state.body`. Round-trips back through `open` / drag-drop without loss.
+- **`.html` viewer** — a slim purpose-built artifact built from `src/viewer-template.html` (~280 KB). Only includes numbat-js + chip rendering + a read-only "show calculation" reveal. No CM6 editor, no drawer, no share, no export buttons. Locked to form view. The state markers (`/* MARKER:STATE_START */` / `/* MARKER:STATE_END */`) preserve the substitution contract; the viewer template lives embedded in ep's main bundle as a `const VIEWER_HTML = "…"` string so export is single-pass with no extra fetches.
+- **`🔗 link`** — `?p=<base64url-encoded(deflate-raw(source))>` URL on the current origin. Uses native `CompressionStream` (no vendored compression lib). Copies to clipboard or routes through `navigator.share` on mobile.
+- **`📷 QR`** — inline SVG QR code for the same URL, rendered by the vendored encoder under `ext/qrcode/`. Implements ISO/IEC 18004 Model 2, all 40 versions, ECC L/M/Q/H.
 
-The `.html` export is the killer feature. The pitch is: *you wrote a calculation once; now your colleague opens it as a form you can edit and read but can't accidentally break.*
+The `.html` viewer is the killer feature. The pitch: *you wrote a calculation once; now your colleague opens it as a form they can drive but can't accidentally re-author. The math is verifiable but the surface is locked.*
 
 ### Import / load
 
@@ -241,7 +244,7 @@ Three input paths, all feeding the same `loadProgramText(text, sourceName)`:
 
 Load wholesale-replaces `state.body`, discards stale collapse state, re-evaluates, and updates the header filename (extension stripped).
 
-**Not implemented but worth adding:** an "unsaved changes" warning before clobbering a modified program. For mock-grade this was skipped; for production it's the right move.
+The chip ↔ source sync also recovers from mid-edit malformed states: if the user briefly empties a chip (so the underlying line momentarily fails the binding regex), the evaluator's @params branch keeps the param bound with an `empty expression` error rather than dropping it. Once the user types a valid value, the chip flows through cleanly.
 
 ---
 
@@ -257,15 +260,23 @@ Numbat is the upstream syntactic reference. ep-script adopts:
 - Optional `:` type annotations
 - Dimension naming conventions (`Length`, `Mass`, etc.)
 
-ep-script deliberately diverges on:
+ep-script supports (via the co-located numbat-js evaluator):
 
-- **No `let` keyword.** Bindings are `name = expr`. The scratch-pad form feel matters; every required keyword is friction for the calculator audience.
-- **No type annotations on parameters of `fn`** (when `fn` lands). Numbat has them; ep won't unless it earns its keep.
-- **No generics, no monomorphization.** Numbat has dimension generics (`fn my_sqrt<T: Dim>(q: T^2) -> T = q^(1/2)`). ep doesn't, for v1.
-- **Dropped:** Numbat's `where`, `|>` pipe, modules (`use`), dimension definitions, unit definitions, decorators (`@aliases`, `@metric_prefixes`), strings, datetime, lists. All future-extensible if a real use case pulls.
-- **Added:** `@params { }` and `@outputs { }` directives, which are ep's actual differentiation. Both are syntactically harmless extensions — a Numbat-only subset of an ep program is valid Numbat.
+- Bare `name = expr` bindings, plus optional `let` keyword (same shape).
+- `fn name(args) [: ReturnType] = body [where … = …]` — single-line.
+- `if cond then a else b` at the expression level.
+- `dimension Name = expr` and `unit name [: Dim] = expr` declarations.
+- Generics on `fn` (e.g., `fn my_sqrt<T: Dim>(q: T^2) -> T = q^(1/2)`) — numbat-js handles solving generics by free-abelian-group unification. ep classifies the line and hands it to numbat-js.
+- Numbat's full library of math/transcendental functions, plus all the vendored modules under `ext/numbat/vendor/numbat/modules/` available via `use module::path` once the line classifier learns it.
 
-A program written in ep that doesn't use `@params` or `@outputs` should round-trip through Numbat without modification. A Numbat program with no generics, no unit definitions, and no module imports should parse in ep. Full feature compatibility is *not* a goal, but syntactic kinship is.
+ep-script still diverges on:
+
+- **Multi-line `fn` bodies** — the line classifier only recognizes single-line `fn name(args) = body`. Multi-line bodies (`fn foo(x) =\n  long\n  expression`) aren't classified yet.
+- **`struct` declarations** — not classified at the line level; would need block-aware parsing.
+- **`use module::path`** — classified but not yet wired to the host's module registry. The host has all 62 upstream modules vendored; surfacing them needs a host-side `registerModule` call when `use` is seen.
+- **Added directives:** `@params { }` and `@outputs { }` — ep's actual differentiation. Multi-line `@outputs` with per-name `: unit` overrides is ep-specific syntax.
+
+A program written in ep that doesn't use `@params` or `@outputs` should round-trip through Numbat without modification. Full feature compatibility is the de-facto outcome of the numbat-js migration; remaining gaps (multi-line blocks, struct decls, module imports) are line-classifier ergonomics, not evaluator gaps.
 
 ### Originator courtesy
 
@@ -277,29 +288,19 @@ README must credit Numbat prominently in its first paragraph. Suggested wording:
 
 ---
 
-## Implementation plan
+## Implementation status
 
-ep is already the working artifact. The "0.1" target is hardening what exists in `index.html` and refactoring for maintainability — not graduating to a different repo.
+The Phase 1–3 plan from earlier versions of this doc has all landed:
 
-### Phase 1 (path to 0.1)
+- **Source split + build script** — `src/template.html`, `src/style.css`, `src/js/*.js`, plus a second `src/viewer-template.html` for the export artifact. Zero-deps `build.js` at the repo root concatenates them into `index.html`. Two vendor builds run as prerequisites (`ext/numbat/build.js`, `ext/qrcode/build.js`) and a third (`ext/cm6/build.js`) produces the CM6 bundle from npm-installed sources on demand. `node_modules/` is gitignored under `ext/cm6/`; the prebuilt `cm6.min.js` is committed.
+- **CodeMirror 6 editor** — vendored from auditable's pattern, ~597 KB IIFE bundle. Syntax highlighting via a StreamLanguage for ep-script (comments, `@directives`, keywords, type names, constants, operators). Fold gutter for `@params { }` blocks. Bracket matching + auto-close. `EditorView.lineWrapping` so long lines don't trigger horizontal scroll.
+- **numbat-js** — full port under `ext/numbat/`, drives expression evaluation. All 62 upstream Numbat modules vendored as strings; 345+ tests pass. ep's own evaluator is now ~180 LOC: classify the line, route through numbat-js's tokenize + parse + evalValueExpr.
 
-| step | rough effort |
-|---|---|
-| Split sources for development (`src/template.html` + `src/style.css` + `src/js/*.js`) with a small `build.js` that concatenates them into a single `index.html`. No bundler, no transpile. Preserve the `/* MARKER:STATE_… */` self-cloning contract through the build. | 1 evening |
-| Vendor CodeMirror 6 under `ext/cm6/` and replace `<input>` rows with a real editor — syntax highlighting, multi-line wrapping, proper editor affordances. Inline at build time. | 1 day |
-| Pre-0.1 polish: error message quality (match Numbat's bar), edge cases, mobile keyboard ergonomics, save-confirm dialog before clobbering an unsaved program. | 1 day |
+Things deferred to "when use cases pull":
 
-### Phase 2 (post-0.1, language features)
-
-- Incremental DAG reactivity (see *Performance future* below)
-- `fn name(args) = expr` function definitions (~50 LOC)
-- `if(cond, a, b)` as expression (~30 LOC)
-- `iter`, `solve`, `root`, `integrate` primitives (~150 LOC)
-- Lists + `map`/`filter`/`reduce` (~200 LOC)
-
-### Phase 3 (numbat-js, co-located in this repo)
-
-Full Numbat port to JS lives under `ext/numbat/` in this repo, not in a separate package. ep is the primary consumer and feature-driver, and ep's single-file ship constraint shapes the library's API more than any other potential consumer's. Can fork into its own repo (e.g. `gentropic-org/numbat-js`) once the surface stabilizes. ep adopts it transparently when ready since the syntax is already compatible — at that point the inline `UNITS` table + `Q` class in the built `index.html` get replaced by inlined code from `ext/numbat/`.
+- **Incremental DAG reactivity** — see Performance section below.
+- **`iter` / `solve` / `root` / `integrate` primitives** — numbat-js doesn't have these upstream; would need to add. Out of scope until calculator-scale programs hit walls.
+- **Lists + `map`/`filter`/`reduce`** — numbat-js has these via the upstream `core::lists` module. Surfacing them needs `use core::lists` wired in the host.
 
 ---
 
@@ -351,57 +352,78 @@ If a feature here turns out to be load-bearing, that's a signal ep isn't the rig
 
 ## Open questions
 
-These are the decisions that haven't been forced yet. Worth being explicit before they get answered by accident.
+What's still genuinely undecided. Items answered by the implementation have been removed; see the Enhancements roadmap below for everything else marked **Future**.
 
-- **Functions.** `fn name(args) = expr` is the natural next addition. Format-builder use cases mostly don't need them (the form *is* a function, in a sense). Worth waiting for a real user request rather than speculating.
 - **`@outputs` UI for adding/removing.** Currently you edit the `@outputs { … }` directive line directly. A pin icon on each binding row to toggle "include in output panel" is the natural gesture but isn't implemented.
-- **Error message quality.** Numbat sets a high bar (multi-line traces with both operands' dimensions, span pointers). The mock does the basic version. Production should match.
-- **Save-on-edit / autosave.** Programs currently exist only in-memory unless exported. An IndexedDB-backed autosave + recent-files list is a natural Phase 2 addition; could vendor or mirror auditable's VFS layer if one materializes there first.
-- **Form-view-only export.** Currently the exported `.html` is a full clone of the designer with `formView: true` defaulted on. Power-users can hit "editor" and modify the program. For some use cases (handing a sealed form to a consumer), a strip-the-editor option would be wanted. Not urgent.
+- **Error message quality.** numbat-js produces single-line errors with location info. Numbat upstream sets a higher bar (multi-line traces with both operands' dimensions, span pointers). ep could improve this when token spans get wired into the gutter.
+- **IndexedDB migration.** localStorage works fine for current use cases (~5 MB quota, programs are small). The `readStore` / `writeStore` seam is ready for IDB; the migration trigger is snapshots (§7.4) landing.
+- **Module discovery.** numbat-js has all 62 upstream modules vendored, but ep's line classifier doesn't yet recognize `use module::path` to bring them into scope. Could surface them via a "modules" section in the drawer, or just auto-import the math + physics constants set into every program.
 
 ---
 
 ## File layout
 
-This repo is the ship target. The single-file artifact lives at the root; sources split for development:
-
 ```
 ep/
   README.md
-  SPEC.md              ← this document
+  SPEC.md                  ← this document
   LICENSE
   .gitignore
-  build.js             ← concatenates src/ into index.html, no deps
-  index.html           ← built artifact; served at gentropic.org/ep
+  package.json             ← scripts only ("build", "test"), no deps
+  build.js                 ← zero-deps; concatenates src/ + ext/ into index.html
+  dev.html                 ← optional dev shell, loads src/ as native ES modules
+  index.html               ← built artifact; served at gentropic.org/ep
+  dist/                    ← gitignored; build emits dist/viewer.html here
+
   src/
-    template.html      ← <head>, body skeleton, STATE markers
-    style.css          ← Switchboard tokens + ep-specific
+    template.html          ← editor body + STATE markers
+    viewer-template.html   ← viewer artifact's HTML scaffold
+    style.css              ← Switchboard tokens + ep-specific styles
     js/
-      main.js          ← entry point (concat order matters)
-      state.js
-      units.js         ← thin re-export from ext/numbat/ once Phase 3 lands
-      parser.js
-      evaluator.js
-      chips.js
-      editor.js
-      export.js
-      import.js
-      menu.js
-      init.js
+      main.js              ← editor entry point
+      viewer-main.js       ← viewer entry point
+      state.js             ← state singleton + evaluateAll()
+      units.js             ← adapter re-exporting numbat-js primitives
+      evaluator.js         ← classify + parseAnno + evaluate()
+      render.js            ← chip + CM6 editor rendering
+      storage.js           ← persistence + autosave + draft slot + ephemeral
+      share.js             ← URL share encode/decode + QR rendering
+      dialogs.js           ← in-app epConfirm / epPrompt
+      ctxmenu.js           ← long-press + program context menu
+      drawer.js            ← hamburger drawer + saved programs list
+      scenarios.js         ← named @params presets
+      examples.js          ← built-in starter programs
+      tutorial.js          ← first-launch walkthrough
+      accessory.js         ← bottom token bar
+      view.js              ← form / editor toggle, panel collapse
+      export.js            ← .ep / .html / link dialog
+      io.js                ← file picker + drag-and-drop
+
   ext/
-    cm6/               ← vendored CodeMirror 6 (Phase 1)
-    numbat/            ← co-located numbat-js port (Phase 3)
+    cm6/                   ← vendored CodeMirror 6 (rebuilds via npm + rollup)
+      cm6.min.js           ← committed prebuilt bundle
+      entry.mjs            ← rollup entry — exports the symbols ep uses
+      build.js / package.json / rollup.config.mjs
+    numbat/                ← co-located numbat-js (full port + 62 upstream modules)
+      src/, dist/, test/, vendor/numbat/modules/, build.js
+    qrcode/                ← vendored ISO/IEC 18004 QR encoder
+      qrcode.js, dist/, test/, build.js
+
+  test/
+    units.test.js          ← ep adapter tests
+    evaluator.test.js      ← ep evaluator + classify tests
+
   prior-art/
     ep-mock-rpn.html       ← retired stack-mode prototype
     ep-mock-notepad.html   ← intermediate notepad pass
     ep-mock.html           ← original keypad pass
 ```
 
-Until Phase 1's source-split lands, `index.html` at the root is edited directly.
+`npm run build` is `node build.js`; `npm test` is `node --test`. Both zero-dep at the ep level; CM6's vendor build needs `npm install` under `ext/cm6/` to rebuild the bundle (the bundle is committed so this is only needed when updating CM6).
 
 ---
 
-*Document originated in design conversation, May 2026. Will drift during implementation; treat as snapshot rather than spec-as-law.*
+*Document originated in design conversation, May 2026; revised through 0.1 implementation. Treat as snapshot rather than spec-as-law — when the doc disagrees with `index.html`, the code wins.*
 
 ---
 
@@ -413,9 +435,9 @@ Items are grouped by category; within each category they're roughly ordered by v
 
 ---
 
-## 1. Drawer / menu / persistence
+## 1. Drawer / menu / persistence — **Shipped**
 
-The hamburger drawer, multi-program storage, and autosave indicator are the first wave of post-v0.1 features. Reference this section when iterating on persistence behavior.
+The hamburger drawer, multi-program storage, autosave indicator, ephemeral state model, and draft slot persistence are all live. Reference this section when iterating on persistence behavior.
 
 ### 1.1 Hamburger drawer
 
@@ -481,9 +503,9 @@ Drag a `.ep` file onto the window. An orange-bordered scrim appears with "DROP .
 
 ---
 
-## 2. High-value polish — recommended first wave
+## 2. High-value polish — **Shipped** (except where noted)
 
-These are small additions that meaningfully improve the experience without changing the design's shape. Implement in any order.
+All of 2.1–2.4 are live. Soft-delete-with-undo was deliberately skipped.
 
 ### 2.1 Keyboard shortcuts (S)
 
@@ -532,9 +554,11 @@ Falls back to the same `document.execCommand('copy')` path as the output-chip co
 
 ---
 
-## 3. URL sharing + QR generation
+## 3. URL sharing + QR generation — **Shipped** (§3.1–§3.6); pointer-based addressing (§3.7) is **Future**
 
-This is the highest-leverage workflow feature in ep beyond the drawer. Detailed because it has subtleties.
+The killer feature beyond the drawer. Implementation notes below remain useful for tweaking encoding choices or QR sizing.
+
+A small divergence from the spec: ep uses the browser-native `CompressionStream` (deflate-raw) rather than vendoring lz-string. Saves ~3 KB of bundle and works in every browser ep targets. Decoder accepts both compressed and plain base64url payloads.
 
 ### 3.1 The mechanism
 
@@ -620,11 +644,9 @@ ep resolves the pointer through the GCU pointer registry instead of decoding inl
 
 ---
 
-## 4. Editing affordances
+## 4. Editing affordances — §4.1 / §4.3 **Shipped**; §4.2, §4.4 **Future**
 
-Improvements to the body editor that make day-to-day editing better.
-
-### 4.1 Syntax highlighting (M)
+### 4.1 Syntax highlighting — **Shipped** (M)
 
 Currently the body uses plain `<input>` rows. Replace with a vendored CodeMirror 6 under `ext/cm6/` and provide a Numbat-shaped highlighter.
 
@@ -646,7 +668,7 @@ When evaluation produces an error with a span (column range in the source), unde
 
 Parser already tracks token positions; just isn't exposed in the AST yet.
 
-### 4.3 Auto-pair brackets/braces (S)
+### 4.3 Auto-pair brackets/braces — **Shipped** (S)
 
 In the body editor (and the `@params { }` block specifically), typing `(`, `[`, `{` inserts the matching close character with the cursor in the middle. Typing the close character when the next char is already that close just moves the cursor past. Backspace at the empty pair deletes both.
 
@@ -701,21 +723,19 @@ Read `navigator.language` on boot. Pick decimal/thousands separators accordingly
 
 Implementation lives in `fmtNum`; everything else flows through it.
 
-### 5.4 Format directive in source (M)
+### 5.4 Format directive — **Superseded** by @outputs unit specs (M)
 
-A new top-level directive:
+The originally-designed `@format { name: "0.00 unit" }` directive was superseded by the simpler approach of putting unit overrides directly on the `@outputs` directive:
 
 ```ep
-@format {
-  tonnage: "0.0 t"
-  grade:   "0.000 g/t"
-  metal:   "0 kg"
+@outputs {
+  tonnage: t,
+  grade:   g/t,
+  metal:   kg,
 }
 ```
 
-Patterns use the standard `0.00`/`#,##0.00` notation. When an output name matches a key in the directive, its display ignores auto-scale and global precision and follows the pattern instead.
-
-Useful for reports where specific outputs need consistent representation across runs ("always show tonnage in t, always show grade in g/t to 3 decimals").
+This handles the "show this in a specific unit" case (the dominant use case) without introducing a new directive. The precision / pattern aspect of the original `@format` design is still **Future** — would need §5.2 sig-digits work to land first.
 
 ### 5.5 Live preview smoothing (S)
 
@@ -725,11 +745,9 @@ Tiny change, big polish gain.
 
 ---
 
-## 6. Discoverability + onboarding
+## 6. Discoverability + onboarding — §6.1 / §6.4 **Shipped**; §6.2, §6.3 **Future**
 
-Help new users figure out what ep is for. Help returning users find what they want.
-
-### 6.1 Examples section in the drawer (S)
+### 6.1 Examples section in the drawer — **Shipped** (S)
 
 A read-only section at the bottom of the saved-programs list (or as a separate drawer tab) with pre-made example programs. Tapping an example loads it as a new untitled program — the example itself stays unchanged.
 
@@ -741,7 +759,7 @@ Starter set:
 - **Projectile range** — physics-shaped, demonstrates trig
 - **Pendulum period** — from the Numbat tutorial (with credit), demonstrates units in physics
 
-Examples live in source — embedded in the bundle as `examples: { name: source }`, not in storage. Loading an example copies it into storage as a new program named e.g. `tonnage_example`.
+Examples live in `src/js/examples.js` as an EXAMPLES array. Loading an example creates an **ephemeral** in-memory program (no storage write) so browsing the library doesn't pollute the saved-programs list. The first explicit save commits the example to storage under a unique slug.
 
 ### 6.2 Drawer sort options (S)
 
@@ -759,7 +777,7 @@ Long-press menu gains a `pin` / `unpin` item. Pinned programs sort to the top of
 
 Useful when one program ("our standard QAQC checklist") is the daily-driver and ten others are one-off scratchpads.
 
-### 6.4 First-launch tutorial (M)
+### 6.4 First-launch tutorial — **Shipped** (M)
 
 On absolute-first launch (no entry in `ep:installedAt`), instead of going straight to the demo program, run a brief interactive walkthrough. ep's UI is unusual enough that a 60-second tour materially improves the conversion rate from "curious visitor" to "actual user."
 
@@ -792,11 +810,9 @@ Useful when iterating on the same calc against several scenarios. `length = 200 
 
 Stored as `store[name].paramHistory = { length: ["200 m", "350 m", ...], ... }`. Capped at 5 entries per param.
 
-### 7.2 Inline error messages on chip-edit (S)
+### 7.2 Inline error messages on chip-edit — **Shipped** (S)
 
-When a chip produces an error (invalid value, dimension mismatch with an annotation), show the error inline within the chip itself rather than only down in the body. The chip's result line (currently the right-side preview) goes red and shows the error.
-
-Same data, more visible. The chip is where the user's eye is when they edit it.
+The chip's right-side preview (`.chip-res`) goes red and shows the error message when the binding fails. Implemented in `renderChipResults()` in `src/js/render.js`.
 
 ### 7.3 Annotation auto-suggest (M)
 
@@ -837,7 +853,7 @@ store.programs["ore_body"] = {
 
 **Why this matters specifically for geologists.** Resource estimation workflows iterate dozens of times on the same calculation — different cutoffs, different assumptions, different bulk densities. The current "always overwrites" model is hostile to that workflow. Snapshots let users explore branches and come back without losing state.
 
-### 7.5 Param scenarios (S)
+### 7.5 Param scenarios — **Shipped** (S)
 
 Distinct from snapshots: a scenario saves a named set of `@params` values within one program, not the whole program history. Lets one program serve multiple cases.
 
@@ -855,9 +871,9 @@ store.programs["ore_body"] = {
 }
 ```
 
-**UI.** A small horizontal scroller above the `@params` panel showing scenario chips. Each chip is the scenario name. Tap to swap all params to that scenario's values. The currently-active scenario chip is highlighted in `--sw-orange`. A `+` chip at the end opens a "save current as scenario..." dialog (uses `epPrompt`).
+**UI.** A horizontal scroller above the `@params` panel showing scenario chips. The strip is **hidden by default** — first-scenario creation happens via the drawer's per-program `⋯` menu ("save scenario…"). Once at least one scenario exists for the program, the strip appears with its own `+ scenario` chip for adding more.
 
-When the user edits a param after selecting a scenario, the active-scenario chip goes back to unhighlighted, indicating "you're now off-scenario." Optional: a tiny "save changes to scenario" link surfaces in that state.
+Tap a chip to swap all params to that scenario's values. The currently-active scenario chip is highlighted in `--sw-orange`. When the user edits a param after selecting a scenario, the active chip un-highlights and an amber `save <name>` chip appears alongside `+ scenario` so the user can either overwrite the active scenario or capture a new one.
 
 **Workflow this serves.** A geologist analyzing three different deposits with the same calculation — the math is identical, only the inputs differ. Currently they'd have three separate programs (`ore_body_pirita`, `ore_body_carajas`, ...) which fragment the calculation across multiple files and make updates painful. Scenarios consolidate them into one program with three preset configurations.
 
