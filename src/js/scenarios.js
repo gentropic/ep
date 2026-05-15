@@ -38,7 +38,7 @@ function isActiveDirty() {
   return false;
 }
 
-async function saveCurrentAsNewScenario() {
+export async function saveCurrentAsNewScenario() {
   if (state.params.length === 0) {
     await epConfirm({
       title: 'No params to capture',
@@ -193,8 +193,11 @@ export function renderScenariosStrip() {
   const active = getActive();
   const dirty = isActiveDirty();
 
-  // Hide entirely when there are no @params and no saved scenarios.
-  if (state.params.length === 0 && names.length === 0) {
+  // Strip is opt-in: hidden until the program has at least one saved
+  // scenario. First-scenario creation is reachable from the drawer's
+  // per-program ⋯ menu ("save scenario…"); after that, the strip's own
+  // `+ scenario` chip handles further saves.
+  if (names.length === 0) {
     stripEl.style.display = 'none';
     return;
   }

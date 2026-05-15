@@ -6,6 +6,7 @@
 
 import { epConfirm, epPrompt } from './dialogs.js';
 import { readStore, writeStore, currentProgramName, setCurrentProgramName, loadProgramByName, newProgram } from './storage.js';
+import { saveCurrentAsNewScenario } from './scenarios.js';
 
 let openCtxMenuEl = null;
 
@@ -41,6 +42,13 @@ export function openProgramMenu(name, x, y, opts = {}) {
 
   menu.appendChild(mk('rename',    () => renameProgram(name)));
   menu.appendChild(mk('duplicate', () => duplicateProgram(name)));
+  menu.appendChild(mk('save scenario…', () => {
+    // Switch to the program first if needed, then prompt for a scenario name.
+    // Scenarios capture the current @params values into a per-program preset.
+    if (name !== currentProgramName) loadProgramByName(name);
+    window.dispatchEvent(new CustomEvent('ep:close-drawer'));
+    setTimeout(() => saveCurrentAsNewScenario(), 0);
+  }));
   menu.appendChild(mk('export',    () => {
     // Switch to the program first if needed, then open the export dialog.
     if (name !== currentProgramName) loadProgramByName(name);

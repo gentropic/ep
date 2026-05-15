@@ -5193,6 +5193,13 @@ function openProgramMenu(name, x, y, opts = {}) {
 
   menu.appendChild(mk('rename',    () => renameProgram(name)));
   menu.appendChild(mk('duplicate', () => duplicateProgram(name)));
+  menu.appendChild(mk('save scenario…', () => {
+    // Switch to the program first if needed, then prompt for a scenario name.
+    // Scenarios capture the current @params values into a per-program preset.
+    if (name !== currentProgramName) loadProgramByName(name);
+    window.dispatchEvent(new CustomEvent('ep:close-drawer'));
+    setTimeout(() => saveCurrentAsNewScenario(), 0);
+  }));
   menu.appendChild(mk('export',    () => {
     // Switch to the program first if needed, then open the export dialog.
     if (name !== currentProgramName) loadProgramByName(name);
@@ -5882,8 +5889,11 @@ function renderScenariosStrip() {
   const active = getActive();
   const dirty = isActiveDirty();
 
-  // Hide entirely when there are no @params and no saved scenarios.
-  if (state.params.length === 0 && names.length === 0) {
+  // Strip is opt-in: hidden until the program has at least one saved
+  // scenario. First-scenario creation is reachable from the drawer's
+  // per-program ⋯ menu ("save scenario…"); after that, the strip's own
+  // `+ scenario` chip handles further saves.
+  if (names.length === 0) {
     stripEl.style.display = 'none';
     return;
   }
