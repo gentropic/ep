@@ -186,6 +186,15 @@ body {
 .scenario-chip.add:hover {
   color: var(--sw-orange);
 }
+.scenario-chip.save {
+  background: transparent;
+  border-color: var(--sw-amber);
+  color: var(--sw-amber);
+}
+.scenario-chip.save:hover {
+  background: var(--sw-amber);
+  color: var(--sw-bg-bright);
+}
 
 /* Panel (params + outputs share this) */
 .panel {

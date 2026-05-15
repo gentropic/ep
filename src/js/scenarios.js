@@ -209,19 +209,25 @@ export function renderScenariosStrip() {
     stripEl.appendChild(chip);
   }
 
-  // `+ scenario` (or "save 'X'" if the active scenario is dirty).
   if (state.params.length > 0) {
+    // When the active scenario is dirty, surface an overwrite chip alongside
+    // the always-present "+ new scenario" chip — both affordances stay
+    // reachable so the user can either save changes to the active scenario
+    // OR capture them as a brand-new scenario.
+    if (active && dirty) {
+      const save = document.createElement('button');
+      save.className = 'scenario-chip save';
+      save.textContent = `save ${active}`;
+      save.title = `Overwrite "${active}" with the current values`;
+      save.addEventListener('click', overwriteActiveScenario);
+      stripEl.appendChild(save);
+    }
+
     const add = document.createElement('button');
     add.className = 'scenario-chip add';
-    if (active && dirty) {
-      add.textContent = `save ${active}`;
-      add.title = `Overwrite scenario "${active}" with the current values`;
-      add.addEventListener('click', overwriteActiveScenario);
-    } else {
-      add.textContent = '+ scenario';
-      add.title = 'Save the current @params values as a scenario';
-      add.addEventListener('click', saveCurrentAsNewScenario);
-    }
+    add.textContent = '+ scenario';
+    add.title = 'Save the current @params values as a new scenario';
+    add.addEventListener('click', saveCurrentAsNewScenario);
     stripEl.appendChild(add);
   }
 }
