@@ -265,6 +265,14 @@ export function evalValueExpr(node, env) {
     if (typeof v !== 'boolean') throw new Error('! requires a Bool operand');
     return !v;
   }
+  if (node.type === 'Factorial') {
+    // Postfix n! — always goes to the builtin, bypassing any user-defined
+    // `factorial` (which itself often has body `n!` — recursing would
+    // overflow the stack).
+    const v = evalValueExpr(node.expr, env);
+    if (!(v instanceof Quantity)) throw new Error('!: requires a Quantity');
+    return BUILTIN_FNS.factorial(v);
+  }
   if (node.type === 'Unary' && node.op === '-') {
     return evalValueExpr(node.expr, env).neg();
   }

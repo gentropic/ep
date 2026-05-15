@@ -429,7 +429,8 @@ export function parse(tokens, sourceName = '<input>') {
   function parsePower() {
     let base = parseUnary();
     // Postfix forms: field access `.name` and factorial `!`. Loop so chains
-    // like `a.b.c!` work.
+    // like `a.b.c!` work. `!` is its own AST node — NOT a Call to factorial —
+    // so user-defined `fn factorial(n) = n!` doesn't recurse infinitely.
     while (atOp('.') || atOp('!')) {
       if (atOp('.')) {
         eat();
@@ -437,7 +438,7 @@ export function parse(tokens, sourceName = '<input>') {
         base = { type: 'Field', obj: base, name: fnameTok.name };
       } else {
         eat();
-        base = { type: 'Call', name: 'factorial', args: [base] };
+        base = { type: 'Factorial', expr: base };
       }
     }
     if (atOp('^') || atOp('**')) {

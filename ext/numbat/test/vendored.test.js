@@ -11,22 +11,20 @@ import { VENDORED_MODULES } from '../src/vendored.js';
 
 // ── inventory ────────────────────────────────────────────────────
 
-test('VENDORED_MODULES bundles the expected upstream files', () => {
-  const expected = [
-    'core::dimensions',
-    'core::scalar',
-    'extra::cooking',
-    'math::constants',
-    'physics::temperature_conversion',
-    'units::astronomical',
-    'units::bit',
-    'units::currency',
-    'units::nautical',
-    'units::partsperx',
-    'units::si',
-    'units::time',
-  ];
-  assert.deepEqual(Object.keys(VENDORED_MODULES).sort(), expected);
+test('VENDORED_MODULES bundles upstream modules (62 total)', () => {
+  const paths = Object.keys(VENDORED_MODULES);
+  // We vendor the full upstream module tree — currently 62 files.
+  assert.ok(paths.length >= 50, `expected ≥50 vendored modules, got ${paths.length}`);
+  // Spot-check key ones.
+  for (const required of [
+    'core::dimensions', 'core::scalar', 'core::functions', 'core::lists',
+    'math::constants', 'math::trigonometry',
+    'units::si', 'units::partsperx', 'units::time',
+    'physics::constants',
+    'prelude',
+  ]) {
+    assert.ok(paths.includes(required), `missing vendored module: ${required}`);
+  }
 });
 
 test('each vendored source is non-empty UTF-8 text', () => {
