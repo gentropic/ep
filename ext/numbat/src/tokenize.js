@@ -13,7 +13,7 @@
 export const KEYWORDS = new Set([
   'dimension', 'unit', 'let', 'fn', 'use',
   'if', 'then', 'else', 'where', 'and', 'or', 'not',
-  'struct', 'to',
+  'struct', 'to', 'per',
   'true', 'false',
   // Notably NOT a keyword: `mod` — upstream uses it as a regular fn name in
   // core::functions, so we keep it as an identifier. Numbat itself has no

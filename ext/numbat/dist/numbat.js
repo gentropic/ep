@@ -167,23 +167,36 @@ class Quantity {
 // the unit to its canonical base — e.g., kilometer.mul = 1000 when meter is
 // canonical for Length).
 
-// Metric prefixes for v0.1. The full upstream set comes in via .nbt loading
-// in v0.2+. 'micro' has both 'µ' and 'u' as common short forms.
+// Full SI prefix set (per BIPM 2022). Both 'µ' (micro sign U+00B5) and 'u'
+// register for micro; both 'μ' (greek mu U+03BC) is added below.
 const METRIC_PREFIXES = [
-  ['tera',  'T',  1e12],
-  ['giga',  'G',  1e9],
-  ['mega',  'M',  1e6],
-  ['kilo',  'k',  1e3],
-  ['hecto', 'h',  1e2],
-  ['deca',  'da', 1e1],
+  ['quetta', 'Q',  1e30],
+  ['ronna',  'R',  1e27],
+  ['yotta',  'Y',  1e24],
+  ['zetta',  'Z',  1e21],
+  ['exa',    'E',  1e18],
+  ['peta',   'P',  1e15],
+  ['tera',   'T',  1e12],
+  ['giga',   'G',  1e9],
+  ['mega',   'M',  1e6],
+  ['kilo',   'k',  1e3],
+  ['hecto',  'h',  1e2],
+  ['deca',   'da', 1e1],
   // base — handled by the unprefixed registration
-  ['deci',  'd',  1e-1],
-  ['centi', 'c',  1e-2],
-  ['milli', 'm',  1e-3],
-  ['micro', 'µ',  1e-6],
-  ['micro', 'u',  1e-6],
-  ['nano',  'n',  1e-9],
-  ['pico',  'p',  1e-12],
+  ['deci',   'd',  1e-1],
+  ['centi',  'c',  1e-2],
+  ['milli',  'm',  1e-3],
+  ['micro',  'µ',  1e-6],   // U+00B5 micro sign
+  ['micro',  'μ',  1e-6],   // U+03BC greek mu
+  ['micro',  'u',  1e-6],
+  ['nano',   'n',  1e-9],
+  ['pico',   'p',  1e-12],
+  ['femto',  'f',  1e-15],
+  ['atto',   'a',  1e-18],
+  ['zepto',  'z',  1e-21],
+  ['yocto',  'y',  1e-24],
+  ['ronto',  'r',  1e-27],
+  ['quecto', 'q',  1e-30],
 ];
 
 class UnitRegistry {
@@ -349,7 +362,7 @@ function formatNumber(n) {
 const KEYWORDS = new Set([
   'dimension', 'unit', 'let', 'fn', 'use',
   'if', 'then', 'else', 'where', 'and', 'or', 'not',
-  'struct', 'to',
+  'struct', 'to', 'per',
   'true', 'false',
   // Notably NOT a keyword: `mod` — upstream uses it as a regular fn name in
   // core::functions, so we keep it as an identifier. Numbat itself has no
@@ -905,8 +918,11 @@ function parse(tokens, sourceName = '<input>') {
 
   function parseMulExpr() {
     let l = parseImplMul();
-    while (atOp('*') || atOp('/')) {
-      const op = eat().op;
+    while (true) {
+      let op;
+      if (atOp('*') || atOp('/')) op = eat().op;
+      else if (atKw('per'))       { eat(); op = '/'; }   // `meter per second`
+      else break;
       l = { type: 'Binary', op, left: l, right: parseImplMul() };
     }
     return l;
@@ -921,7 +937,13 @@ function parse(tokens, sourceName = '<input>') {
   }
 
   function parsePower() {
-    const base = parseUnary();
+    let base = parseUnary();
+    // Postfix `!` factorial — desugars to a call to the `factorial` fn. Chains
+    // (`5!!`) work via the loop.
+    while (atOp('!')) {
+      eat();
+      base = { type: 'Call', name: 'factorial', args: [base] };
+    }
     if (atOp('^') || atOp('**')) {
       eat();
       const exp = parsePower();  // right-associative
@@ -934,6 +956,12 @@ function parse(tokens, sourceName = '<input>') {
     if (atOp('-')) {
       eat();
       return { type: 'Unary', op: '-', expr: parseUnary() };
+    }
+    // Prefix `!` is boolean NOT. (Postfix `!` factorial is handled in
+    // parsePower, after the operand is consumed.)
+    if (atOp('!')) {
+      eat();
+      return { type: 'Unary', op: '!', expr: parseUnary() };
     }
     return parsePrimary();
   }
@@ -1066,6 +1094,16 @@ const BUILTIN_FNS = {
   floor(q) { return new Quantity(Math.floor(q.value), q.dim); },
   ceil(q)  { return new Quantity(Math.ceil(q.value),  q.dim); },
   round(q) { return new Quantity(Math.round(q.value), q.dim); },
+  factorial(q) {
+    mustBeDimensionless(q, 'factorial');
+    const n = q.value;
+    if (n < 0 || !Number.isFinite(n) || Math.floor(n) !== n) {
+      throw new Error(`factorial: requires non-negative integer, got ${n}`);
+    }
+    let r = 1;
+    for (let i = 2; i <= n; i++) r *= i;
+    return new Quantity(r, {});
+  },
 };
 
 function mustBeDimensionless(q, fnName) {
@@ -1153,6 +1191,11 @@ function evalValueExpr(node, env) {
   if (node.type === 'Paren') return evalValueExpr(node.expr, env);
   if (node.type === 'Call') {
     return evalCall(node, env);
+  }
+  if (node.type === 'Unary' && node.op === '!') {
+    const v = evalValueExpr(node.expr, env);
+    if (typeof v !== 'boolean') throw new Error('! requires a Bool operand');
+    return !v;
   }
   if (node.type === 'Unary' && node.op === '-') {
     return evalValueExpr(node.expr, env).neg();

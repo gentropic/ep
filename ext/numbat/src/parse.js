@@ -372,8 +372,11 @@ export function parse(tokens, sourceName = '<input>') {
 
   function parseMulExpr() {
     let l = parseImplMul();
-    while (atOp('*') || atOp('/')) {
-      const op = eat().op;
+    while (true) {
+      let op;
+      if (atOp('*') || atOp('/')) op = eat().op;
+      else if (atKw('per'))       { eat(); op = '/'; }   // `meter per second`
+      else break;
       l = { type: 'Binary', op, left: l, right: parseImplMul() };
     }
     return l;
@@ -388,7 +391,13 @@ export function parse(tokens, sourceName = '<input>') {
   }
 
   function parsePower() {
-    const base = parseUnary();
+    let base = parseUnary();
+    // Postfix `!` factorial — desugars to a call to the `factorial` fn. Chains
+    // (`5!!`) work via the loop.
+    while (atOp('!')) {
+      eat();
+      base = { type: 'Call', name: 'factorial', args: [base] };
+    }
     if (atOp('^') || atOp('**')) {
       eat();
       const exp = parsePower();  // right-associative
@@ -401,6 +410,12 @@ export function parse(tokens, sourceName = '<input>') {
     if (atOp('-')) {
       eat();
       return { type: 'Unary', op: '-', expr: parseUnary() };
+    }
+    // Prefix `!` is boolean NOT. (Postfix `!` factorial is handled in
+    // parsePower, after the operand is consumed.)
+    if (atOp('!')) {
+      eat();
+      return { type: 'Unary', op: '!', expr: parseUnary() };
     }
     return parsePrimary();
   }

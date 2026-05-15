@@ -89,6 +89,16 @@ const BUILTIN_FNS = {
   floor(q) { return new Quantity(Math.floor(q.value), q.dim); },
   ceil(q)  { return new Quantity(Math.ceil(q.value),  q.dim); },
   round(q) { return new Quantity(Math.round(q.value), q.dim); },
+  factorial(q) {
+    mustBeDimensionless(q, 'factorial');
+    const n = q.value;
+    if (n < 0 || !Number.isFinite(n) || Math.floor(n) !== n) {
+      throw new Error(`factorial: requires non-negative integer, got ${n}`);
+    }
+    let r = 1;
+    for (let i = 2; i <= n; i++) r *= i;
+    return new Quantity(r, {});
+  },
 };
 
 function mustBeDimensionless(q, fnName) {
@@ -176,6 +186,11 @@ export function evalValueExpr(node, env) {
   if (node.type === 'Paren') return evalValueExpr(node.expr, env);
   if (node.type === 'Call') {
     return evalCall(node, env);
+  }
+  if (node.type === 'Unary' && node.op === '!') {
+    const v = evalValueExpr(node.expr, env);
+    if (typeof v !== 'boolean') throw new Error('! requires a Bool operand');
+    return !v;
   }
   if (node.type === 'Unary' && node.op === '-') {
     return evalValueExpr(node.expr, env).neg();
