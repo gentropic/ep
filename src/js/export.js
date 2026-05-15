@@ -3,12 +3,14 @@
 // the STATE markers — preserving this contract is critical to the round-trip.
 
 import { state } from './state.js';
+import { currentProgramName } from './storage.js';
 
 const scrim         = document.getElementById('scrim');
 const exportBtn     = document.getElementById('exportBtn');
 const cancelBtn     = document.getElementById('cancelBtn');
 const dlEpBtn       = document.getElementById('dlEpBtn');
 const dlHtmlBtn     = document.getElementById('dlHtmlBtn');
+const copySrcBtn    = document.getElementById('copySrcBtn');
 const exportSrcEl   = document.getElementById('exportSrc');
 const exportNameEl  = document.getElementById('exportName');
 
@@ -18,6 +20,7 @@ export function serializeProgram() {
 
 exportBtn.addEventListener('click', () => {
   exportSrcEl.textContent = serializeProgram();
+  exportNameEl.value = currentProgramName || 'program';
   scrim.classList.add('on');
 });
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
@@ -44,6 +47,31 @@ dlHtmlBtn.addEventListener('click', () => {
   const name = (exportNameEl.value || 'program') + '.html';
   downloadFile('<!DOCTYPE html>\n' + newHtml, name, 'text/html');
   scrim.classList.remove('on');
+});
+
+copySrcBtn.addEventListener('click', async () => {
+  const text = serializeProgram();
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    const prev = copySrcBtn.textContent;
+    copySrcBtn.textContent = 'copied';
+    setTimeout(() => { copySrcBtn.textContent = prev; }, 1200);
+  } catch {
+    const prev = copySrcBtn.textContent;
+    copySrcBtn.textContent = 'err';
+    setTimeout(() => { copySrcBtn.textContent = prev; }, 1200);
+  }
 });
 
 function downloadFile(text, name, type) {

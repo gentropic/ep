@@ -42,12 +42,18 @@ const VENDORS = [
 ];
 
 // Concat order for ep's own sources: dependencies before dependents.
+// (Function declarations hoist within the concatenated flat scope, so this
+// order is mostly cosmetic — but it makes reading the built file saner.)
 const JS_FILES = [
   'units.js',
   'parser.js',
   'evaluator.js',
   'state.js',
+  'storage.js',
   'render.js',
+  'dialogs.js',
+  'ctxmenu.js',
+  'drawer.js',
   'accessory.js',
   'view.js',
   'export.js',

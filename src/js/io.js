@@ -1,32 +1,31 @@
-// Load / Import — file picker and drag-and-drop. Both feed loadProgramText.
+// Load / Import — file picker (driven from the drawer) and drag-and-drop.
+// Both feed loadProgramText, which replaces state.body, evaluates, renders,
+// and creates a fresh autosaved storage slot named from the filename.
 
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
+import { setCurrentProgramName, uniqueProgramName, saveCurrentProgram } from './storage.js';
 
-const openBtn      = document.getElementById('openBtn');
-const fileInput    = document.getElementById('fileInput');
-const dropOverlay  = document.getElementById('dropOverlay');
-const fileNameEl   = document.querySelector('.hdr-left .file');
+const fileInput   = document.getElementById('fileInput');
+const dropOverlay = document.getElementById('dropOverlay');
 
-export function loadProgramText(text, sourceName) {
-  // Replace body with the parsed lines; preserve UI state (collapsed panels, etc.)
+export function loadProgramText(text, sourceName, opts = {}) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
-  // Trim trailing empty lines for cleanliness but keep one for new-row affordance
   while (lines.length > 1 && lines[lines.length - 1].trim() === '') lines.pop();
   state.body = lines.map(src => ({src}));
-  state.ui.collapsedBlocks = [];   // discard prior collapse state — references would be stale
+  state.ui.collapsedBlocks = [];
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
-  if (sourceName) {
-    // Strip extension for header display
-    const baseName = sourceName.replace(/\.[^.]+$/, '');
-    if (fileNameEl) fileNameEl.textContent = baseName || sourceName;
+  if (sourceName && !opts.fromStorage) {
+    const baseName = sourceName.replace(/\.[^.]+$/, '') || sourceName;
+    const uniqueName = uniqueProgramName(baseName);
+    setCurrentProgramName(uniqueName);
+    saveCurrentProgram({force: true});
   }
 }
 
-openBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
@@ -36,7 +35,6 @@ fileInput.addEventListener('change', async (e) => {
   } catch (err) {
     console.error('Failed to read file:', err);
   } finally {
-    // Reset so selecting the same file again still fires change
     fileInput.value = '';
   }
 });
@@ -75,7 +73,6 @@ window.addEventListener('drop', async (e) => {
   dropOverlay.classList.remove('on');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (!file) return;
-  // Accept .ep, .txt, or any text/plain; warn on obvious mismatches
   if (file.name && !/\.(ep|txt)$/i.test(file.name) && !file.type.startsWith('text/')) {
     console.warn('File extension is not .ep — attempting to load anyway');
   }

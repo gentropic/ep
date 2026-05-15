@@ -2,6 +2,7 @@
 
 import { state, evaluateAll } from './state.js';
 import { fmt } from './units.js';
+import { scheduleAutosave } from './storage.js';
 
 const chipsEl      = document.getElementById('chips');
 const outChipsEl   = document.getElementById('outChips');
@@ -42,6 +43,7 @@ export function renderChips() {
       const bodyRow = bodyEl.querySelector(`[data-body-idx="${bodyIdx}"] .row-src`);
       if (bodyRow) bodyRow.value = state.body[bodyIdx].src;
       renderResults();
+      scheduleAutosave();
     });
     inp.addEventListener('focus', () => { state._lastFocused = inp; });
     const res = document.createElement('div');
@@ -113,6 +115,7 @@ function makeRow(r, i) {
     renderBody();
     renderChips();
     renderResults();
+    scheduleAutosave();
     const newRow = bodyEl.querySelector(`[data-body-idx="${i}"]`);
     if (newRow) {
       const inp = newRow.querySelector('.row-src');
@@ -135,6 +138,7 @@ function makeRow(r, i) {
       renderBody();
       renderChips();
       renderResults();
+      scheduleAutosave();
       const nextRow = bodyEl.querySelector(`[data-body-idx="${insertAt}"]`);
       if (nextRow) nextRow.querySelector('.row-src').focus();
     } else if (e.key === 'Backspace' && src.value === '' && state.body.length > 1) {
@@ -144,6 +148,7 @@ function makeRow(r, i) {
       renderBody();
       renderChips();
       renderResults();
+      scheduleAutosave();
       // Focus the nearest previous visible row
       let prevIdx = i - 1;
       let prev = null;
