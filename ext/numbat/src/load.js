@@ -95,11 +95,21 @@ function mustBeDimensionless(q, fnName) {
   if (!dimEmpty(q.dim)) throw new Error(`${fnName}: argument must be dimensionless`);
 }
 
+const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
+
 export function evalValueExpr(node, env) {
-  if (node.type === 'Num') return new Quantity(node.value, {});
+  if (node.type === 'Num')  return new Quantity(node.value, {});
+  if (node.type === 'Bool') return node.value;   // JS boolean
+  if (node.type === 'If') {
+    const cond = evalValueExpr(node.cond, env);
+    if (typeof cond !== 'boolean') {
+      throw new Error('if-condition must be a Bool, got a Quantity');
+    }
+    return evalValueExpr(cond ? node.then : node.else, env);
+  }
   if (node.type === 'Ident') {
     const q = env.lookupValue(node.name);
-    if (!q) throw new Error(`unknown identifier: ${node.name}`);
+    if (q === null || q === undefined) throw new Error(`unknown identifier: ${node.name}`);
     return q;
   }
   if (node.type === 'Paren') return evalValueExpr(node.expr, env);
@@ -110,6 +120,7 @@ export function evalValueExpr(node, env) {
     return evalValueExpr(node.expr, env).neg();
   }
   if (node.type === 'Binary') {
+    if (EVAL_CMP_OPS.has(node.op)) return evalCmp(node, env);
     if (node.op === '->') {
       const left = evalValueExpr(node.left, env);
       // Single-identifier target (with optional parens). Compound targets like
@@ -136,6 +147,33 @@ export function evalValueExpr(node, env) {
     throw new Error(`operator '${node.op}' not supported in value expression`);
   }
   throw new Error(`unexpected node ${node.type} in value expression`);
+}
+
+// Comparison: both operands must be Quantities with the same dim. `==`/`!=`
+// also accept booleans (so `is_empty(xs) == true` works once lists land).
+function evalCmp(node, env) {
+  const l = evalValueExpr(node.left, env);
+  const r = evalValueExpr(node.right, env);
+  if (typeof l === 'boolean' || typeof r === 'boolean') {
+    if (node.op !== '==' && node.op !== '!=') {
+      throw new Error(`${node.op}: ordering not defined on booleans`);
+    }
+    if (typeof l !== typeof r) {
+      throw new Error(`${node.op}: cannot compare Bool with Quantity`);
+    }
+    return node.op === '==' ? l === r : l !== r;
+  }
+  if (!dimEq(l.dim, r.dim)) {
+    throw new Error(`${node.op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
+  }
+  switch (node.op) {
+    case '==': return l.value === r.value;
+    case '!=': return l.value !== r.value;
+    case '<':  return l.value <  r.value;
+    case '<=': return l.value <= r.value;
+    case '>':  return l.value >  r.value;
+    case '>=': return l.value >= r.value;
+  }
 }
 
 // Evaluate a function call. User-defined fns take precedence over builtins so

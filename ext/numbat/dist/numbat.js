@@ -568,6 +568,8 @@ function tokenize(source, sourceName = '<input>') {
 // statements at top level) are rejected with a clear error in v0.2 — they
 // arrive in v0.3+.
 
+const CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
+
 function parse(tokens, sourceName = '<input>') {
   let p = 0;
 
@@ -734,14 +736,38 @@ function parse(tokens, sourceName = '<input>') {
 
   // ── expressions ─────────────────────────────────────────────────
 
-  function parseExpr() { return parseConversion(); }
+  function parseExpr() {
+    if (atKw('if')) return parseIfExpr();
+    return parseConversion();
+  }
+
+  function parseIfExpr() {
+    eat();  // 'if'
+    const cond = parseExpr();
+    if (!atKw('then')) throw err(peek(), `expected 'then' in if-expression`);
+    eat();
+    const thenBranch = parseExpr();
+    if (!atKw('else')) throw err(peek(), `expected 'else' in if-expression`);
+    eat();
+    const elseBranch = parseExpr();
+    return { type: 'If', cond, then: thenBranch, else: elseBranch };
+  }
 
   function parseConversion() {
-    let l = parseAddExpr();
+    let l = parseCmp();
     while (atOp('->') || atKw('to')) {
       eat();
-      const right = parseAddExpr();
+      const right = parseCmp();
       l = { type: 'Binary', op: '->', left: l, right };
+    }
+    return l;
+  }
+
+  function parseCmp() {
+    let l = parseAddExpr();
+    while (peek() && peek().type === 'op' && CMP_OPS.has(peek().op)) {
+      const op = eat().op;
+      l = { type: 'Binary', op, left: l, right: parseAddExpr() };
     }
     return l;
   }
@@ -793,6 +819,10 @@ function parse(tokens, sourceName = '<input>') {
   function parsePrimary() {
     const t = peek();
     if (!t) throw err(null, 'unexpected end of input in expression');
+    if (t.type === 'kw' && (t.name === 'true' || t.name === 'false')) {
+      eat();
+      return { type: 'Bool', value: t.name === 'true' };
+    }
     if (t.type === 'num') { eat(); return { type: 'Num', value: t.value, raw: t.raw }; }
     if (t.type === 'id')  {
       eat();
@@ -919,11 +949,21 @@ function mustBeDimensionless(q, fnName) {
   if (!dimEmpty(q.dim)) throw new Error(`${fnName}: argument must be dimensionless`);
 }
 
+const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
+
 function evalValueExpr(node, env) {
-  if (node.type === 'Num') return new Quantity(node.value, {});
+  if (node.type === 'Num')  return new Quantity(node.value, {});
+  if (node.type === 'Bool') return node.value;   // JS boolean
+  if (node.type === 'If') {
+    const cond = evalValueExpr(node.cond, env);
+    if (typeof cond !== 'boolean') {
+      throw new Error('if-condition must be a Bool, got a Quantity');
+    }
+    return evalValueExpr(cond ? node.then : node.else, env);
+  }
   if (node.type === 'Ident') {
     const q = env.lookupValue(node.name);
-    if (!q) throw new Error(`unknown identifier: ${node.name}`);
+    if (q === null || q === undefined) throw new Error(`unknown identifier: ${node.name}`);
     return q;
   }
   if (node.type === 'Paren') return evalValueExpr(node.expr, env);
@@ -934,6 +974,7 @@ function evalValueExpr(node, env) {
     return evalValueExpr(node.expr, env).neg();
   }
   if (node.type === 'Binary') {
+    if (EVAL_CMP_OPS.has(node.op)) return evalCmp(node, env);
     if (node.op === '->') {
       const left = evalValueExpr(node.left, env);
       // Single-identifier target (with optional parens). Compound targets like
@@ -960,6 +1001,33 @@ function evalValueExpr(node, env) {
     throw new Error(`operator '${node.op}' not supported in value expression`);
   }
   throw new Error(`unexpected node ${node.type} in value expression`);
+}
+
+// Comparison: both operands must be Quantities with the same dim. `==`/`!=`
+// also accept booleans (so `is_empty(xs) == true` works once lists land).
+function evalCmp(node, env) {
+  const l = evalValueExpr(node.left, env);
+  const r = evalValueExpr(node.right, env);
+  if (typeof l === 'boolean' || typeof r === 'boolean') {
+    if (node.op !== '==' && node.op !== '!=') {
+      throw new Error(`${node.op}: ordering not defined on booleans`);
+    }
+    if (typeof l !== typeof r) {
+      throw new Error(`${node.op}: cannot compare Bool with Quantity`);
+    }
+    return node.op === '==' ? l === r : l !== r;
+  }
+  if (!dimEq(l.dim, r.dim)) {
+    throw new Error(`${node.op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
+  }
+  switch (node.op) {
+    case '==': return l.value === r.value;
+    case '!=': return l.value !== r.value;
+    case '<':  return l.value <  r.value;
+    case '<=': return l.value <= r.value;
+    case '>':  return l.value >  r.value;
+    case '>=': return l.value >= r.value;
+  }
 }
 
 // Evaluate a function call. User-defined fns take precedence over builtins so

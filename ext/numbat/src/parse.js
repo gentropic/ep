@@ -38,6 +38,8 @@
 // statements at top level) are rejected with a clear error in v0.2 — they
 // arrive in v0.3+.
 
+const CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
+
 export function parse(tokens, sourceName = '<input>') {
   let p = 0;
 
@@ -204,14 +206,38 @@ export function parse(tokens, sourceName = '<input>') {
 
   // ── expressions ─────────────────────────────────────────────────
 
-  function parseExpr() { return parseConversion(); }
+  function parseExpr() {
+    if (atKw('if')) return parseIfExpr();
+    return parseConversion();
+  }
+
+  function parseIfExpr() {
+    eat();  // 'if'
+    const cond = parseExpr();
+    if (!atKw('then')) throw err(peek(), `expected 'then' in if-expression`);
+    eat();
+    const thenBranch = parseExpr();
+    if (!atKw('else')) throw err(peek(), `expected 'else' in if-expression`);
+    eat();
+    const elseBranch = parseExpr();
+    return { type: 'If', cond, then: thenBranch, else: elseBranch };
+  }
 
   function parseConversion() {
-    let l = parseAddExpr();
+    let l = parseCmp();
     while (atOp('->') || atKw('to')) {
       eat();
-      const right = parseAddExpr();
+      const right = parseCmp();
       l = { type: 'Binary', op: '->', left: l, right };
+    }
+    return l;
+  }
+
+  function parseCmp() {
+    let l = parseAddExpr();
+    while (peek() && peek().type === 'op' && CMP_OPS.has(peek().op)) {
+      const op = eat().op;
+      l = { type: 'Binary', op, left: l, right: parseAddExpr() };
     }
     return l;
   }
@@ -263,6 +289,10 @@ export function parse(tokens, sourceName = '<input>') {
   function parsePrimary() {
     const t = peek();
     if (!t) throw err(null, 'unexpected end of input in expression');
+    if (t.type === 'kw' && (t.name === 'true' || t.name === 'false')) {
+      eat();
+      return { type: 'Bool', value: t.name === 'true' };
+    }
     if (t.type === 'num') { eat(); return { type: 'Num', value: t.value, raw: t.raw }; }
     if (t.type === 'id')  {
       eat();
