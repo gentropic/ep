@@ -108,6 +108,20 @@ const BUILTIN_PROCS = {
     if (!b) throw new Error('assertion failed');
     return new Quantity(0, {});
   },
+  // error(msg): throws an error with the given string message. Used by
+  // upstream stdlib for guard clauses like
+  //   `if x == 0 then error("divide by zero") else 1 / x`.
+  error(args) {
+    if (args.length !== 1) throw new Error(`error: expected 1 arg, got ${args.length}`);
+    const msg = args[0];
+    if (typeof msg !== 'string') throw new Error('error: argument must be a string');
+    throw new Error(msg);
+  },
+  // print(value): would emit to a host-provided output stream. For v0.4 we
+  // accept the call but no-op (returns 0). Hosts can override BUILTIN_PROCS.
+  print(args) {
+    return new Quantity(0, {});
+  },
   // assert_eq(a, b)        — strict equality (same dim, same value)
   // assert_eq(a, b, eps)   — approximate equality (|a - b| <= eps)
   // Works on Quantity-vs-Quantity (with dim check) or Bool-vs-Bool.
@@ -146,6 +160,7 @@ const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 export function evalValueExpr(node, env) {
   if (node.type === 'Num')  return new Quantity(node.value, {});
   if (node.type === 'Bool') return node.value;   // JS boolean
+  if (node.type === 'Str')  return node.value;   // JS string
   if (node.type === 'If') {
     const cond = evalValueExpr(node.cond, env);
     if (typeof cond !== 'boolean') {
@@ -166,6 +181,23 @@ export function evalValueExpr(node, env) {
     return evalValueExpr(node.expr, env).neg();
   }
   if (node.type === 'Binary') {
+    // Logical operators on booleans (short-circuit).
+    if (node.op === '&&') {
+      const l = evalValueExpr(node.left, env);
+      if (typeof l !== 'boolean') throw new Error('&& requires Bool operands');
+      if (!l) return false;
+      const r = evalValueExpr(node.right, env);
+      if (typeof r !== 'boolean') throw new Error('&& requires Bool operands');
+      return r;
+    }
+    if (node.op === '||') {
+      const l = evalValueExpr(node.left, env);
+      if (typeof l !== 'boolean') throw new Error('|| requires Bool operands');
+      if (l) return true;
+      const r = evalValueExpr(node.right, env);
+      if (typeof r !== 'boolean') throw new Error('|| requires Bool operands');
+      return r;
+    }
     if (EVAL_CMP_OPS.has(node.op)) return evalCmp(node, env);
     if (node.op === '->') {
       const left = evalValueExpr(node.left, env);

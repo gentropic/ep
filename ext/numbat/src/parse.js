@@ -117,12 +117,13 @@ export function parse(tokens, sourceName = '<input>') {
       while (atOp(',')) { eat(); params.push(parseFnParam()); }
     }
     expectOp(')');
-    // Optional return type. Uses parseAddExpr to avoid consuming the body's `->`
-    // if any (return type can't itself contain `->` at top level).
+    // Optional return type. Uses parseTypeExpr (parseAddExpr + optional
+    // generic-type-args `<...>`) — the latter handles upstream signatures
+    // like `fn args() -> List<String>` whose generic args we ignore in v0.4.
     let returnType = null;
     if (atOp('->')) {
       eat();
-      returnType = parseAddExpr();
+      returnType = parseTypeExpr();
     }
     // The body is optional: a fn declared `fn abs<T: Dim>(x: T) -> T` (no `=`)
     // is an *extern* declaration — its implementation lives in the host (our
@@ -169,8 +170,30 @@ export function parse(tokens, sourceName = '<input>') {
   function parseFnParam() {
     const nameTok = expectType('id', 'parameter name');
     let typeExpr = null;
-    if (atOp(':')) { eat(); typeExpr = parseAddExpr(); }
+    if (atOp(':')) { eat(); typeExpr = parseTypeExpr(); }
     return { name: nameTok.name, typeExpr };
+  }
+
+  // Type expression: parseAddExpr followed by optional generic-type-args
+  // `<...>`. v0.4 discards the contents — lists/structs in v0.5 will store and
+  // typecheck them. This lets us parse upstream signatures that use
+  // `List<String>`, `Vec2<Length>`, etc., without failing the file.
+  function parseTypeExpr() {
+    const t = parseAddExpr();
+    if (atOp('<')) {
+      eat();
+      let depth = 1;
+      while (depth > 0 && peek()) {
+        if (atOp('<')) depth++;
+        else if (atOp('>')) {
+          depth--;
+          if (depth === 0) { eat(); return t; }
+        }
+        eat();
+      }
+      throw err(peek(), `expected '>' to close generic type args`);
+    }
+    return t;
   }
 
   function parseDecorator() {
@@ -261,7 +284,7 @@ export function parse(tokens, sourceName = '<input>') {
   // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [x, ...args]).
   // Left-associative, looser than conversion (`pi/3 + pi |> cos` works).
   function parsePipe() {
-    let l = parseConversion();
+    let l = parseOr();
     while (atOp('|>')) {
       eat();
       const right = parsePrimary();
@@ -288,21 +311,52 @@ export function parse(tokens, sourceName = '<input>') {
     return { type: 'If', cond, then: thenBranch, else: elseBranch };
   }
 
-  function parseConversion() {
-    let l = parseCmp();
-    while (atOp('->') || atKw('to')) {
+  // Precedence (lowest → highest, all left-associative except ^):
+  //   if-then-else                          (top of parseExpr)
+  //   pipe `|>`
+  //   logical or `||`
+  //   logical and `&&`
+  //   comparison ==/!=/</<=/>/>=
+  //   conversion `->` / `to`
+  //   + / -
+  //   * / /
+  //   implicit multiplication
+  //   power ^ (right-associative)
+  //   unary -
+  //   primary
+  function parseOr() {
+    let l = parseAnd();
+    while (atOp('||')) {
       eat();
-      const right = parseCmp();
-      l = { type: 'Binary', op: '->', left: l, right };
+      l = { type: 'Binary', op: '||', left: l, right: parseAnd() };
+    }
+    return l;
+  }
+
+  function parseAnd() {
+    let l = parseCmp();
+    while (atOp('&&')) {
+      eat();
+      l = { type: 'Binary', op: '&&', left: l, right: parseCmp() };
     }
     return l;
   }
 
   function parseCmp() {
-    let l = parseAddExpr();
+    let l = parseConversion();
     while (peek() && peek().type === 'op' && CMP_OPS.has(peek().op)) {
       const op = eat().op;
-      l = { type: 'Binary', op, left: l, right: parseAddExpr() };
+      l = { type: 'Binary', op, left: l, right: parseConversion() };
+    }
+    return l;
+  }
+
+  function parseConversion() {
+    let l = parseAddExpr();
+    while (atOp('->') || atKw('to')) {
+      eat();
+      const right = parseAddExpr();
+      l = { type: 'Binary', op: '->', left: l, right };
     }
     return l;
   }
@@ -358,6 +412,7 @@ export function parse(tokens, sourceName = '<input>') {
       eat();
       return { type: 'Bool', value: t.name === 'true' };
     }
+    if (t.type === 'str') { eat(); return { type: 'Str', value: t.value }; }
     if (t.type === 'num') { eat(); return { type: 'Num', value: t.value, raw: t.raw }; }
     if (t.type === 'id')  {
       eat();

@@ -349,8 +349,11 @@ function formatNumber(n) {
 const KEYWORDS = new Set([
   'dimension', 'unit', 'let', 'fn', 'use',
   'if', 'then', 'else', 'where', 'and', 'or', 'not',
-  'struct', 'mod', 'to',
+  'struct', 'to',
   'true', 'false',
+  // Notably NOT a keyword: `mod` — upstream uses it as a regular fn name in
+  // core::functions, so we keep it as an identifier. Numbat itself has no
+  // infix `mod` operator (it's invoked as `mod(a, b)`).
 ]);
 
 // Multi-character operators, sorted longest-first so the tokenizer prefers
@@ -647,12 +650,13 @@ function parse(tokens, sourceName = '<input>') {
       while (atOp(',')) { eat(); params.push(parseFnParam()); }
     }
     expectOp(')');
-    // Optional return type. Uses parseAddExpr to avoid consuming the body's `->`
-    // if any (return type can't itself contain `->` at top level).
+    // Optional return type. Uses parseTypeExpr (parseAddExpr + optional
+    // generic-type-args `<...>`) — the latter handles upstream signatures
+    // like `fn args() -> List<String>` whose generic args we ignore in v0.4.
     let returnType = null;
     if (atOp('->')) {
       eat();
-      returnType = parseAddExpr();
+      returnType = parseTypeExpr();
     }
     // The body is optional: a fn declared `fn abs<T: Dim>(x: T) -> T` (no `=`)
     // is an *extern* declaration — its implementation lives in the host (our
@@ -699,8 +703,30 @@ function parse(tokens, sourceName = '<input>') {
   function parseFnParam() {
     const nameTok = expectType('id', 'parameter name');
     let typeExpr = null;
-    if (atOp(':')) { eat(); typeExpr = parseAddExpr(); }
+    if (atOp(':')) { eat(); typeExpr = parseTypeExpr(); }
     return { name: nameTok.name, typeExpr };
+  }
+
+  // Type expression: parseAddExpr followed by optional generic-type-args
+  // `<...>`. v0.4 discards the contents — lists/structs in v0.5 will store and
+  // typecheck them. This lets us parse upstream signatures that use
+  // `List<String>`, `Vec2<Length>`, etc., without failing the file.
+  function parseTypeExpr() {
+    const t = parseAddExpr();
+    if (atOp('<')) {
+      eat();
+      let depth = 1;
+      while (depth > 0 && peek()) {
+        if (atOp('<')) depth++;
+        else if (atOp('>')) {
+          depth--;
+          if (depth === 0) { eat(); return t; }
+        }
+        eat();
+      }
+      throw err(peek(), `expected '>' to close generic type args`);
+    }
+    return t;
   }
 
   function parseDecorator() {
@@ -791,7 +817,7 @@ function parse(tokens, sourceName = '<input>') {
   // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [x, ...args]).
   // Left-associative, looser than conversion (`pi/3 + pi |> cos` works).
   function parsePipe() {
-    let l = parseConversion();
+    let l = parseOr();
     while (atOp('|>')) {
       eat();
       const right = parsePrimary();
@@ -818,21 +844,52 @@ function parse(tokens, sourceName = '<input>') {
     return { type: 'If', cond, then: thenBranch, else: elseBranch };
   }
 
-  function parseConversion() {
-    let l = parseCmp();
-    while (atOp('->') || atKw('to')) {
+  // Precedence (lowest → highest, all left-associative except ^):
+  //   if-then-else                          (top of parseExpr)
+  //   pipe `|>`
+  //   logical or `||`
+  //   logical and `&&`
+  //   comparison ==/!=/</<=/>/>=
+  //   conversion `->` / `to`
+  //   + / -
+  //   * / /
+  //   implicit multiplication
+  //   power ^ (right-associative)
+  //   unary -
+  //   primary
+  function parseOr() {
+    let l = parseAnd();
+    while (atOp('||')) {
       eat();
-      const right = parseCmp();
-      l = { type: 'Binary', op: '->', left: l, right };
+      l = { type: 'Binary', op: '||', left: l, right: parseAnd() };
+    }
+    return l;
+  }
+
+  function parseAnd() {
+    let l = parseCmp();
+    while (atOp('&&')) {
+      eat();
+      l = { type: 'Binary', op: '&&', left: l, right: parseCmp() };
     }
     return l;
   }
 
   function parseCmp() {
-    let l = parseAddExpr();
+    let l = parseConversion();
     while (peek() && peek().type === 'op' && CMP_OPS.has(peek().op)) {
       const op = eat().op;
-      l = { type: 'Binary', op, left: l, right: parseAddExpr() };
+      l = { type: 'Binary', op, left: l, right: parseConversion() };
+    }
+    return l;
+  }
+
+  function parseConversion() {
+    let l = parseAddExpr();
+    while (atOp('->') || atKw('to')) {
+      eat();
+      const right = parseAddExpr();
+      l = { type: 'Binary', op: '->', left: l, right };
     }
     return l;
   }
@@ -888,6 +945,7 @@ function parse(tokens, sourceName = '<input>') {
       eat();
       return { type: 'Bool', value: t.name === 'true' };
     }
+    if (t.type === 'str') { eat(); return { type: 'Str', value: t.value }; }
     if (t.type === 'num') { eat(); return { type: 'Num', value: t.value, raw: t.raw }; }
     if (t.type === 'id')  {
       eat();
@@ -1027,6 +1085,20 @@ const BUILTIN_PROCS = {
     if (!b) throw new Error('assertion failed');
     return new Quantity(0, {});
   },
+  // error(msg): throws an error with the given string message. Used by
+  // upstream stdlib for guard clauses like
+  //   `if x == 0 then error("divide by zero") else 1 / x`.
+  error(args) {
+    if (args.length !== 1) throw new Error(`error: expected 1 arg, got ${args.length}`);
+    const msg = args[0];
+    if (typeof msg !== 'string') throw new Error('error: argument must be a string');
+    throw new Error(msg);
+  },
+  // print(value): would emit to a host-provided output stream. For v0.4 we
+  // accept the call but no-op (returns 0). Hosts can override BUILTIN_PROCS.
+  print(args) {
+    return new Quantity(0, {});
+  },
   // assert_eq(a, b)        — strict equality (same dim, same value)
   // assert_eq(a, b, eps)   — approximate equality (|a - b| <= eps)
   // Works on Quantity-vs-Quantity (with dim check) or Bool-vs-Bool.
@@ -1065,6 +1137,7 @@ const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 function evalValueExpr(node, env) {
   if (node.type === 'Num')  return new Quantity(node.value, {});
   if (node.type === 'Bool') return node.value;   // JS boolean
+  if (node.type === 'Str')  return node.value;   // JS string
   if (node.type === 'If') {
     const cond = evalValueExpr(node.cond, env);
     if (typeof cond !== 'boolean') {
@@ -1085,6 +1158,23 @@ function evalValueExpr(node, env) {
     return evalValueExpr(node.expr, env).neg();
   }
   if (node.type === 'Binary') {
+    // Logical operators on booleans (short-circuit).
+    if (node.op === '&&') {
+      const l = evalValueExpr(node.left, env);
+      if (typeof l !== 'boolean') throw new Error('&& requires Bool operands');
+      if (!l) return false;
+      const r = evalValueExpr(node.right, env);
+      if (typeof r !== 'boolean') throw new Error('&& requires Bool operands');
+      return r;
+    }
+    if (node.op === '||') {
+      const l = evalValueExpr(node.left, env);
+      if (typeof l !== 'boolean') throw new Error('|| requires Bool operands');
+      if (l) return true;
+      const r = evalValueExpr(node.right, env);
+      if (typeof r !== 'boolean') throw new Error('|| requires Bool operands');
+      return r;
+    }
     if (EVAL_CMP_OPS.has(node.op)) return evalCmp(node, env);
     if (node.op === '->') {
       const left = evalValueExpr(node.left, env);

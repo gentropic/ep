@@ -13,8 +13,11 @@
 export const KEYWORDS = new Set([
   'dimension', 'unit', 'let', 'fn', 'use',
   'if', 'then', 'else', 'where', 'and', 'or', 'not',
-  'struct', 'mod', 'to',
+  'struct', 'to',
   'true', 'false',
+  // Notably NOT a keyword: `mod` — upstream uses it as a regular fn name in
+  // core::functions, so we keep it as an identifier. Numbat itself has no
+  // infix `mod` operator (it's invoked as `mod(a, b)`).
 ]);
 
 // Multi-character operators, sorted longest-first so the tokenizer prefers
