@@ -76,9 +76,9 @@ const BUILTIN_FNS = {
     return new Quantity(Math.cbrt(q.value), r);
   },
   abs(q) { return new Quantity(Math.abs(q.value), q.dim); },
-  sin(q) { mustBeDimensionless(q, 'sin'); return new Quantity(Math.sin(q.value), {}); },
-  cos(q) { mustBeDimensionless(q, 'cos'); return new Quantity(Math.cos(q.value), {}); },
-  tan(q) { mustBeDimensionless(q, 'tan'); return new Quantity(Math.tan(q.value), {}); },
+  sin(q) { mustBeAngleOrScalar(q, 'sin'); return new Quantity(Math.sin(q.value), {}); },
+  cos(q) { mustBeAngleOrScalar(q, 'cos'); return new Quantity(Math.cos(q.value), {}); },
+  tan(q) { mustBeAngleOrScalar(q, 'tan'); return new Quantity(Math.tan(q.value), {}); },
   asin(q){ mustBeDimensionless(q, 'asin');return new Quantity(Math.asin(q.value), {}); },
   acos(q){ mustBeDimensionless(q, 'acos');return new Quantity(Math.acos(q.value), {}); },
   atan(q){ mustBeDimensionless(q, 'atan');return new Quantity(Math.atan(q.value), {}); },
@@ -109,6 +109,16 @@ const BUILTIN_FNS = {
 
 function mustBeDimensionless(q, fnName) {
   if (!dimEmpty(q.dim)) throw new Error(`${fnName}: argument must be dimensionless`);
+}
+
+// sin/cos/tan accept dim:{} OR dim:{angle:1} since the canonical value is
+// already in radians (degree's mul = π/180). Other dims (length, mass, …)
+// still error.
+function mustBeAngleOrScalar(q, fnName) {
+  if (dimEmpty(q.dim)) return;
+  const keys = Object.keys(q.dim);
+  if (keys.length === 1 && keys[0] === 'angle' && q.dim.angle === 1) return;
+  throw new Error(`${fnName}: argument must be dimensionless or an angle`);
 }
 
 // Variadic built-in procedures. Differ from BUILTIN_FNS in that they accept
