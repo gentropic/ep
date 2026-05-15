@@ -481,22 +481,33 @@ body {
   outline: 1px solid var(--sw-orange);
   border-radius: 2px;
 }
-/* Fixed-width result gutter. CM6 by default auto-sizes a gutter to its
- * widest visible cell, which causes the body to reflow horizontally as
- * long error messages scroll into and out of view. Pinning width via
- * !important on the gutter AND its cells overrides CM6's intrinsic
- * sizing so the body wraps at a constant width regardless of content.
+/* ── Result gutter as overlay ──────────────────────────────────────
+ * CM6 normally lays the gutter out as a flex item next to .cm-content,
+ * which (a) auto-sizes to the widest visible cell so scrolling reflows
+ * the body, and (b) on narrow screens eats a chunk of editor width even
+ * when locked. Solution: pull the after-gutter out of cm-scroller's flex
+ * flow and absolute-position it against cm-scroller. Because cm-scroller
+ * is the overflow container, absolute children scroll with content (their
+ * top:0 anchors to the content's top-left, not the viewport), so CM6's
+ * cell positioning still aligns with lines.
  *
- * Width is sized for short values (e.g. "80,000 m³", "2.7 g/cm³"), not
- * for full error text. Errors get ellipsis-truncated; the full text is
- * still accessible via the marker's title attribute (and the §4.2
- * in-source underline tooltip).
- *
- * Sized via a CSS variable so the breakpoints below can tighten it on
- * narrow viewports without repeating the rule. */
+ * Body text now flows under the gutter on long lines — a gradient
+ * background masks the overlap so it reads as a "different plane". */
 .body {
   --ep-gutter-w: 120px;
 }
+.body .cm-scroller { position: relative; }
+.body .cm-gutters-after {
+  position: absolute !important;
+  top: 0;
+  right: 0;
+  width: var(--ep-gutter-w);
+  background: linear-gradient(to right, transparent 0, var(--sw-bg) 14px);
+  pointer-events: none;
+  z-index: 4;
+}
+.body .cm-gutters-after .cm-gutter,
+.body .cm-gutters-after .cm-gutterElement { pointer-events: auto; }
 .body .ep-result-gutter {
   font-family: var(--sw-mono);
   font-size: 12px;
@@ -525,13 +536,13 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Narrow screens — tighten further so the body content has room to breathe. */
+/* Narrow screens — slightly narrower gutter so it overlays less of the body. */
 @media (max-width: 720px) {
-  .body { --ep-gutter-w: 90px; }
+  .body { --ep-gutter-w: 100px; }
 }
 @media (max-width: 480px) {
-  .body { --ep-gutter-w: 72px; }
-  .body .ep-result-gutter .cm-gutterElement { padding: 0 4px 0 4px; }
+  .body { --ep-gutter-w: 84px; }
+  .body .cm-gutters-after .cm-gutterElement { padding: 0 4px 0 4px; }
   .ep-gutter-result.error { font-size: 10px; }
 }
 .ep-gutter-result {
