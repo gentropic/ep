@@ -188,3 +188,101 @@ test('evaluate: param binding with annotation respected', () => {
   assert.equal(r.rows[1].error, null);
   assert.deepEqual(r.params[0].anno, 'Density');
 });
+
+// ── extended classify: let / fn / dimension / unit ────────────────
+
+test('classify: let keyword is an alias for bare binding', () => {
+  assert.deepEqual(classify('let x = 5'),
+    {kind: 'binding', name: 'x', anno: null, expr: '5'});
+  assert.deepEqual(classify('let density : Density = 2.7 g/cm3'),
+    {kind: 'binding', name: 'density', anno: 'Density', expr: '2.7 g/cm3'});
+});
+
+test('classify: fn declaration', () => {
+  const c = classify('fn dbl(x) = 2 * x');
+  assert.equal(c.kind, 'fn-decl');
+  assert.equal(c.name, 'dbl');
+  assert.equal(c.src, 'fn dbl(x) = 2 * x');
+});
+
+test('classify: dimension declaration', () => {
+  const c = classify('dimension Frequency = 1 / Time');
+  assert.equal(c.kind, 'dim-decl');
+  assert.equal(c.name, 'Frequency');
+});
+
+test('classify: unit declaration', () => {
+  const c = classify('unit hertz: Frequency = 1 / second');
+  assert.equal(c.kind, 'unit-decl');
+  assert.equal(c.name, 'hertz');
+});
+
+test('evaluate: let-bound binding lands in scope like a bare binding', () => {
+  const r = evaluate(bodyOf(['let x = 5 m']));
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.scope.x.value, 5);
+  assert.deepEqual(r.scope.x.dim, {length: 1});
+});
+
+test('evaluate: fn declaration + subsequent call', () => {
+  const r = evaluate(bodyOf([
+    'fn dbl(x) = 2 * x',
+    'y = dbl(7)',
+  ]));
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.rows[1].error, null);
+  assert.equal(r.scope.y.value, 14);
+});
+
+test('evaluate: if/then/else inside a binding RHS', () => {
+  const r = evaluate(bodyOf([
+    'a = if 3 > 2 then 10 else 20',
+    'b = if 3 < 2 then 10 else 20',
+  ]));
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.scope.a.value, 10);
+  assert.equal(r.scope.b.value, 20);
+});
+
+test('evaluate: fn with where clauses', () => {
+  const r = evaluate(bodyOf([
+    'fn area_of_disk(r) = pi_local * r^2 where pi_local = 3.14159',
+    'a = area_of_disk(10)',
+  ]));
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.rows[1].error, null);
+  assert.ok(approx(r.scope.a.value, 314.159, 1e-3));
+});
+
+test('evaluate: error in fn body surfaces on that row only', () => {
+  const r = evaluate(bodyOf([
+    'fn bad(x) = 1 m + 1 kg',   // dim mismatch is a CALL-time error in numbat-js
+    'good = 5 + 3',
+  ]));
+  // bad's parse succeeds; the dim error only fires when bad() is invoked.
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.rows[1].error, null);
+  assert.equal(r.scope.good.value, 8);
+});
+
+test('evaluate: unit declaration registers a callable unit', () => {
+  const r = evaluate(bodyOf([
+    'dimension Frequency = 1 / Time',
+    'unit hertz: Frequency = 1 / second',
+    'f = 100 hertz',
+  ]));
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.rows[1].error, null);
+  assert.equal(r.rows[2].error, null);
+  assert.equal(r.scope.f.value, 100);
+  assert.deepEqual(r.scope.f.dim, {time: -1});
+});
+
+test('evaluate: fn-decl inside @params is rejected (params expect bindings)', () => {
+  const r = evaluate(bodyOf([
+    '@params {',
+    '  fn dbl(x) = 2 * x',   // not a binding
+    '}',
+  ]));
+  assert.match(r.rows[1].error, /expected `name = expr` inside @params/);
+});

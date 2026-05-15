@@ -18,7 +18,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule } from '../../ext/numbat/dist/numbat.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
 // Uses the v0.1 prelude: ep's existing ore-body-shaped unit table. The
@@ -32,13 +32,21 @@ let _host = null;
 function host() {
   if (_host) return _host;
   _host = new Numbat({ prelude: 'v0.1' });
+
   // Seed math constants. These were hardcoded in ep's old parser; replicate
   // here so existing programs keep working after the numbat-js migration.
-  _host.values.set('pi',  new Quantity(Math.PI,        {}));
-  _host.values.set('π',   new Quantity(Math.PI,        {}));
-  _host.values.set('tau', new Quantity(Math.PI * 2,    {}));
-  _host.values.set('τ',   new Quantity(Math.PI * 2,    {}));
-  _host.values.set('e',   new Quantity(Math.E,         {}));
+  _host.values.set('pi',  new Quantity(Math.PI,     {}));
+  _host.values.set('π',   new Quantity(Math.PI,     {}));
+  _host.values.set('tau', new Quantity(Math.PI * 2, {}));
+  _host.values.set('τ',   new Quantity(Math.PI * 2, {}));
+  _host.values.set('e',   new Quantity(Math.E,      {}));
+
+  // Seed the standard dimensions so user-side `dimension X = ...` decls
+  // resolve `Length`, `Mass`, etc. The v0.1 prelude registers units only.
+  for (const [name, dim] of Object.entries(DIMENSION_OF)) {
+    if (Object.keys(dim).length === 0) _host.dims.defineBase(name);
+    else                                _host.dims.defineDerived(name, dim);
+  }
   return _host;
 }
 
@@ -52,9 +60,27 @@ export function classify(src) {
   if (/^\}\s*$/.test(t))            return {kind: 'block-close'};
   const om = t.match(/^@outputs\s*\{\s*([^}]*)\s*\}\s*$/);
   if (om) return {kind: 'outputs', names: om[1].split(',').map(s => s.trim()).filter(Boolean)};
-  // Binding with optional type annotation: `name [: Type] = expr`
-  const bm = t.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([A-Z][a-zA-Z0-9_]*(?:\s*[/*]\s*[A-Z][a-zA-Z0-9_]*(?:\s*\^\s*-?\d+)?)*))?\s*=\s*(.+)$/);
+
+  // Numbat statement decls — single-line, routed through numbat-js's loader.
+  if (/^fn\s+/.test(t)) {
+    const m = t.match(/^fn\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+    return {kind: 'fn-decl', name: m ? m[1] : null, src: t};
+  }
+  if (/^dimension\s+/.test(t)) {
+    const m = t.match(/^dimension\s+([A-Z][a-zA-Z0-9_]*)/);
+    return {kind: 'dim-decl', name: m ? m[1] : null, src: t};
+  }
+  if (/^unit\s+/.test(t)) {
+    const m = t.match(/^unit\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+    return {kind: 'unit-decl', name: m ? m[1] : null, src: t};
+  }
+
+  // Binding: `[let] name [: Type] = expr`. The optional `let` keyword is
+  // stripped so chips render the same way whether or not the user uses it.
+  const body = /^let\s+/.test(t) ? t.slice(4).trim() : t;
+  const bm = body.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([A-Z][a-zA-Z0-9_]*(?:\s*[/*]\s*[A-Z][a-zA-Z0-9_]*(?:\s*\^\s*-?\d+)?)*))?\s*=\s*(.+)$/);
   if (bm) return {kind: 'binding', name: bm[1], anno: bm[2] || null, expr: bm[3]};
+
   return {kind: 'expr', expr: t};
 }
 
@@ -136,6 +162,14 @@ function evalExprText(text, env) {
   return evalValueExpr(ast.decls[0].expr, env);
 }
 
+// Run a single-line numbat-script statement (fn / dimension / unit / use)
+// against the env. Side-effects only — no value to display.
+function loadStatement(text, env) {
+  const tokens = tokenize(text, '<line>');
+  const ast = parse(tokens, '<line>');
+  loadModule(ast, env);
+}
+
 // Build a fresh env sharing the host's units/dims/fns/structs. Values are
 // seeded from the host (so math constants like pi/tau/e are visible) but
 // stored in a per-evaluation Map so this program's bindings don't pollute
@@ -210,6 +244,11 @@ export function evaluate(body) {
     if (c.kind === 'outputs') {
       row.outputs = c.names;
       outputs.push(...c.names);
+      continue;
+    }
+    if (c.kind === 'fn-decl' || c.kind === 'dim-decl' || c.kind === 'unit-decl') {
+      try { loadStatement(c.src, env); }
+      catch (e) { row.error = e.message; }
       continue;
     }
     try {
