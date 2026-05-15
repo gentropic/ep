@@ -3,7 +3,8 @@
 // system back gesture.
 
 import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo } from './storage.js';
-import { openProgramMenu, attachLongPress, closeCtxMenu } from './ctxmenu.js';
+import { openProgramMenu } from './ctxmenu.js';
+import { attachLongPress, closeMenu } from './menu.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
 import { getExamples, loadExample } from './examples.js';
 
@@ -30,7 +31,7 @@ export function openDrawer({focusSearch = false} = {}) {
 export function closeDrawer() {
   drawer.classList.remove('on');
   drawerScrim.classList.remove('on');
-  closeCtxMenu();
+  closeMenu();
 }
 
 menuBtn.addEventListener('click', () => openDrawer());

@@ -20,6 +20,7 @@
 import { state, evaluateAll } from './state.js';
 import { fmt, fmtNum, dEq, fmtDim } from './units.js';
 import { resolveUnitExpression } from './evaluator.js';
+import { attachLongPress, showMenu } from './menu.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -385,34 +386,82 @@ export function renderOutputs() {
       const btn = document.createElement('button');
       btn.className = 'chip-copy';
       btn.textContent = 'copy';
-      btn.title = `copy "${copyText}"`;
+      btn.title = `copy "${copyText}"  ·  long-press for more`;
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
         try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(copyText);
-          } else {
-            const ta = document.createElement('textarea');
-            ta.value = copyText;
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-          }
-          btn.textContent = 'copied';
-          btn.classList.add('copied');
-          setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1200);
+          await copyToClipboard(copyText);
+          flashCopied(btn);
         } catch {
           btn.textContent = 'err';
           setTimeout(() => { btn.textContent = 'copy'; }, 1200);
         }
       });
+      // Long-press / right-click → copy-as menu with more formats.
+      attachLongPress(btn, (x, y) => openCopyAsMenu(name, q, copyText, x, y, btn));
       row.append(btn);
     }
 
     chip.append(lbl, row);
     outChipsEl.append(chip);
   }
+}
+
+// ── Copy-as menu (§5.1) ───────────────────────────────────────────
+// Long-press an output chip's copy button to pick a format. Quick tap
+// still copies the plain-text "value with unit" default.
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Fallback for non-secure contexts.
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+}
+
+function flashCopied(btn) {
+  btn.textContent = 'copied';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1200);
+}
+
+function openCopyAsMenu(name, q, plainText, x, y, anchorBtn) {
+  // `plainText` is the already-computed "value with unit" string (commas
+  // stripped, ² / ³ down-converted) that quick-tap copies. We derive the
+  // other formats from it + q's canonical value and dim.
+  const parts = plainText.split(' ');
+  const numStr = parts[0];
+  const unitAscii = parts.slice(1).join(' ');   // empty if dimensionless
+
+  const formats = unitAscii ? [
+    { label: 'value with unit',    text: plainText },
+    { label: 'number only',        text: numStr },
+    { label: 'as JSON',            text: JSON.stringify({
+      name, value: parseFloat(numStr), unit: unitAscii,
+      canonical: q.value, dim: q.dim,
+    }) },
+    { label: 'as LaTeX',           text: `${numStr} \\, \\text{${unitAscii}}` },
+  ] : [
+    { label: 'number',             text: numStr },
+    { label: 'as JSON',            text: JSON.stringify({
+      name, value: q.value, dim: q.dim,
+    }) },
+    { label: 'as LaTeX',           text: numStr },
+  ];
+
+  showMenu(formats.map(f => ({
+    label: f.label,
+    action: async () => {
+      try { await copyToClipboard(f.text); flashCopied(anchorBtn); }
+      catch { /* swallow — the menu has closed */ }
+    },
+  })), x, y, { alignRight: true });
 }

@@ -2,7 +2,7 @@
 // blocked in some PWA/artifact hosting contexts and silently return null.
 // Both helpers return promises that resolve with the user's choice.
 
-import { closeCtxMenu } from './ctxmenu.js';
+import { closeMenu } from './menu.js';
 
 const modalScrim      = document.getElementById('modalScrim');
 const modalTitle      = document.getElementById('modalTitle');
@@ -37,7 +37,7 @@ modalInput.addEventListener('keydown', e => {
 });
 
 export function epConfirm(opts) {
-  closeCtxMenu();
+  closeMenu();
   modalTitle.textContent = opts.title || 'Confirm';
   modalMsg.textContent   = opts.message || '';
   modalInputRow.style.display = 'none';
@@ -56,7 +56,7 @@ export function epConfirm(opts) {
 }
 
 export function epPrompt(opts) {
-  closeCtxMenu();
+  closeMenu();
   modalTitle.textContent = opts.title || 'Input';
   modalMsg.textContent   = opts.message || '';
   modalInputRow.style.display = '';

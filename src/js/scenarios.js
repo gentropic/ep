@@ -9,7 +9,7 @@ import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { saveCurrentProgram } from './storage.js';
 import { epPrompt, epConfirm } from './dialogs.js';
-import { attachLongPress, closeCtxMenu } from './ctxmenu.js';
+import { attachLongPress, closeMenu, showMenu } from './menu.js';
 
 const stripEl = document.getElementById('scenariosStrip');
 
@@ -134,54 +134,12 @@ async function deleteScenario(name) {
   renderScenariosStrip();
 }
 
-// Small ctx menu for scenario chips. Reuses .ctx-menu styling.
 function openScenarioMenu(name, x, y, opts = {}) {
-  closeCtxMenu();
-  const menu = document.createElement('div');
-  menu.className = 'ctx-menu';
-
-  const mk = (label, fn, danger) => {
-    const b = document.createElement('button');
-    b.className = 'ctx-menu-item' + (danger ? ' danger' : '');
-    b.textContent = label;
-    b.addEventListener('click', e => {
-      e.stopPropagation();
-      closeCtxMenu();
-      fn();
-    });
-    return b;
-  };
-
-  menu.appendChild(mk('rename', () => renameScenario(name)));
-  const sep = document.createElement('div');
-  sep.className = 'ctx-menu-sep';
-  menu.appendChild(sep);
-  menu.appendChild(mk('delete', () => deleteScenario(name), true));
-
-  document.body.appendChild(menu);
-  // ctxmenu's openCtxMenuEl bookkeeping is private — best we do here is
-  // let the global escape / scroll handlers close any stray menu via the
-  // close mechanism (which removes any .ctx-menu we appended).
-  // Position
-  const mw = menu.offsetWidth, mh = menu.offsetHeight;
-  const vw = window.innerWidth, vh = window.innerHeight;
-  let left = opts.alignRight ? x - mw : x;
-  let top  = y;
-  if (left + mw > vw - 8) left = vw - mw - 8;
-  if (left < 8)           left = 8;
-  if (top + mh > vh - 8)  top = y - mh - 8;
-  if (top < 8)            top = 8;
-  menu.style.left = left + 'px';
-  menu.style.top  = top + 'px';
-
-  // Close on outside click — one-shot.
-  const onDocClick = (e) => {
-    if (!menu.contains(e.target)) {
-      menu.remove();
-      window.removeEventListener('click', onDocClick, true);
-    }
-  };
-  setTimeout(() => window.addEventListener('click', onDocClick, true), 0);
+  showMenu([
+    { label: 'rename', action: () => renameScenario(name) },
+    { separator: true },
+    { label: 'delete', action: () => deleteScenario(name), danger: true },
+  ], x, y, opts);
 }
 
 export function renderScenariosStrip() {

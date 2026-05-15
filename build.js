@@ -54,6 +54,7 @@ const VIEWER_JS_FILES = [
   'units.js',
   'evaluator.js',
   'state.js',
+  'menu.js',
   'render.js',
   'viewer-main.js',
 ];
@@ -66,6 +67,7 @@ const JS_FILES = [
   'evaluator.js',
   'state.js',
   'storage.js',
+  'menu.js',
   'render.js',
   'share.js',
   'dialogs.js',
