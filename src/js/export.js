@@ -4,6 +4,7 @@
 
 import { state } from './state.js';
 import { currentProgramName } from './storage.js';
+import { generateShareUrl } from './share.js';
 
 const scrim         = document.getElementById('scrim');
 const exportBtn     = document.getElementById('exportBtn');
@@ -11,6 +12,10 @@ const cancelBtn     = document.getElementById('cancelBtn');
 const dlEpBtn       = document.getElementById('dlEpBtn');
 const dlHtmlBtn     = document.getElementById('dlHtmlBtn');
 const copySrcBtn    = document.getElementById('copySrcBtn');
+const shareBtn      = document.getElementById('shareBtn');
+const shareRow      = document.getElementById('shareRow');
+const shareUrlEl    = document.getElementById('shareUrl');
+const shareLenEl    = document.getElementById('shareLen');
 const exportSrcEl   = document.getElementById('exportSrc');
 const exportNameEl  = document.getElementById('exportName');
 
@@ -21,6 +26,10 @@ export function serializeProgram() {
 exportBtn.addEventListener('click', () => {
   exportSrcEl.textContent = serializeProgram();
   exportNameEl.value = currentProgramName || 'program';
+  // Hide the share preview from any previous use — re-shows on link click
+  shareRow.style.display = 'none';
+  shareUrlEl.value = '';
+  shareLenEl.textContent = '';
   scrim.classList.add('on');
 });
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
@@ -71,6 +80,38 @@ copySrcBtn.addEventListener('click', async () => {
     const prev = copySrcBtn.textContent;
     copySrcBtn.textContent = 'err';
     setTimeout(() => { copySrcBtn.textContent = prev; }, 1200);
+  }
+});
+
+shareBtn.addEventListener('click', async () => {
+  const prev = shareBtn.textContent;
+  shareBtn.textContent = '…';
+  shareBtn.disabled = true;
+  try {
+    const url = await generateShareUrl(serializeProgram());
+    shareRow.style.display = '';
+    shareUrlEl.value = url;
+    shareLenEl.textContent = `· ${url.length} chars`;
+    if (navigator.share) {
+      try {
+        await navigator.share({title: 'ep program', text: `ep program: ${currentProgramName || 'untitled'}`, url});
+      } catch { /* user cancelled share — fine */ }
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(url);
+      shareBtn.textContent = 'copied';
+      setTimeout(() => { shareBtn.textContent = prev; shareBtn.disabled = false; }, 1200);
+      shareUrlEl.select();
+      return;
+    } else {
+      shareUrlEl.select();
+    }
+    shareBtn.textContent = prev;
+  } catch (e) {
+    console.error('share encode failed:', e);
+    shareBtn.textContent = 'err';
+    setTimeout(() => { shareBtn.textContent = prev; }, 1200);
+  } finally {
+    shareBtn.disabled = false;
   }
 });
 

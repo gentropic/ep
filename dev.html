@@ -123,10 +123,15 @@
       </div>
       <p style="margin-top:14px"><strong>Program source preview</strong></p>
       <div class="dialog-src" id="exportSrc"></div>
+      <div class="share-row" id="shareRow" style="display:none;">
+        <div class="share-meta"><strong>Share link</strong> <span class="share-len" id="shareLen"></span></div>
+        <input class="share-url" id="shareUrl" readonly>
+      </div>
     </div>
     <div class="dialog-actions">
       <button class="btn" id="cancelBtn">Cancel</button>
       <button class="btn" id="copySrcBtn">⧉ copy source</button>
+      <button class="btn" id="shareBtn">🔗 link</button>
       <button class="btn" id="dlEpBtn">↓ .ep</button>
       <button class="btn primary" id="dlHtmlBtn">↓ .html</button>
     </div>

@@ -545,6 +545,34 @@ body {
   color: var(--sw-text);
   line-height: 1.5;
 }
+
+/* Share-link preview row inside the export dialog */
+.share-row {
+  margin: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.share-meta {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+}
+.share-meta strong { color: var(--sw-text-mid); }
+.share-len { margin-left: 6px; color: var(--sw-text-soft); }
+.share-url {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 6px 8px;
+  outline: none;
+  color: var(--sw-text);
+  width: 100%;
+}
 .dialog-row {
   display: flex;
   gap: 8px;

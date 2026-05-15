@@ -51,6 +51,7 @@ const JS_FILES = [
   'state.js',
   'storage.js',
   'render.js',
+  'share.js',
   'dialogs.js',
   'ctxmenu.js',
   'drawer.js',

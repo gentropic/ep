@@ -554,6 +554,34 @@ body {
   color: var(--sw-text);
   line-height: 1.5;
 }
+
+/* Share-link preview row inside the export dialog */
+.share-row {
+  margin: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.share-meta {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+}
+.share-meta strong { color: var(--sw-text-mid); }
+.share-len { margin-left: 6px; color: var(--sw-text-soft); }
+.share-url {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 6px 8px;
+  outline: none;
+  color: var(--sw-text);
+  width: 100%;
+}
 .dialog-row {
   display: flex;
   gap: 8px;
@@ -979,10 +1007,15 @@ body {
       </div>
       <p style="margin-top:14px"><strong>Program source preview</strong></p>
       <div class="dialog-src" id="exportSrc"></div>
+      <div class="share-row" id="shareRow" style="display:none;">
+        <div class="share-meta"><strong>Share link</strong> <span class="share-len" id="shareLen"></span></div>
+        <input class="share-url" id="shareUrl" readonly>
+      </div>
     </div>
     <div class="dialog-actions">
       <button class="btn" id="cancelBtn">Cancel</button>
       <button class="btn" id="copySrcBtn">⧉ copy source</button>
+      <button class="btn" id="shareBtn">🔗 link</button>
       <button class="btn" id="dlEpBtn">↓ .ep</button>
       <button class="btn primary" id="dlHtmlBtn">↓ .html</button>
     </div>
@@ -4143,6 +4176,97 @@ function renderOutputs() {
   }
 }
 
+// ─── share.js ────────────────────────────────────────────────────
+// URL-based program sharing. Encodes the current program as ?p=<encoded>
+// so a link/QR fully restores it on the recipient side.
+//
+// Pipeline: text → UTF-8 bytes → deflate-raw (when CompressionStream is
+// available; falls back to identity) → base64url. The decode side accepts
+// both compressed and uncompressed payloads to keep old links working.
+//
+// We don't vendor lz-string because CompressionStream is now universal in
+// evergreen browsers and our base64url alphabet is URL-safe by construction.
+
+const PARAM_KEY = 'p';
+
+function bytesToB64Url(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64UrlToBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function compressForUrl(text) {
+  const bytes = new TextEncoder().encode(text);
+  if (typeof CompressionStream === 'undefined') return bytesToB64Url(bytes);
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const buf = new Uint8Array(await new Response(stream).arrayBuffer());
+  return bytesToB64Url(buf);
+}
+
+async function decompressFromUrl(encoded) {
+  const bytes = b64UrlToBytes(encoded);
+  if (typeof DecompressionStream !== 'undefined') {
+    try {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      const buf = await new Response(stream).arrayBuffer();
+      return new TextDecoder().decode(buf);
+    } catch {
+      // Fall through — payload was likely produced by the no-CompressionStream branch
+    }
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+async function generateShareUrl(text) {
+  const encoded = await compressForUrl(text);
+  return location.origin + location.pathname + '?' + PARAM_KEY + '=' + encoded;
+}
+
+// Boot-side: detect a share payload (synchronously) so the boot path can
+// decide which branch to take without unconditionally awaiting.
+function hasShareParam() {
+  return new URLSearchParams(location.search).has(PARAM_KEY);
+}
+
+// Decode the share payload from the URL and clear it from the address bar
+// so a reload doesn't re-trigger the import. Returns the source text, or
+// null if decoding failed.
+async function consumeShareParam() {
+  const params = new URLSearchParams(location.search);
+  const enc = params.get(PARAM_KEY);
+  if (!enc) return null;
+  let text = null;
+  try { text = await decompressFromUrl(enc); }
+  catch (e) { console.warn('share-url decode failed:', e); }
+  history.replaceState(null, '', location.pathname);
+  return text;
+}
+
+// Load a shared program as a fresh storage slot named "shared", "shared_2", etc.
+// Does NOT clobber any current program — the recipient keeps their own work.
+function adoptSharedProgram(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  while (lines.length > 1 && lines[lines.length - 1].trim() === '') lines.pop();
+  state.body = lines.map(src => ({src}));
+  state.ui.collapsedBlocks = [];
+  const name = uniqueProgramName('shared');
+  setCurrentProgramName(name);
+  evaluateAll();
+  renderChips();
+  renderBody();
+  renderResults();
+  saveCurrentProgram({force: true});
+}
+
 // ─── dialogs.js ──────────────────────────────────────────────────
 // In-app modal dialogs that replace native confirm()/prompt(), which are
 // blocked in some PWA/artifact hosting contexts and silently return null.
@@ -4690,6 +4814,10 @@ const cancelBtn     = document.getElementById('cancelBtn');
 const dlEpBtn       = document.getElementById('dlEpBtn');
 const dlHtmlBtn     = document.getElementById('dlHtmlBtn');
 const copySrcBtn    = document.getElementById('copySrcBtn');
+const shareBtn      = document.getElementById('shareBtn');
+const shareRow      = document.getElementById('shareRow');
+const shareUrlEl    = document.getElementById('shareUrl');
+const shareLenEl    = document.getElementById('shareLen');
 const exportSrcEl   = document.getElementById('exportSrc');
 const exportNameEl  = document.getElementById('exportName');
 
@@ -4700,6 +4828,10 @@ function serializeProgram() {
 exportBtn.addEventListener('click', () => {
   exportSrcEl.textContent = serializeProgram();
   exportNameEl.value = currentProgramName || 'program';
+  // Hide the share preview from any previous use — re-shows on link click
+  shareRow.style.display = 'none';
+  shareUrlEl.value = '';
+  shareLenEl.textContent = '';
   scrim.classList.add('on');
 });
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
@@ -4750,6 +4882,38 @@ copySrcBtn.addEventListener('click', async () => {
     const prev = copySrcBtn.textContent;
     copySrcBtn.textContent = 'err';
     setTimeout(() => { copySrcBtn.textContent = prev; }, 1200);
+  }
+});
+
+shareBtn.addEventListener('click', async () => {
+  const prev = shareBtn.textContent;
+  shareBtn.textContent = '…';
+  shareBtn.disabled = true;
+  try {
+    const url = await generateShareUrl(serializeProgram());
+    shareRow.style.display = '';
+    shareUrlEl.value = url;
+    shareLenEl.textContent = `· ${url.length} chars`;
+    if (navigator.share) {
+      try {
+        await navigator.share({title: 'ep program', text: `ep program: ${currentProgramName || 'untitled'}`, url});
+      } catch { /* user cancelled share — fine */ }
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(url);
+      shareBtn.textContent = 'copied';
+      setTimeout(() => { shareBtn.textContent = prev; shareBtn.disabled = false; }, 1200);
+      shareUrlEl.select();
+      return;
+    } else {
+      shareUrlEl.select();
+    }
+    shareBtn.textContent = prev;
+  } catch (e) {
+    console.error('share encode failed:', e);
+    shareBtn.textContent = 'err';
+    setTimeout(() => { shareBtn.textContent = prev; }, 1200);
+  } finally {
+    shareBtn.disabled = false;
   }
 });
 
@@ -4846,24 +5010,37 @@ window.addEventListener('drop', async (e) => {
 });
 
 // ─── main.js ─────────────────────────────────────────────────────
-// Entry point. Boots from storage (or seeds the demo if first-run), runs the
-// initial evaluate + render pass, then wires global keyboard shortcuts.
+// Entry point. Boots from storage (or adopts a shared program from ?p=, or
+// seeds the demo if first-run), runs the initial evaluate + render pass, then
+// wires global keyboard shortcuts.
 
-const restored = bootProgramFromStorage();
-evaluateAll();
-renderChips();
-renderBody();
-renderResults();
-applyInitialUI();
-if (!restored) {
-  saveCurrentProgram({force: true});
+function defaultBoot() {
+  const restored = bootProgramFromStorage();
+  evaluateAll();
+  renderChips();
+  renderBody();
+  renderResults();
+  if (!restored) {
+    saveCurrentProgram({force: true});
+  } else {
+    window.dispatchEvent(new CustomEvent('ep:storage-changed'));
+  }
+}
+
+if (hasShareParam()) {
+  // Async branch: decode the shared program before running the rest of boot.
+  // Defaults to the normal boot if decode fails.
+  consumeShareParam().then(text => {
+    if (text) adoptSharedProgram(text);
+    else      defaultBoot();
+    applyInitialUI();
+  });
 } else {
-  window.dispatchEvent(new CustomEvent('ep:storage-changed'));
+  defaultBoot();
+  applyInitialUI();
 }
 
 // ── Keyboard shortcuts (§2.1) ─────────────────────────────────
-// Single window-level keydown listener. Only fires for modifier combinations
-// (Cmd/Ctrl + key) plus Esc; plain typing keys pass through to inputs.
 window.addEventListener('keydown', e => {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
