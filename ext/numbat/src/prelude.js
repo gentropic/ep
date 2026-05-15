@@ -38,6 +38,17 @@ export function loadPrelude(registry) {
 
   registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
 
+  // Imperial / US customary — convenience for input and explicit `-> ft`
+  // conversion. Flagged inputOnly so the auto-scaler still prefers metric
+  // for default display.
+  registry.define('inch',  { dim: {length: 1}, mul: 0.0254,    aliases: ['inches'], shortAliases: ['in'], inputOnly: true });
+  registry.define('foot',  { dim: {length: 1}, mul: 0.3048,    aliases: ['feet'],   shortAliases: ['ft'], inputOnly: true });
+  registry.define('yard',  { dim: {length: 1}, mul: 0.9144,    aliases: ['yards'],  shortAliases: ['yd'], inputOnly: true });
+  registry.define('mile',  { dim: {length: 1}, mul: 1609.344,  aliases: ['miles'],  shortAliases: ['mi'], inputOnly: true });
+
+  registry.define('pound', { dim: {mass: 1}, mul: 453.59237, aliases: ['pounds'], shortAliases: ['lb', 'lbs'], inputOnly: true });
+  registry.define('stone', { dim: {mass: 1}, mul: 6350.293,  aliases: ['stones'], shortAliases: ['st'],         inputOnly: true });
+
   // Area — explicit squared units (parser-level `m^2` syntax in v0.3+).
   registry.define('m2',  { dim: {length: 2}, displayName: 'm²',  aliases: ['m^2'] });
   registry.define('cm2', { dim: {length: 2}, mul: 1e-4, displayName: 'cm²' });

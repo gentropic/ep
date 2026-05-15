@@ -215,6 +215,11 @@ class UnitRegistry {
   //   opts.shortAliases:  SHORT-form alternate names ['m']. Each combines with
   //                       the metric prefix's short form (kilo + m = km).
   //   opts.prefixSet:     'metric' | null
+  //   opts.inputOnly:     true → resolves for input, but excluded from the
+  //                       formatter's auto-scale candidate pool. Use for
+  //                       units the user can type but shouldn't be picked
+  //                       as a default display unit (e.g., imperial units
+  //                       in a metric-defaulting prelude).
   //
   // Upstream Numbat's `@aliases(metres, meter, meters, m: short)` splits
   // into aliases=[metres, meter, meters] and shortAliases=[m]. v0.1 callers
@@ -226,9 +231,11 @@ class UnitRegistry {
     const shortAliases = opts.shortAliases ?? [];
     const displayName  = opts.displayName ?? shortAliases[0] ?? canonicalName;
     const prefixSet    = opts.prefixSet ?? null;
+    const inputOnly    = opts.inputOnly === true;
 
-    this._addEntry({mul, dim, displayName, fullName: canonicalName},
-                   [canonicalName, ...aliases, ...shortAliases]);
+    const entry = {mul, dim, displayName, fullName: canonicalName};
+    if (inputOnly) entry.inputOnly = true;
+    this._addEntry(entry, [canonicalName, ...aliases, ...shortAliases]);
 
     if (prefixSet === 'metric') {
       for (const [longName, shortName, factor] of METRIC_PREFIXES) {
@@ -274,11 +281,12 @@ class UnitRegistry {
     return this._units.has(name);
   }
 
-  // List all unit entries, optionally filtered by exact dimension match.
-  // Used by the formatter to find candidate units for auto-scaling.
+  // List unit entries available to the formatter's auto-scaler. Entries
+  // flagged `inputOnly` are resolvable via resolve() but excluded here.
   list(filterDim = null) {
-    if (!filterDim) return this._entries.slice();
-    return this._entries.filter(e => dimEq(filterDim, e.dim));
+    const base = this._entries.filter(e => !e.inputOnly);
+    if (!filterDim) return base;
+    return base.filter(e => dimEq(filterDim, e.dim));
   }
 }
 
@@ -2051,6 +2059,17 @@ function loadPrelude(registry) {
   registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, shortAliases: ['µs', 'μs', 'us'] });
 
   registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
+
+  // Imperial / US customary — convenience for input and explicit `-> ft`
+  // conversion. Flagged inputOnly so the auto-scaler still prefers metric
+  // for default display.
+  registry.define('inch',  { dim: {length: 1}, mul: 0.0254,    aliases: ['inches'], shortAliases: ['in'], inputOnly: true });
+  registry.define('foot',  { dim: {length: 1}, mul: 0.3048,    aliases: ['feet'],   shortAliases: ['ft'], inputOnly: true });
+  registry.define('yard',  { dim: {length: 1}, mul: 0.9144,    aliases: ['yards'],  shortAliases: ['yd'], inputOnly: true });
+  registry.define('mile',  { dim: {length: 1}, mul: 1609.344,  aliases: ['miles'],  shortAliases: ['mi'], inputOnly: true });
+
+  registry.define('pound', { dim: {mass: 1}, mul: 453.59237, aliases: ['pounds'], shortAliases: ['lb', 'lbs'], inputOnly: true });
+  registry.define('stone', { dim: {mass: 1}, mul: 6350.293,  aliases: ['stones'], shortAliases: ['st'],         inputOnly: true });
 
   // Area — explicit squared units (parser-level `m^2` syntax in v0.3+).
   registry.define('m2',  { dim: {length: 2}, displayName: 'm²',  aliases: ['m^2'] });

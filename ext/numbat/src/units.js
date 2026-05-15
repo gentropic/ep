@@ -53,6 +53,11 @@ export class UnitRegistry {
   //   opts.shortAliases:  SHORT-form alternate names ['m']. Each combines with
   //                       the metric prefix's short form (kilo + m = km).
   //   opts.prefixSet:     'metric' | null
+  //   opts.inputOnly:     true → resolves for input, but excluded from the
+  //                       formatter's auto-scale candidate pool. Use for
+  //                       units the user can type but shouldn't be picked
+  //                       as a default display unit (e.g., imperial units
+  //                       in a metric-defaulting prelude).
   //
   // Upstream Numbat's `@aliases(metres, meter, meters, m: short)` splits
   // into aliases=[metres, meter, meters] and shortAliases=[m]. v0.1 callers
@@ -64,9 +69,11 @@ export class UnitRegistry {
     const shortAliases = opts.shortAliases ?? [];
     const displayName  = opts.displayName ?? shortAliases[0] ?? canonicalName;
     const prefixSet    = opts.prefixSet ?? null;
+    const inputOnly    = opts.inputOnly === true;
 
-    this._addEntry({mul, dim, displayName, fullName: canonicalName},
-                   [canonicalName, ...aliases, ...shortAliases]);
+    const entry = {mul, dim, displayName, fullName: canonicalName};
+    if (inputOnly) entry.inputOnly = true;
+    this._addEntry(entry, [canonicalName, ...aliases, ...shortAliases]);
 
     if (prefixSet === 'metric') {
       for (const [longName, shortName, factor] of METRIC_PREFIXES) {
@@ -112,10 +119,11 @@ export class UnitRegistry {
     return this._units.has(name);
   }
 
-  // List all unit entries, optionally filtered by exact dimension match.
-  // Used by the formatter to find candidate units for auto-scaling.
+  // List unit entries available to the formatter's auto-scaler. Entries
+  // flagged `inputOnly` are resolvable via resolve() but excluded here.
   list(filterDim = null) {
-    if (!filterDim) return this._entries.slice();
-    return this._entries.filter(e => dimEq(filterDim, e.dim));
+    const base = this._entries.filter(e => !e.inputOnly);
+    if (!filterDim) return base;
+    return base.filter(e => dimEq(filterDim, e.dim));
   }
 }
