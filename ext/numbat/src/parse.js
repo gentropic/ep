@@ -102,9 +102,10 @@ export function parse(tokens, sourceName = '<input>') {
     const generics = [];
     if (atOp('<')) {
       eat();
-      if (!atOp('>')) {
+      while (!atOp('>')) {
         generics.push(parseGenericParam());
-        while (atOp(',')) { eat(); generics.push(parseGenericParam()); }
+        if (atOp(',')) eat();
+        else break;
       }
       if (!atOp('>')) throw err(peek(), `expected '>' to close struct generics`);
       eat();
@@ -130,18 +131,20 @@ export function parse(tokens, sourceName = '<input>') {
     const generics = [];
     if (atOp('<')) {
       eat();
-      if (!atOp('>')) {
+      while (!atOp('>')) {
         generics.push(parseGenericParam());
-        while (atOp(',')) { eat(); generics.push(parseGenericParam()); }
+        if (atOp(',')) eat();
+        else break;
       }
       if (!atOp('>')) throw err(peek(), `expected '>' to close generic parameters`);
       eat();
     }
     expectOp('(');
     const params = [];
-    if (!atOp(')')) {
+    while (!atOp(')')) {
       params.push(parseFnParam());
-      while (atOp(',')) { eat(); params.push(parseFnParam()); }
+      if (atOp(',')) eat();
+      else break;
     }
     expectOp(')');
     // Optional return type. Uses parseTypeExpr (parseAddExpr + optional
@@ -474,9 +477,10 @@ export function parse(tokens, sourceName = '<input>') {
       if (atOp('(')) {
         eat();
         const args = [];
-        if (!atOp(')')) {
+        while (!atOp(')')) {
           args.push(parseExpr());
-          while (atOp(',')) { eat(); args.push(parseExpr()); }
+          if (atOp(',')) eat();
+          else break;
         }
         expectOp(')');
         return { type: 'Call', name: t.name, args, span: t.span };
@@ -491,6 +495,7 @@ export function parse(tokens, sourceName = '<input>') {
           const fval = parseExpr();
           fields.push({ name: fname.name, value: fval });
           if (atOp(',')) eat();
+          else break;
         }
         expectOp('}');
         return { type: 'StructInit', name: t.name, fields, span: t.span };
@@ -503,13 +508,14 @@ export function parse(tokens, sourceName = '<input>') {
       expectOp(')');
       return { type: 'Paren', expr: inner };
     }
-    // List literal: `[a, b, c]`, or `[]` for empty.
+    // List literal: `[a, b, c]`, or `[]` for empty. Trailing commas allowed.
     if (t.type === 'op' && t.op === '[') {
       eat();
       const items = [];
-      if (!atOp(']')) {
+      while (!atOp(']')) {
         items.push(parseExpr());
-        while (atOp(',')) { eat(); items.push(parseExpr()); }
+        if (atOp(',')) eat();
+        else break;
       }
       if (!atOp(']')) throw err(peek(), `expected ']' to close list literal`);
       eat();

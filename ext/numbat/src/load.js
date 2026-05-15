@@ -133,6 +133,22 @@ const BUILTIN_PROCS = {
     return new Quantity(0, {});
   },
 
+  // Datetime / locale stubs — return Quantities (seconds since Unix epoch
+  // with dim {time:1}) so that arithmetic on them in upstream code works.
+  // Real DateTime semantics (timezones, formatting, calendar arithmetic)
+  // need their own type — that's later work. For now these are best-effort
+  // stubs that make module loading succeed.
+  get_local_timezone(args) { return 'UTC'; },
+  now(args)                { return new Quantity(Date.now() / 1000, { time: 1 }); },
+  format_datetime(args)    { return String(args[1] ?? ''); },
+  tz(args)                 { return { __struct: 'TzFn', name: String(args[0] ?? '') }; },
+  exchange_rate(args)      { return new Quantity(1, {}); },
+  datetime(args) {
+    // Parse ISO-ish input into seconds-since-epoch; falls back to 0 on bad input.
+    const t = Date.parse(String(args[0] ?? ''));
+    return new Quantity(Number.isFinite(t) ? t / 1000 : 0, { time: 1 });
+  },
+
   // ── list primitives (v0.5) ──────────────────────────────────
   // Upstream's core::lists declares these as `fn head<A>(xs: List<A>) -> A`
   // (extern); the loader routes extern body-less fns here.
@@ -275,16 +291,27 @@ export function evalValueExpr(node, env) {
       const left = evalValueExpr(node.left, env);
       let target = node.right;
       while (target.type === 'Paren') target = target.expr;
-      // Simple case: single unit name → set the disp tag for display auto-scale.
+      // Three meanings for `x -> name` depending on context:
+      //   1. left is a Quantity AND name is a unit → set disp tag (conversion)
+      //   2. name is a fn/builtin → function application `f(x)`
+      //      (upstream uses this pattern: `datetime("…") -> julian_date`)
+      //   3. otherwise → error
       if (target.type === 'Ident') {
-        return left.convertTo(target.name, env.units);
+        if (left instanceof Quantity && env.units.has(target.name)) {
+          return left.convertTo(target.name, env.units);
+        }
+        if (env.fns?.has(target.name)) {
+          return invokeUserFn(env.fns.get(target.name), target.name, [left], env);
+        }
+        if (BUILTIN_PROCS[target.name]) return BUILTIN_PROCS[target.name]([left]);
+        if (BUILTIN_FNS[target.name])   return BUILTIN_FNS[target.name](left);
+        throw new Error(`-> ${target.name}: unknown unit or function`);
       }
-      // Compound case: evaluate the target as a Quantity, verify dim
-      // compatibility, return the left value with no disp tag (proper
-      // compound-display naming is v0.5+). Canonical value preserved.
+      // Compound case: evaluate the target as a Quantity, verify dim,
+      // return left with no disp tag (compound display naming is v0.5+).
       const targetQ = evalValueExpr(target, env);
-      if (typeof targetQ === 'boolean' || typeof targetQ === 'string') {
-        throw new Error('-> compound target must be a Quantity expression');
+      if (!(left instanceof Quantity) || !(targetQ instanceof Quantity)) {
+        throw new Error('-> compound target requires Quantity on both sides');
       }
       if (!dimEq(left.dim, targetQ.dim)) {
         throw new Error(`-> dim mismatch: [${JSON.stringify(left.dim)}] cannot convert to [${JSON.stringify(targetQ.dim)}]`);
@@ -495,99 +522,82 @@ function substituteVars(symVec, subs) {
   return result;
 }
 
-// Evaluate a function call. User-defined fns take precedence over builtins so
-// users can shadow them if they really want to.
+// Invoke a user-defined fn with already-evaluated argument values. Shared by
+// evalCall (the AST path) and the `->` function-application form.
+function invokeUserFn(userFn, name, argVals, env) {
+  if (argVals.length !== userFn.params.length) {
+    throw new Error(`${name}: expected ${userFn.params.length} args, got ${argVals.length}`);
+  }
+  if (userFn.body === null) {
+    const proc = BUILTIN_PROCS[name];
+    if (proc) return proc(argVals);
+    const builtin = BUILTIN_FNS[name];
+    if (builtin && argVals.length === 1) return builtin(argVals[0]);
+    throw new Error(`extern fn ${name}: no built-in implementation provided by host`);
+  }
+  // Lexical scope: parameters layered on top of the outer scope's let-bindings.
+  const fnValues = new Map(env.values);
+  for (let i = 0; i < userFn.params.length; i++) {
+    fnValues.set(userFn.params[i].name, argVals[i]);
+  }
+  const buildFnEnv = () => ({
+    ...env,
+    values: fnValues,
+    lookupValue: (n) => {
+      if (fnValues.has(n)) return fnValues.get(n);
+      const u = env.units.resolve(n);
+      if (u) return new Quantity(u.mul, u.dim);
+      return null;
+    },
+  });
+  if (userFn.whereClauses) {
+    for (const clause of userFn.whereClauses) {
+      const v = evalValueExpr(clause.expr, buildFnEnv());
+      fnValues.set(clause.name, v);
+    }
+  }
+  let subs = null;
+  if (userFn.generics && userFn.generics.length > 0) {
+    subs = solveGenerics(userFn.generics, userFn.params, argVals, env);
+  }
+  const result = evalValueExpr(userFn.body, buildFnEnv());
+  if (userFn.returnType && result instanceof Quantity) {
+    let expected;
+    try {
+      if (subs) {
+        const genericNames = new Set(userFn.generics.map(g => g.name));
+        const symRet = evalSymDim(userFn.returnType, env, genericNames);
+        expected = substituteVars(symRet, subs);
+        if (Object.keys(expected).some(k => genericNames.has(k))) return result;
+      } else {
+        expected = evalDimExpr(userFn.returnType, env);
+      }
+    } catch {
+      return result;
+    }
+    if (!dimEq(expected, result.dim)) {
+      throw new Error(`${name}: return type mismatch (annotated [${JSON.stringify(expected)}] vs result [${JSON.stringify(result.dim)}])`);
+    }
+  }
+  return result;
+}
+
+// Evaluate a function call. User-defined fns take precedence over builtins.
 function evalCall(node, env) {
   const userFn = env.fns?.get(node.name);
   if (userFn) {
-    if (node.args.length !== userFn.params.length) {
-      throw new Error(`${node.name}: expected ${userFn.params.length} args, got ${node.args.length}`);
-    }
     const argVals = node.args.map(a => evalValueExpr(a, env));
-    // Extern fn declaration (no body) — dispatch to host. Try BUILTIN_PROCS
-    // first (variadic, accepts the args array directly), then unary
-    // BUILTIN_FNS as a fallback.
-    if (userFn.body === null) {
-      const proc = BUILTIN_PROCS[node.name];
-      if (proc) return proc(argVals);
-      const builtin = BUILTIN_FNS[node.name];
-      if (builtin) {
-        if (argVals.length !== 1) {
-          throw new Error(`${node.name}: extern builtin takes 1 arg, got ${argVals.length}`);
-        }
-        return builtin(argVals[0]);
-      }
-      throw new Error(`extern fn ${node.name}: no built-in implementation provided by host`);
-    }
-    // Lexical scope: parameters layered on top of the outer scope's let-bindings.
-    const fnValues = new Map(env.values);
-    for (let i = 0; i < userFn.params.length; i++) {
-      fnValues.set(userFn.params[i].name, argVals[i]);
-    }
-    // Helper: rebuild env with the current fnValues snapshot.
-    const buildFnEnv = () => ({
-      ...env,
-      values: fnValues,
-      lookupValue: (name) => {
-        if (fnValues.has(name)) return fnValues.get(name);
-        const u = env.units.resolve(name);
-        if (u) return new Quantity(u.mul, u.dim);
-        return null;
-      },
-    });
-    // Evaluate where clauses in declaration order; each clause sees the params
-    // and earlier clauses.
-    if (userFn.whereClauses) {
-      for (const clause of userFn.whereClauses) {
-        const v = evalValueExpr(clause.expr, buildFnEnv());
-        fnValues.set(clause.name, v);
-      }
-    }
-    const fnEnv = buildFnEnv();
-    // Solve generic parameters (if any) from concrete arg dims.
-    let subs = null;
-    if (userFn.generics && userFn.generics.length > 0) {
-      subs = solveGenerics(userFn.generics, userFn.params, argVals, env);
-    }
-
-    // Optional return-type check (with generic substitution). Skip when the
-    // result isn't a Quantity — the return type might be List/String/Bool/
-    // etc., which our dim-based check can't validate (proper type-checking
-    // for those is future work). Skip also if the substituted return type
-    // still references unresolved generics — common when args carry no dim
-    // info (lists, structs) so generics couldn't be inferred.
-    const result = evalValueExpr(userFn.body, fnEnv);
-    if (userFn.returnType && result instanceof Quantity) {
-      let expected;
-      try {
-        if (subs) {
-          const genericNames = new Set(userFn.generics.map(g => g.name));
-          const symRet = evalSymDim(userFn.returnType, env, genericNames);
-          expected = substituteVars(symRet, subs);
-          // If any key is still a generic name, inference was incomplete; skip.
-          if (Object.keys(expected).some(k => genericNames.has(k))) return result;
-        } else {
-          expected = evalDimExpr(userFn.returnType, env);
-        }
-      } catch (e) {
-        return result;   // return type isn't a known dim — skip the check
-      }
-      if (!dimEq(expected, result.dim)) {
-        throw new Error(`${node.name}: return type mismatch (annotated [${JSON.stringify(expected)}] vs result [${JSON.stringify(result.dim)}])`);
-      }
-    }
-    return result;
+    return invokeUserFn(userFn, node.name, argVals, env);
   }
+  const argVals = node.args.map(a => evalValueExpr(a, env));
+  const proc = BUILTIN_PROCS[node.name];
+  if (proc) return proc(argVals);
   const builtin = BUILTIN_FNS[node.name];
   if (builtin) {
-    if (node.args.length !== 1) {
-      throw new Error(`${node.name}: built-in takes 1 argument, got ${node.args.length}`);
+    if (argVals.length !== 1) {
+      throw new Error(`${node.name}: built-in takes 1 argument, got ${argVals.length}`);
     }
-    return builtin(evalValueExpr(node.args[0], env));
-  }
-  const proc = BUILTIN_PROCS[node.name];
-  if (proc) {
-    return proc(node.args.map(a => evalValueExpr(a, env)));
+    return builtin(argVals[0]);
   }
   throw new Error(`unknown function: ${node.name}`);
 }

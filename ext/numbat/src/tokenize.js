@@ -38,14 +38,16 @@ const UNICODE_OP_ALIAS = {
   'π': null,   // identifier, not operator
 };
 
-// Identifier-start: ASCII letter, underscore, `%`, or any non-ASCII codepoint.
-// This makes Greek letters and symbol-style aliases (`%`, `‰`, `°`) tokenizable
-// without lookup tables. The parser/loader decides which are valid in context.
+// Identifier-start: ASCII letter, underscore, `%`, `$`, or any non-ASCII
+// codepoint. This makes Greek letters, currency symbols, and symbol-style
+// aliases (`%`, `‰`, `°`, `$`) tokenizable without lookup tables. The
+// parser/loader decides which are valid in context.
 const isIdentStart = (c) =>
   (c >= 'a' && c <= 'z') ||
   (c >= 'A' && c <= 'Z') ||
   c === '_' ||
   c === '%' ||
+  c === '$' ||
   c.charCodeAt(0) >= 0x80;
 
 const isIdentCont = (c) =>
