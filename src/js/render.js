@@ -43,13 +43,17 @@ function resultMarkerHtml(lineIdx) {
   const r = state.body[lineIdx];
   if (!r) return null;
   if (r.error) {
-    return { html: escapeHtml(r.error), cls: 'error' };
+    return { html: escapeHtml(r.error), text: r.error, cls: 'error' };
   }
   if (r.result) {
     const [n, u] = fmt(r.result);
     const isOutput = r.kind === 'binding' && state.outputs.includes(r.name);
     const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
-    return { html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''), cls };
+    return {
+      html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''),
+      text: n + (u ? ' ' + u : ''),
+      cls,
+    };
   }
   return null;
 }
@@ -123,14 +127,17 @@ function mountCm6() {
   });
 
   // The result-gutter marker class. eq() lets CM6 skip DOM updates when the
-  // formatted result hasn't changed line-to-line.
+  // formatted result hasn't changed line-to-line. title attr carries the
+  // full text so long errors are readable on hover even though they're
+  // truncated in the gutter cell.
   class ResultMarker extends GutterMarker {
-    constructor(html, cls) { super(); this.html = html; this.cls = cls; }
+    constructor(html, text, cls) { super(); this.html = html; this.text = text; this.cls = cls; }
     eq(other) { return other && other.html === this.html && other.cls === this.cls; }
     toDOM() {
       const el = document.createElement('div');
       el.className = 'ep-gutter-result' + (this.cls ? ' ' + this.cls : '');
       el.innerHTML = this.html;
+      el.title = this.text;
       return el;
     }
   }
@@ -141,7 +148,7 @@ function mountCm6() {
     lineMarker(view, line) {
       const lineNo = view.state.doc.lineAt(line.from).number;  // 1-indexed
       const m = resultMarkerHtml(lineNo - 1);
-      return m ? new ResultMarker(m.html, m.cls) : null;
+      return m ? new ResultMarker(m.html, m.text, m.cls) : null;
     },
     lineMarkerChange() { return true; },
   });
@@ -159,6 +166,7 @@ function mountCm6() {
         closeBrackets(),
         foldGutter(),
         epFold,
+        EditorView.lineWrapping,
         history(),
         drawSelection(),
         resultGutter,
@@ -170,13 +178,18 @@ function mountCm6() {
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return;
           if (_syncingFromChip) return;
-          const text = update.state.doc.toString();
-          state.body = text.split('\n').map(src => ({src}));
-          evaluateAll();
-          syncChipInputsFromState();
-          renderChipResults();
-          renderOutputs();
-          scheduleAutosave();
+          try {
+            const text = update.state.doc.toString();
+            state.body = text.split('\n').map(src => ({src}));
+            evaluateAll();
+            syncChipInputsFromState();
+            renderChipResults();
+            renderOutputs();
+            scheduleAutosave();
+          } catch (e) {
+            // Never let an evaluator hiccup wedge CM6's update cycle.
+            console.error('ep: evaluator threw during doc update:', e);
+          }
         }),
         EditorView.theme({
           '&': { height: '100%' },

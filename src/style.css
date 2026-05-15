@@ -389,13 +389,19 @@ body {
   font-size: 12px;
   text-align: right;
   min-width: 120px;
+  max-width: 200px;
 }
 .body .ep-result-gutter .cm-gutterElement {
   padding: 0 14px 0 8px;
   line-height: 21px;
   height: 21px;
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  box-sizing: border-box;
 }
 .ep-gutter-result {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
