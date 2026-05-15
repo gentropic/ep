@@ -182,7 +182,10 @@ function mountCm6() {
             const text = update.state.doc.toString();
             state.body = text.split('\n').map(src => ({src}));
             evaluateAll();
-            syncChipInputsFromState();
+            // If params were added/removed/renamed, rebuild the chip panel
+            // wholesale; otherwise just update existing chip values + results.
+            if (state._paramsStructureChanged) renderChips();
+            else                                syncChipInputsFromState();
             renderChipResults();
             renderOutputs();
             scheduleAutosave();
