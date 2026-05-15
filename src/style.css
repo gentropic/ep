@@ -585,6 +585,87 @@ body {
   color: var(--sw-text);
 }
 .share-qr svg { display: block; max-width: 100%; height: auto; }
+
+/* First-launch tutorial — dimmed overlay with cutout around target + tooltip */
+.tut-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+.tut-cutout {
+  position: absolute;
+  border-radius: 6px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  transition: top 220ms ease, left 220ms ease, width 220ms ease, height 220ms ease;
+}
+.tut-tooltip {
+  position: absolute;
+  background: var(--sw-bg-raised);
+  border: 1px solid var(--sw-orange);
+  border-radius: var(--sw-radius);
+  padding: 12px 14px;
+  pointer-events: auto;
+  font-family: var(--sw-mono);
+  color: var(--sw-text);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  transition: top 220ms ease, left 220ms ease;
+}
+.tut-tooltip-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.tut-tooltip-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--sw-orange);
+}
+.tut-tooltip-step {
+  font-size: 10px;
+  color: var(--sw-text-soft);
+  letter-spacing: 1px;
+}
+.tut-tooltip-body {
+  color: var(--sw-text-mid);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.tut-tooltip-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.tut-tooltip a {
+  color: var(--sw-orange);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.tut-tooltip a:hover { color: var(--sw-amber); }
+.tut-hint {
+  color: var(--sw-text-soft);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Replay-tutorial action inside the drawer About section */
+.drawer-replay-tut {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--sw-text-soft);
+}
+.drawer-replay-tut .drawer-action-icon { color: var(--sw-text-soft); }
+.drawer-replay-tut:hover { color: var(--sw-text); }
+.drawer-replay-tut:hover .drawer-action-icon { color: var(--sw-orange); }
 .dialog-row {
   display: flex;
   gap: 8px;

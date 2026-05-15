@@ -56,6 +56,7 @@ const JS_FILES = [
   'dialogs.js',
   'ctxmenu.js',
   'drawer.js',
+  'tutorial.js',
   'accessory.js',
   'view.js',
   'export.js',

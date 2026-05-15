@@ -8,6 +8,7 @@ import { applyInitialUI } from './view.js';
 import { bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram } from './storage.js';
 import { openDrawer, closeDrawer } from './drawer.js';
 import { hasShareParam, consumeShareParam, adoptSharedProgram } from './share.js';
+import { startTutorial, isTutorialDone } from './tutorial.js';
 import './accessory.js';
 import './export.js';
 import './io.js';
@@ -27,6 +28,14 @@ function defaultBoot() {
   }
 }
 
+function maybeStartTutorial() {
+  // Don't run the tutorial when arriving via a share URL — the user is
+  // looking at someone else's calc, not exploring ep fresh.
+  if (hasShareParam()) return;
+  if (isTutorialDone()) return;
+  setTimeout(startTutorial, 400);  // let the initial render settle
+}
+
 if (hasShareParam()) {
   // Async branch: decode the shared program before running the rest of boot.
   // Defaults to the normal boot if decode fails.
@@ -34,10 +43,12 @@ if (hasShareParam()) {
     if (text) adoptSharedProgram(text);
     else      defaultBoot();
     applyInitialUI();
+    maybeStartTutorial();
   });
 } else {
   defaultBoot();
   applyInitialUI();
+  maybeStartTutorial();
 }
 
 // ── Keyboard shortcuts (§2.1) ─────────────────────────────────

@@ -4,6 +4,7 @@
 
 import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo } from './storage.js';
 import { openProgramMenu, attachLongPress, closeCtxMenu } from './ctxmenu.js';
+import { startTutorial, resetTutorial } from './tutorial.js';
 
 const menuBtn        = document.getElementById('menuBtn');
 const drawer         = document.getElementById('drawer');
@@ -41,6 +42,15 @@ window.addEventListener('ep:storage-changed', renderDrawerList);
 
 newProgBtn.addEventListener('click', () => { newProgram(); closeDrawer(); });
 openFileBtn.addEventListener('click', () => { drawerFileInput.click(); closeDrawer(); });
+
+const replayTutorialBtn = document.getElementById('replayTutorialBtn');
+if (replayTutorialBtn) {
+  replayTutorialBtn.addEventListener('click', () => {
+    closeDrawer();
+    resetTutorial();
+    setTimeout(startTutorial, 200);
+  });
+}
 
 if (drawerSearchEl) {
   drawerSearchEl.addEventListener('input', () => {
