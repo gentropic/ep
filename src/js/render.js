@@ -18,7 +18,8 @@
 //                  we don't re-evaluate redundantly.
 
 import { state, evaluateAll } from './state.js';
-import { fmt, qConvert } from './units.js';
+import { fmt, fmtNum, dEq, fmtDim } from './units.js';
+import { resolveUnitExpression } from './evaluator.js';
 import { scheduleAutosave } from './storage.js';
 
 const chipsEl    = document.getElementById('chips');
@@ -325,25 +326,34 @@ export function renderOutputs() {
     row.className = 'chip-out-row';
     const val = document.createElement('div');
     val.className = 'chip-out-val';
-    let q = state._scope[name];
+    const q = state._scope[name];
     let copyText = '';
     if (q == null) {
       val.classList.add('error');
       val.textContent = 'undefined';
     } else {
-      // Per-output unit (if any) overrides the binding's own display via
-      // qConvert — same disp-tag mechanism as `expr -> unit`.
-      let displayQ = q;
-      let convertError = null;
+      // Per-output unit (if any) overrides the binding's own display.
+      // resolveUnitExpression falls back to parsing the text as a Numbat
+      // expression so compound forms like ft^3 / kg/m^2 / km/h work even
+      // when they aren't pre-registered aliases.
+      let n, u, err = null;
       if (unit) {
-        try { displayQ = qConvert(q, unit); }
-        catch (e) { convertError = e.message; }
-      }
-      if (convertError) {
-        val.classList.add('error');
-        val.textContent = convertError;
+        try {
+          const spec = resolveUnitExpression(unit);
+          if (!dEq(spec.dim, q.dim)) {
+            err = `expected [${fmtDim(q.dim)}] but ${unit} is [${fmtDim(spec.dim)}]`;
+          } else {
+            n = fmtNum(q.value / spec.mul);
+            u = spec.displayName;
+          }
+        } catch (e) { err = e.message; }
       } else {
-        const [n, u] = fmt(displayQ);
+        [n, u] = fmt(q);
+      }
+      if (err) {
+        val.classList.add('error');
+        val.textContent = err;
+      } else {
         val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
         copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');
       }

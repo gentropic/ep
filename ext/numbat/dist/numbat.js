@@ -2057,6 +2057,10 @@ function loadPrelude(registry) {
   registry.define('second',      { dim: {time: 1}, shortAliases: ['s']  });
   registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, shortAliases: ['ms'] });
   registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, shortAliases: ['µs', 'μs', 'us'] });
+  registry.define('minute',      { dim: {time: 1}, mul: 60,         shortAliases: ['min'] });
+  registry.define('hour',        { dim: {time: 1}, mul: 3600,        shortAliases: ['h', 'hr'] });
+  registry.define('day',         { dim: {time: 1}, mul: 86400,       shortAliases: ['d'] });
+  registry.define('year',        { dim: {time: 1}, mul: 31557600,    aliases: ['years'], shortAliases: ['yr'] });
 
   registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
 

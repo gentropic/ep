@@ -187,6 +187,31 @@ function loadStatement(text, env) {
   loadModule(ast, env);
 }
 
+// Resolve a unit string to {mul, dim, displayName}. Tries direct registry
+// lookup first (fast path for "m", "kg", "m^3", "ozt", etc.); falls back to
+// parsing the text as a Numbat expression so compound forms like "ft^3",
+// "kg/m^2", "lb*ft/s^2" work too.
+//
+// Throws "unknown unit: <text>" if neither path resolves.
+export function resolveUnitExpression(unitText) {
+  const h = host();
+  const direct = h.registry.resolve(unitText);
+  if (direct) {
+    return { mul: direct.mul, dim: direct.dim, displayName: direct.displayName };
+  }
+  let q;
+  try { q = evalExprText(unitText, freshEnv()); }
+  catch { throw new Error(`unknown unit: ${unitText}`); }
+  if (!q || typeof q.value !== 'number' || !q.dim) {
+    throw new Error(`unknown unit: ${unitText}`);
+  }
+  // Prettify `^2`/`^3` to `²`/`³` for display only; conversion math is exact.
+  const displayName = unitText
+    .replace(/\^2(?![0-9])/g, '²')
+    .replace(/\^3(?![0-9])/g, '³');
+  return { mul: q.value, dim: q.dim, displayName };
+}
+
 // Build a fresh env sharing the host's units/dims/fns/structs. Values are
 // seeded from the host (so math constants like pi/tau/e are visible) but
 // stored in a per-evaluation Map so this program's bindings don't pollute

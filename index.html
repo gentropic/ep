@@ -3253,6 +3253,10 @@ function loadPrelude(registry) {
   registry.define('second',      { dim: {time: 1}, shortAliases: ['s']  });
   registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, shortAliases: ['ms'] });
   registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, shortAliases: ['µs', 'μs', 'us'] });
+  registry.define('minute',      { dim: {time: 1}, mul: 60,         shortAliases: ['min'] });
+  registry.define('hour',        { dim: {time: 1}, mul: 3600,        shortAliases: ['h', 'hr'] });
+  registry.define('day',         { dim: {time: 1}, mul: 86400,       shortAliases: ['d'] });
+  registry.define('year',        { dim: {time: 1}, mul: 31557600,    aliases: ['years'], shortAliases: ['yr'] });
 
   registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
 
@@ -4113,6 +4117,31 @@ function loadStatement(text, env) {
   loadModule(ast, env);
 }
 
+// Resolve a unit string to {mul, dim, displayName}. Tries direct registry
+// lookup first (fast path for "m", "kg", "m^3", "ozt", etc.); falls back to
+// parsing the text as a Numbat expression so compound forms like "ft^3",
+// "kg/m^2", "lb*ft/s^2" work too.
+//
+// Throws "unknown unit: <text>" if neither path resolves.
+function resolveUnitExpression(unitText) {
+  const h = host();
+  const direct = h.registry.resolve(unitText);
+  if (direct) {
+    return { mul: direct.mul, dim: direct.dim, displayName: direct.displayName };
+  }
+  let q;
+  try { q = evalExprText(unitText, freshEnv()); }
+  catch { throw new Error(`unknown unit: ${unitText}`); }
+  if (!q || typeof q.value !== 'number' || !q.dim) {
+    throw new Error(`unknown unit: ${unitText}`);
+  }
+  // Prettify `^2`/`^3` to `²`/`³` for display only; conversion math is exact.
+  const displayName = unitText
+    .replace(/\^2(?![0-9])/g, '²')
+    .replace(/\^3(?![0-9])/g, '³');
+  return { mul: q.value, dim: q.dim, displayName };
+}
+
 // Build a fresh env sharing the host's units/dims/fns/structs. Values are
 // seeded from the host (so math constants like pi/tau/e are visible) but
 // stored in a per-evaluation Map so this program's bindings don't pollute
@@ -4803,25 +4832,34 @@ function renderOutputs() {
     row.className = 'chip-out-row';
     const val = document.createElement('div');
     val.className = 'chip-out-val';
-    let q = state._scope[name];
+    const q = state._scope[name];
     let copyText = '';
     if (q == null) {
       val.classList.add('error');
       val.textContent = 'undefined';
     } else {
-      // Per-output unit (if any) overrides the binding's own display via
-      // qConvert — same disp-tag mechanism as `expr -> unit`.
-      let displayQ = q;
-      let convertError = null;
+      // Per-output unit (if any) overrides the binding's own display.
+      // resolveUnitExpression falls back to parsing the text as a Numbat
+      // expression so compound forms like ft^3 / kg/m^2 / km/h work even
+      // when they aren't pre-registered aliases.
+      let n, u, err = null;
       if (unit) {
-        try { displayQ = qConvert(q, unit); }
-        catch (e) { convertError = e.message; }
-      }
-      if (convertError) {
-        val.classList.add('error');
-        val.textContent = convertError;
+        try {
+          const spec = resolveUnitExpression(unit);
+          if (!dEq(spec.dim, q.dim)) {
+            err = `expected [${fmtDim(q.dim)}] but ${unit} is [${fmtDim(spec.dim)}]`;
+          } else {
+            n = fmtNum(q.value / spec.mul);
+            u = spec.displayName;
+          }
+        } catch (e) { err = e.message; }
       } else {
-        const [n, u] = fmt(displayQ);
+        [n, u] = fmt(q);
+      }
+      if (err) {
+        val.classList.add('error');
+        val.textContent = err;
+      } else {
         val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
         copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');
       }
