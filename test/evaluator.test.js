@@ -146,7 +146,7 @@ test('evaluate: annotation mismatch is reported with both sides', () => {
 
 test('evaluate: undefined identifier in body line', () => {
   const r = evaluate(bodyOf(['y = unknown_thing + 1']));
-  assert.match(r.rows[0].error, /undefined: unknown_thing/);
+  assert.match(r.rows[0].error, /unknown identifier: unknown_thing/);
 });
 
 test('evaluate: @outputs collects names even when bindings missing', () => {

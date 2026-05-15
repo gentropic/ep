@@ -1,10 +1,48 @@
-// Pure evaluator: classify lines, parse dimension annotations, and evaluate a
-// body of ep-script statements into rows/params/outputs/scope. No DOM, no
-// singleton state — `evaluate(body)` returns everything its caller needs to
-// reconcile into a UI state object (state.js does that).
+// Pure evaluator: classify lines, parse dimension annotations, evaluate a body
+// of ep-script statements into rows/params/outputs/scope.
+//
+// Expression evaluation is delegated to numbat-js: each binding/expression is
+// wrapped as `let __ep__ = <expr>`, tokenized + parsed by numbat-js, and the
+// expression AST is evaluated via evalValueExpr against a shared env. This
+// gives ep the full Numbat surface (sin/cos/sqrt/factorial/etc.) and the full
+// vendored unit/dim system "for free."
+//
+// What remains ep-specific:
+//   - classify(): recognizes @params { }, @outputs { }, # / -- comments
+//   - parseAnno() + DIMENSION_OF: type-annotation syntax for parameters
+//   - evaluate() loop: line-level error resilience (one bad row doesn't stop
+//     siblings), reactive scope build-up across the body
+//
+// The Numbat host instance is created lazily and reused across evaluate()
+// calls. Values are per-evaluation (fresh Map every time) so chip edits
+// don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { epTokenize, epParseExpr } from './parser.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv } from '../../ext/numbat/dist/numbat.js';
+
+// ── Numbat host (shared across all evaluate() calls) ──────────────
+// Uses the v0.1 prelude: ep's existing ore-body-shaped unit table. The
+// prelude registers units only, not value bindings, so we seed common math
+// constants ep historically supported. Switching to {prelude: 'vendored'}
+// would pull math::constants and the full upstream SI set for free, but it
+// also widens the identifier name space — defer until ep's demo is validated
+// against that.
+
+let _host = null;
+function host() {
+  if (_host) return _host;
+  _host = new Numbat({ prelude: 'v0.1' });
+  // Seed math constants. These were hardcoded in ep's old parser; replicate
+  // here so existing programs keep working after the numbat-js migration.
+  _host.values.set('pi',  new Quantity(Math.PI,        {}));
+  _host.values.set('π',   new Quantity(Math.PI,        {}));
+  _host.values.set('tau', new Quantity(Math.PI * 2,    {}));
+  _host.values.set('τ',   new Quantity(Math.PI * 2,    {}));
+  _host.values.set('e',   new Quantity(Math.E,         {}));
+  return _host;
+}
+
+// ── line classification (unchanged) ───────────────────────────────
 
 export function classify(src) {
   const t = src.trim();
@@ -20,7 +58,10 @@ export function classify(src) {
   return {kind: 'expr', expr: t};
 }
 
-// Dimensions known by short name (for optional type annotations)
+// ── dimension-annotation parsing (unchanged) ──────────────────────
+// ep keeps its own dimension table for annotations to avoid coupling the
+// annotation syntax to numbat-js's DimRegistry state.
+
 export const DIMENSION_OF = {
   Scalar:    {},
   Length:    {length: 1},
@@ -35,7 +76,6 @@ export const DIMENSION_OF = {
   Force:     {mass: 1, length: 1, time: -2},
 };
 
-// Parse a dimension annotation like "Mass / Volume" or "Length ^ 2"
 export function parseAnno(s) {
   const toks = [];
   let i = 0;
@@ -81,18 +121,43 @@ export function parseAnno(s) {
   return l;
 }
 
-// Pure evaluator: takes a body array of {src} and returns a description of
-// everything derived from it. Does not mutate the input.
-//
-// Returns:
-//   rows[]:        parallel to body; each {kind, name, result, error, outputs, inParams}
-//   params[]:      [{name, valueSrc, anno, bodyIdx, result, error}]
-//   outputs[]:     string[] — names listed in @outputs { … }
-//   scope:         {[name]: Q} — bindings visible at end of evaluation
-//   blockComplete: boolean    — true if a @params { … } pair was found
-//   blocks[]:      [{open, close, kind, count}]
+// ── numbat-js bridge ──────────────────────────────────────────────
+// Parse a single ep-script expression and evaluate it against a numbat env.
+// We wrap as `let __ep__ = expr` because numbat-js's parser only accepts top-
+// level declarations; we then pluck out the expression AST and run it
+// directly so the temporary binding is never written to the env.
+
+function evalExprText(text, env) {
+  const tokens = tokenize(`let __ep__ = ${text}`, '<line>');
+  const ast = parse(tokens, '<line>');
+  if (ast.decls.length !== 1 || ast.decls[0].type !== 'LetDecl') {
+    throw new Error('expected an expression');
+  }
+  return evalValueExpr(ast.decls[0].expr, env);
+}
+
+// Build a fresh env sharing the host's units/dims/fns/structs. Values are
+// seeded from the host (so math constants like pi/tau/e are visible) but
+// stored in a per-evaluation Map so this program's bindings don't pollute
+// the host or leak between programs.
+function freshEnv() {
+  const h = host();
+  return makeEnv({
+    dims:    h.dims,
+    units:   h.registry,
+    values:  new Map(h.values),
+    fns:     h.fns,
+    structs: h.structs,
+    resolveUse: (path) => h.use(path.join('::')),
+  });
+}
+
+// ── main evaluator ────────────────────────────────────────────────
+// Returns {rows, params, outputs, scope, blockComplete, blocks}.
+// Row shape: {kind, name, result, error, outputs, inParams}.
+
 export function evaluate(body) {
-  // Pre-scan: find @params block bounds (only valid if both `@params {` and a later `}` exist)
+  // Pre-scan: find @params block bounds
   let blockOpen = -1, blockClose = -1;
   for (let i = 0; i < body.length; i++) {
     const t = body[i].src.trim();
@@ -101,7 +166,7 @@ export function evaluate(body) {
   }
   const blockComplete = (blockOpen >= 0 && blockClose > blockOpen);
 
-  const scope = {};
+  const env = freshEnv();
   const params = [];
   const outputs = [];
   const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
@@ -124,14 +189,14 @@ export function evaluate(body) {
       const name = c.name;
       let q = null, err = null;
       try {
-        q = epParseExpr(epTokenize(c.expr), scope);
+        q = evalExprText(c.expr, env);
         if (c.anno) {
           const expected = parseAnno(c.anno);
-          if (!dEq(expected, q.d)) {
-            throw new Error(`annotated ${c.anno} but got [${fmtDim(q.d)}]`);
+          if (!dEq(expected, q.dim)) {
+            throw new Error(`annotated ${c.anno} but got [${fmtDim(q.dim)}]`);
           }
         }
-        scope[name] = q;
+        env.values.set(name, q);
       } catch (e) { q = null; err = e.message; }
       row.result = q;
       row.error  = err;
@@ -148,27 +213,30 @@ export function evaluate(body) {
       continue;
     }
     try {
-      const q = epParseExpr(epTokenize(c.expr), scope);
-      // Optional type annotation check
+      const q = evalExprText(c.expr, env);
       if (c.kind === 'binding' && c.anno) {
-        try {
-          const expected = parseAnno(c.anno);
-          if (!dEq(expected, q.d)) {
-            throw new Error(`annotated ${c.anno} but got [${fmtDim(q.d)}]`);
-          }
-        } catch (e) {
-          row.error = e.message;
-          continue;
+        const expected = parseAnno(c.anno);
+        if (!dEq(expected, q.dim)) {
+          throw new Error(`annotated ${c.anno} but got [${fmtDim(q.dim)}]`);
         }
       }
       row.result = q;
-      if (c.kind === 'binding') scope[c.name] = q;
+      if (c.kind === 'binding') env.values.set(c.name, q);
     } catch (e) { row.error = e.message; }
   }
 
   const blocks = [];
   if (blockComplete) {
     blocks.push({open: blockOpen, close: blockClose, kind: 'params', count: params.length});
+  }
+
+  // Convert the values Map to a plain object — render.js does `state._scope[name]`.
+  // Exclude host-seeded names (pi/tau/e/…) so the returned scope reflects
+  // only this program's bindings.
+  const scope = {};
+  const seeded = host().values;
+  for (const [k, v] of env.values) {
+    if (!seeded.has(k)) scope[k] = v;
   }
 
   return {rows, params, outputs, scope, blockComplete, blocks};
