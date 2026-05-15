@@ -2027,12 +2027,29 @@ function loadPrelude(registry) {
   registry.define('ounce',      { dim: {mass: 1}, mul: 28.3495,shortAliases: ['oz']  });
   registry.define('troy_ounce', { dim: {mass: 1}, mul: 31.1035,shortAliases: ['ozt'] });
 
-  // SI base canonicals (with metric prefixes auto-generated from shortAliases).
-  // Mass: gram is canonical (ep convention); SI base is kilogram but gram
-  // is more convenient at calculator scale. v0.2 follows upstream's choice.
-  registry.define('gram',   { dim: {mass: 1},   shortAliases: ['g'],   prefixSet: 'metric' });
-  registry.define('meter',  { dim: {length: 1}, shortAliases: ['m'],   prefixSet: 'metric' });
-  registry.define('second', { dim: {time: 1},   shortAliases: ['s'],   prefixSet: 'metric' });
+  // SI base canonicals. Mass: gram is canonical (ep convention); SI base is
+  // kilogram but gram is more convenient at calculator scale.
+  //
+  // We do NOT use prefixSet:'metric' here because that auto-generates the
+  // full BIPM 2022 prefix set (including deca/hecto/deci) and the formatter
+  // then picks "2 hm" or "5 dam" over "200 m" or "50 m". Instead we register
+  // only the common engineering prefixes explicitly. The omitted prefixes
+  // (da/h/d, the very-large Q/R/Y/Z/E/P/T-positive ones, and the very-small
+  // f/a/z/y/r/q ones) are out of scope for a calculator-shaped tool.
+  registry.define('gram',       { dim: {mass: 1}, shortAliases: ['g']   });
+  registry.define('milligram',  { dim: {mass: 1}, mul: 1e-3, shortAliases: ['mg'] });
+  registry.define('microgram',  { dim: {mass: 1}, mul: 1e-6, shortAliases: ['µg', 'μg', 'ug'] });
+  registry.define('kilogram',   { dim: {mass: 1}, mul: 1e3,  shortAliases: ['kg'] });
+
+  registry.define('meter',      { dim: {length: 1}, shortAliases: ['m']  });
+  registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, shortAliases: ['mm'] });
+  registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, shortAliases: ['cm'] });
+  registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  shortAliases: ['km'] });
+
+  registry.define('second',      { dim: {time: 1}, shortAliases: ['s']  });
+  registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, shortAliases: ['ms'] });
+  registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, shortAliases: ['µs', 'μs', 'us'] });
+
   registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
 
   // Area — explicit squared units (parser-level `m^2` syntax in v0.3+).
