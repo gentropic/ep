@@ -53,12 +53,12 @@ export class Numbat {
     return q.convertTo(unitName, this.registry);
   }
 
-  format(q) {
-    return format(q, this.registry);
+  format(q, opts) {
+    return format(q, this.registry, opts);
   }
 
-  formatParts(q) {
-    return formatParts(q, this.registry);
+  formatParts(q, opts) {
+    return formatParts(q, this.registry, opts);
   }
 
   // ── .nbt module loading (v0.2) ───────────────────────────────

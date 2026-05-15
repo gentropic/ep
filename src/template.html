@@ -119,12 +119,76 @@
       <div>v0.1 — syntax inspired by <strong>Numbat</strong></div>
       <div>part of the <strong>GCU</strong> stack</div>
     </div>
-    <button class="drawer-action drawer-replay-tut" id="replayTutorialBtn">
-      <span class="drawer-action-icon">↻</span>
-      <span>replay tutorial</span>
+    <button class="drawer-action" id="openSettingsBtn">
+      <span class="drawer-action-icon">⚙</span>
+      <span>settings</span>
     </button>
   </div>
 </aside>
+
+<!-- Settings panel — fullscreen slide-in. Lives outside the drawer so it can
+     cover the entire app surface, similar to an in-app sub-page. -->
+<section class="settings-panel" id="settingsPanel" aria-hidden="true">
+  <header class="settings-hdr">
+    <button class="settings-back" id="settingsBackBtn" aria-label="back">←</button>
+    <div class="settings-title">settings</div>
+  </header>
+  <div class="settings-body">
+    <div class="settings-section">
+      <div class="settings-section-hdr">display</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>significant digits</div>
+          <div class="settings-row-hint">how many digits of precision to show in result chips</div>
+        </div>
+        <div class="settings-row-control" id="sigDigitsControl"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-hdr">drawer</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>sort programs by</div>
+          <div class="settings-row-hint">pinned programs always appear first</div>
+        </div>
+        <div class="settings-row-control" id="settingsSortControl"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-hdr">help</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>replay tutorial</div>
+          <div class="settings-row-hint">walk through ep's interactive intro again</div>
+        </div>
+        <div class="settings-row-control">
+          <button class="settings-btn" id="settingsReplayTutBtn">replay</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-hdr">storage</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>reset all data</div>
+          <div class="settings-row-hint">delete saved programs, drafts, and settings. cannot be undone</div>
+        </div>
+        <div class="settings-row-control">
+          <button class="settings-btn danger" id="settingsResetBtn">reset…</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-foot">
+      <div><strong>ep</strong> · eval-print calculator</div>
+      <div>v0.1 — syntax inspired by <strong>Numbat</strong></div>
+      <div>part of the <strong>GCU</strong> stack</div>
+    </div>
+  </div>
+</section>
 
 <div class="scrim" id="scrim">
   <div class="dialog">

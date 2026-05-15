@@ -39,12 +39,22 @@ export const UNITS = new Proxy({}, {
   has: (_, name) => typeof name === 'string' && N.hasUnit(name),
 });
 
+// Significant-digits setting — user-tunable from the settings panel.
+// 5 is numbat-js's default; settings.js calls setFmtSigDigits() at boot to
+// apply the user's preference (default 4 — slightly tighter than numbat's
+// own default so most everyday results read as "3.14 m" not "3.1416 m").
+let _sigDigits = 5;
+export function setFmtSigDigits(n) {
+  const v = Math.max(1, Math.min(10, n | 0));
+  _sigDigits = v;
+}
+
 // Formatter — ep's fmt() returns [numString, unitString|null]; adapt from
 // numbat-js's formatParts() which returns {num, unit}.
 export const fmt = q => {
-  const p = N.formatParts(q);
+  const p = N.formatParts(q, { sig: _sigDigits });
   return [p.num, p.unit];
 };
 
-// Number formatter — direct re-export.
-export const fmtNum = formatNumber;
+// Number formatter — applies the current sig setting.
+export const fmtNum = (n) => formatNumber(n, _sigDigits);

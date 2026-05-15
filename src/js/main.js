@@ -15,8 +15,12 @@ import './export.js';
 import './io.js';
 import './dialogs.js';
 import './ctxmenu.js';
+import { applySettings } from './settings.js';
 
 function defaultBoot() {
+  // Apply user settings BEFORE the first evaluate/render so sig digits
+  // reflect the user's preference on the very first paint.
+  applySettings();
   const restored = bootProgramFromStorage();
   evaluateAll();
   renderChips();

@@ -80,6 +80,7 @@ const JS_FILES = [
   'view.js',
   'export.js',
   'io.js',
+  'settings.js',
   'main.js',
 ];
 
