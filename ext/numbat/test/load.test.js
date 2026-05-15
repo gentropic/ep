@@ -138,11 +138,22 @@ test('evalValueExpr: -> unknown target unit throws', () => {
   assert.throws(() => valueExpr('3 meter -> furlong', env), /unknown unit/);
 });
 
-test('evalValueExpr: -> compound target errors (v0.3 limitation)', () => {
+test('evalValueExpr: -> compound target (v0.4): verifies dim, drops disp', () => {
   const env = buildEnv();
   env.units.define('meter',  { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
   env.units.define('second', { dim: {time: 1},   shortAliases: ['s'], prefixSet: 'metric' });
-  assert.throws(() => valueExpr('3 km / s -> m / s', env), /single unit name|compound/);
+  const q = valueExpr('3 km / s -> m / s', env);
+  // Canonical: 3 km/s = 3000 m/s; dim verified as same; disp tag dropped.
+  assert.equal(q.value, 3000);
+  assert.deepEqual(q.dim, { length: 1, time: -1 });
+  assert.equal(q.disp, null);
+});
+
+test('evalValueExpr: -> compound target dim mismatch throws', () => {
+  const env = buildEnv();
+  env.units.define('meter',  { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
+  env.units.define('second', { dim: {time: 1},   shortAliases: ['s'], prefixSet: 'metric' });
+  assert.throws(() => valueExpr('3 km / s -> m * s', env), /-> dim mismatch/);
 });
 
 test('evalValueExpr: `to` keyword works the same as ->', () => {

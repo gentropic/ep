@@ -201,14 +201,23 @@ export function evalValueExpr(node, env) {
     if (EVAL_CMP_OPS.has(node.op)) return evalCmp(node, env);
     if (node.op === '->') {
       const left = evalValueExpr(node.left, env);
-      // Single-identifier target (with optional parens). Compound targets like
-      // `q -> m/s` need a compound display mechanism — v0.4+.
       let target = node.right;
       while (target.type === 'Paren') target = target.expr;
+      // Simple case: single unit name → set the disp tag for display auto-scale.
       if (target.type === 'Ident') {
         return left.convertTo(target.name, env.units);
       }
-      throw new Error('-> target must be a single unit name (compound targets coming in v0.4+)');
+      // Compound case: evaluate the target as a Quantity, verify dim
+      // compatibility, return the left value with no disp tag (proper
+      // compound-display naming is v0.5+). Canonical value preserved.
+      const targetQ = evalValueExpr(target, env);
+      if (typeof targetQ === 'boolean' || typeof targetQ === 'string') {
+        throw new Error('-> compound target must be a Quantity expression');
+      }
+      if (!dimEq(left.dim, targetQ.dim)) {
+        throw new Error(`-> dim mismatch: [${JSON.stringify(left.dim)}] cannot convert to [${JSON.stringify(targetQ.dim)}]`);
+      }
+      return new Quantity(left.value, left.dim);
     }
     if (node.op === '^') {
       const base = evalValueExpr(node.left, env);
@@ -477,8 +486,20 @@ function decoratorInfo(decorators) {
       case 'aliases':
         for (const arg of d.args) {
           if (arg.type !== 'NameArg') continue;
-          if (arg.modifier === 'short') info.shortAliases.push(arg.name);
-          else                          info.aliases.push(arg.name);
+          // Upstream modifiers:
+          //   short:  prefixable short form (e.g. `m: short`)
+          //   long:   long-form alternate name; not prefixed
+          //   none:   no auto-pluralization; treat as long-form for our purposes
+          //   both:   serves as BOTH long alias AND short (prefixable) form
+          //   (none): default = long
+          if (arg.modifier === 'short') {
+            info.shortAliases.push(arg.name);
+          } else if (arg.modifier === 'both' || arg.modifier === 'any') {
+            info.aliases.push(arg.name);
+            info.shortAliases.push(arg.name);
+          } else {
+            info.aliases.push(arg.name);
+          }
         }
         break;
       case 'metric_prefixes':
@@ -595,6 +616,15 @@ function loadLetDecl(decl, env) {
     }
   }
   env.values.set(decl.name, q);
+  // Apply @aliases — extra names binding to the same value. Upstream uses this
+  // for things like `let speed_of_light @aliases(c)`, `@aliases(µ0, μ0, mu0)`.
+  const meta = decoratorInfo(decl.decorators);
+  for (const alias of meta.aliases) {
+    if (!env.values.has(alias)) env.values.set(alias, q);
+  }
+  for (const sa of meta.shortAliases) {
+    if (!env.values.has(sa)) env.values.set(sa, q);
+  }
 }
 
 // ── convenience: tokenize + parse + load in one call ─────────────
