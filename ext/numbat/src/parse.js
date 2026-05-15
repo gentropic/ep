@@ -227,7 +227,25 @@ export function parse(tokens, sourceName = '<input>') {
 
   function parseExpr() {
     if (atKw('if')) return parseIfExpr();
-    return parseConversion();
+    return parsePipe();
+  }
+
+  // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [x, ...args]).
+  // Left-associative, looser than conversion (`pi/3 + pi |> cos` works).
+  function parsePipe() {
+    let l = parseConversion();
+    while (atOp('|>')) {
+      eat();
+      const right = parsePrimary();
+      if (right.type === 'Ident') {
+        l = { type: 'Call', name: right.name, args: [l] };
+      } else if (right.type === 'Call') {
+        l = { type: 'Call', name: right.name, args: [l, ...right.args] };
+      } else {
+        throw err(peek(), '|> RHS must be a function name or call');
+      }
+    }
+    return l;
   }
 
   function parseIfExpr() {
