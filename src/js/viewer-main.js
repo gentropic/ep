@@ -23,7 +23,8 @@ if (hdrFileEl && typeof INITIAL_STATE !== 'undefined' && INITIAL_STATE.name) {
 
 // "Show calculation" toggle — read-only source reveal. The recipient can
 // inspect the program without an editor; chips remain the only interaction
-// surface.
+// surface. The source gets a small regex-based syntax highlight pass so it
+// looks like the editor view (without dragging CM6 into the viewer bundle).
 const showSourceBtn = document.getElementById('showSourceBtn');
 const sourceView    = document.getElementById('sourceView');
 if (showSourceBtn && sourceView) {
@@ -31,7 +32,7 @@ if (showSourceBtn && sourceView) {
   showSourceBtn.addEventListener('click', () => {
     shown = !shown;
     if (shown) {
-      sourceView.textContent = state.body.map(r => r.src).join('\n');
+      sourceView.innerHTML = highlightEpScript(state.body.map(r => r.src).join('\n'));
       sourceView.style.display = '';
       showSourceBtn.textContent = 'hide calculation ▴';
     } else {
@@ -39,4 +40,56 @@ if (showSourceBtn && sourceView) {
       showSourceBtn.textContent = 'show calculation ▾';
     }
   });
+}
+
+// ── Regex tokenizer for the source view ───────────────────────────
+// Mirrors the editor's CM6 StreamLanguage / HighlightStyle scheme so the
+// viewer source pane visually matches the editor. Per-line; comment tokens
+// (`#` and `--`) consume to end of line.
+
+function htmlEscape(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const HL_KEYWORDS  = /^(let|fn|if|then|else|where|dimension|unit|struct|use|to|per|and|or|not|true|false)\b/;
+const HL_CONSTANTS = /^(pi|tau|e|π|τ|φ)\b/;
+const HL_NUMBER    = /^[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9]+)?/;
+const HL_OPKEY     = /^(->|→|×|÷|−|≤|≥|≠|==|!=|<=|>=|\|>)/;
+const HL_OP        = /^[+\-*/^=<>!]/;
+const HL_TYPE      = /^[A-Z][a-zA-Z0-9_]*/;
+const HL_IDENT     = /^[a-zA-Z_][a-zA-Z0-9_]*/;
+const HL_STRING    = /^"(\\.|[^"\\])*"/;
+const HL_DECORATOR = /^@[a-zA-Z_][a-zA-Z0-9_]*/;
+const HL_WS        = /^[ \t]+/;
+
+function highlightEpScript(source) {
+  return source.split('\n').map(highlightLine).join('\n');
+}
+
+function highlightLine(line) {
+  let rest = line;
+  let out = '';
+  const wrap = (cls, text) => `<span class="hl-${cls}">${htmlEscape(text)}</span>`;
+
+  while (rest.length > 0) {
+    // Comments swallow the rest of the line.
+    if (rest.startsWith('#') || rest.startsWith('--')) {
+      out += wrap('comment', rest);
+      break;
+    }
+    let m;
+    if ((m = rest.match(HL_STRING)))    { out += wrap('string',          m[0]); }
+    else if ((m = rest.match(HL_DECORATOR))) { out += wrap('meta',       m[0]); }
+    else if ((m = rest.match(HL_KEYWORDS)))  { out += wrap('keyword',    m[0]); }
+    else if ((m = rest.match(HL_CONSTANTS))) { out += wrap('atom',       m[0]); }
+    else if ((m = rest.match(HL_NUMBER)))    { out += wrap('number',     m[0]); }
+    else if ((m = rest.match(HL_OPKEY)))     { out += wrap('opKeyword',  m[0]); }
+    else if ((m = rest.match(HL_TYPE)))      { out += wrap('typeName',   m[0]); }
+    else if ((m = rest.match(HL_IDENT)))     { out += wrap('ident',      m[0]); }
+    else if ((m = rest.match(HL_OP)))        { out += wrap('operator',   m[0]); }
+    else if ((m = rest.match(HL_WS)))        { out += htmlEscape(m[0]); }
+    else { out += htmlEscape(rest[0]); rest = rest.slice(1); continue; }
+    rest = rest.slice(m[0].length);
+  }
+  return out;
 }

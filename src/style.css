@@ -384,7 +384,9 @@ body {
 .show-source:active .show-source-btn { color: var(--sw-text); }
 
 /* Read-only source display — used by the viewer artifact to let the
-   recipient verify the calculation without giving them an editor. */
+   recipient verify the calculation without giving them an editor. The
+   .hl-* spans below mirror the editor's CM6 HighlightStyle colors so the
+   two views look the same. */
 .source-view {
   font-family: var(--sw-mono);
   font-size: 12px;
@@ -401,6 +403,16 @@ body {
   user-select: text;
   flex: 0 0 auto;
 }
+.source-view .hl-comment    { color: var(--sw-text-soft); font-style: italic; }
+.source-view .hl-meta       { color: var(--sw-orange);    font-weight: 700; }
+.source-view .hl-keyword    { color: var(--sw-orange); }
+.source-view .hl-atom       { color: var(--sw-indigo); }
+.source-view .hl-number     { color: var(--sw-text-mid); }
+.source-view .hl-string     { color: var(--sw-teal); }
+.source-view .hl-typeName   { color: var(--sw-teal); }
+.source-view .hl-opKeyword  { color: var(--sw-orange); }
+.source-view .hl-operator   { color: var(--sw-text-mid); }
+/* .hl-ident inherits the default --sw-text color */
 
 /* Body — CodeMirror 6 editor with a right-side results gutter. CM6 handles
    undo/redo, navigation, word-jump, multi-line selection natively. Each
