@@ -26,7 +26,25 @@ test('classify: @params and block-close', () => {
 test('classify: @outputs parses comma-separated name list', () => {
   const c = classify('@outputs { tonnage, metal, metal_oz }');
   assert.equal(c.kind, 'outputs');
-  assert.deepEqual(c.names, ['tonnage', 'metal', 'metal_oz']);
+  assert.deepEqual(c.specs, [
+    { name: 'tonnage',  unit: null },
+    { name: 'metal',    unit: null },
+    { name: 'metal_oz', unit: null },
+  ]);
+});
+
+test('classify: @outputs with per-output unit specs', () => {
+  const c = classify('@outputs { volume: m^3, metal: kg, moz }');
+  assert.equal(c.kind, 'outputs');
+  assert.deepEqual(c.specs, [
+    { name: 'volume', unit: 'm^3' },
+    { name: 'metal',  unit: 'kg' },
+    { name: 'moz',    unit: null },
+  ]);
+});
+
+test('classify: @outputs { on its own line is a block-open', () => {
+  assert.deepEqual(classify('@outputs {'), { kind: 'outputs-open' });
 });
 
 test('classify: binding with and without annotation', () => {
@@ -121,7 +139,11 @@ test('evaluate: ore_body program end-to-end', () => {
   assert.equal(r.scope.metal_oz.v, r.scope.metal.v);    // canonical preserved through ->
 
   // Outputs collected
-  assert.deepEqual(r.outputs, ['tonnage', 'metal', 'metal_oz']);
+  assert.deepEqual(r.outputs, [
+    { name: 'tonnage',  unit: null },
+    { name: 'metal',    unit: null },
+    { name: 'metal_oz', unit: null },
+  ]);
 });
 
 test('evaluate: dim mismatch surfaces as row error, downstream still tries', () => {
@@ -154,9 +176,50 @@ test('evaluate: @outputs collects names even when bindings missing', () => {
     'x = 5',
     '@outputs { x, missing_binding }',
   ]));
-  assert.deepEqual(r.outputs, ['x', 'missing_binding']);
+  assert.deepEqual(r.outputs, [
+    { name: 'x',               unit: null },
+    { name: 'missing_binding', unit: null },
+  ]);
   assert.equal(r.scope.x.v, 5);
   assert.equal(r.scope.missing_binding, undefined);  // caller decides how to render
+});
+
+test('evaluate: multi-line @outputs block', () => {
+  const r = evaluate(bodyOf([
+    'x = 5 m',
+    'y = 10 m',
+    '@outputs {',
+    '  x,',
+    '  y,',
+    '}',
+  ]));
+  assert.deepEqual(r.outputs, [
+    { name: 'x', unit: null },
+    { name: 'y', unit: null },
+  ]);
+});
+
+test('evaluate: @outputs with units (single-line)', () => {
+  const r = evaluate(bodyOf([
+    'metal = 317.15 g',
+    '@outputs { metal: kg }',
+  ]));
+  assert.deepEqual(r.outputs, [{ name: 'metal', unit: 'kg' }]);
+});
+
+test('evaluate: multi-line @outputs with units', () => {
+  const r = evaluate(bodyOf([
+    'volume = 80000 m^3',
+    'metal  = 317.15 g',
+    '@outputs {',
+    '  volume: km^3,',
+    '  metal:  kg,',
+    '}',
+  ]));
+  assert.deepEqual(r.outputs, [
+    { name: 'volume', unit: 'km^3' },
+    { name: 'metal',  unit: 'kg' },
+  ]);
 });
 
 test('evaluate: @params block recognized only with matching close brace', () => {

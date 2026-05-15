@@ -18,7 +18,7 @@
 //                  we don't re-evaluate redundantly.
 
 import { state, evaluateAll } from './state.js';
-import { fmt } from './units.js';
+import { fmt, qConvert } from './units.js';
 import { scheduleAutosave } from './storage.js';
 
 const chipsEl    = document.getElementById('chips');
@@ -47,7 +47,7 @@ function resultMarkerHtml(lineIdx) {
   }
   if (r.result) {
     const [n, u] = fmt(r.result);
-    const isOutput = r.kind === 'binding' && state.outputs.includes(r.name);
+    const isOutput = r.kind === 'binding' && state.outputs.some(s => s.name === r.name);
     const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
     return {
       html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''),
@@ -306,33 +306,47 @@ export function renderResults() {
 export function renderOutputs() {
   outChipsEl.innerHTML = '';
   const panel = document.getElementById('outputsPanel');
-  const names = state.outputs;
-  outMetaEl.textContent = `· ${names.length} result${names.length === 1 ? '' : 's'}`;
-  if (!names.length) {
+  const specs = state.outputs;
+  outMetaEl.textContent = `· ${specs.length} result${specs.length === 1 ? '' : 's'}`;
+  if (!specs.length) {
     panel.style.display = 'none';
     return;
   }
   panel.style.display = '';
-  for (const name of names) {
+  for (const spec of specs) {
+    const { name, unit } = spec;
     const chip = document.createElement('div');
     chip.className = 'chip readonly';
     const lbl = document.createElement('div');
     lbl.className = 'chip-lbl';
-    lbl.textContent = name;
+    lbl.textContent = unit ? `${name} : ${unit}` : name;
 
     const row = document.createElement('div');
     row.className = 'chip-out-row';
     const val = document.createElement('div');
     val.className = 'chip-out-val';
-    const q = state._scope[name];
+    let q = state._scope[name];
     let copyText = '';
     if (q == null) {
       val.classList.add('error');
       val.textContent = 'undefined';
     } else {
-      const [n, u] = fmt(q);
-      val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
-      copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');
+      // Per-output unit (if any) overrides the binding's own display via
+      // qConvert — same disp-tag mechanism as `expr -> unit`.
+      let displayQ = q;
+      let convertError = null;
+      if (unit) {
+        try { displayQ = qConvert(q, unit); }
+        catch (e) { convertError = e.message; }
+      }
+      if (convertError) {
+        val.classList.add('error');
+        val.textContent = convertError;
+      } else {
+        const [n, u] = fmt(displayQ);
+        val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
+        copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');
+      }
     }
     row.append(val);
 

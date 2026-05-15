@@ -52,14 +52,31 @@ function host() {
 
 // ── line classification (unchanged) ───────────────────────────────
 
+// Parse a comma-separated list of `name [: unit]` specs from inside an
+// @outputs block. Trailing commas and empty pieces are tolerated.
+//
+//   "volume, metal: kg, moz: oz"
+//     → [{name:'volume', unit:null}, {name:'metal', unit:'kg'}, {name:'moz', unit:'oz'}]
+export function parseOutputSpecs(text) {
+  return text.split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(piece => {
+      const c = piece.indexOf(':');
+      if (c < 0) return { name: piece, unit: null };
+      return { name: piece.slice(0, c).trim(), unit: piece.slice(c + 1).trim() || null };
+    });
+}
+
 export function classify(src) {
   const t = src.trim();
   if (t === '') return {kind: 'empty'};
   if (t.startsWith('--') || t.startsWith('#')) return {kind: 'comment'};
   if (/^@params\s*\{\s*$/.test(t))  return {kind: 'params-open'};
+  if (/^@outputs\s*\{\s*$/.test(t)) return {kind: 'outputs-open'};
   if (/^\}\s*$/.test(t))            return {kind: 'block-close'};
   const om = t.match(/^@outputs\s*\{\s*([^}]*)\s*\}\s*$/);
-  if (om) return {kind: 'outputs', names: om[1].split(',').map(s => s.trim()).filter(Boolean)};
+  if (om) return {kind: 'outputs', specs: parseOutputSpecs(om[1])};
 
   // Numbat statement decls — single-line, routed through numbat-js's loader.
   if (/^fn\s+/.test(t)) {
@@ -200,10 +217,34 @@ export function evaluate(body) {
   }
   const blockComplete = (blockOpen >= 0 && blockClose > blockOpen);
 
+  // Pre-scan: find a multi-line @outputs block (independent of @params).
+  let oOpen = -1, oClose = -1;
+  for (let i = 0; i < body.length; i++) {
+    // Skip lines that are inside the @params block — its closing `}` must
+    // not be confused with an @outputs close.
+    if (blockComplete && i >= blockOpen && i <= blockClose) continue;
+    const t = body[i].src.trim();
+    if (oOpen < 0 && /^@outputs\s*\{\s*$/.test(t)) { oOpen = i; continue; }
+    if (oOpen >= 0 && oClose < 0 && /^\}\s*$/.test(t)) { oClose = i; break; }
+  }
+  const outputsBlockComplete = (oOpen >= 0 && oClose > oOpen);
+
   const env = freshEnv();
   const params = [];
   const outputs = [];
   const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
+
+  // Collect @outputs specs from the multi-line block, if present.
+  if (outputsBlockComplete) {
+    const pieces = [];
+    for (let i = oOpen + 1; i < oClose; i++) {
+      const t = body[i].src.trim();
+      if (!t || t.startsWith('#') || t.startsWith('--')) continue;
+      pieces.push(t);
+    }
+    // Join with commas so trailing commas on individual lines don't matter.
+    outputs.push(...parseOutputSpecs(pieces.join(',')));
+  }
 
   for (let i = 0; i < body.length; i++) {
     const c = classify(body[i].src);
@@ -238,12 +279,22 @@ export function evaluate(body) {
       continue;
     }
 
+    // Inside a multi-line @outputs block: rows are layout-only; specs were
+    // already collected in the pre-scan above.
+    const inOutputsBlock = outputsBlockComplete && i >= oOpen && i <= oClose;
+    if (inOutputsBlock) {
+      if (i === oOpen)        row.kind = 'outputs-open';
+      else if (i === oClose)  row.kind = 'block-close';
+      else                    row.kind = 'outputs-line';
+      continue;
+    }
+
     // Lines outside any complete @params block
     if (c.kind === 'empty' || c.kind === 'comment') continue;
-    if (c.kind === 'params-open' || c.kind === 'block-close') continue;
+    if (c.kind === 'params-open' || c.kind === 'outputs-open' || c.kind === 'block-close') continue;
     if (c.kind === 'outputs') {
-      row.outputs = c.names;
-      outputs.push(...c.names);
+      row.outputs = c.specs.map(s => s.name);
+      outputs.push(...c.specs);
       continue;
     }
     if (c.kind === 'fn-decl' || c.kind === 'dim-decl' || c.kind === 'unit-decl') {
