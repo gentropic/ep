@@ -4623,17 +4623,36 @@ function resultMarkerHtml(lineIdx) {
   if (r.error) {
     return { html: escapeHtml(r.error), text: r.error, cls: 'error' };
   }
-  if (r.result) {
-    const [n, u] = fmt(r.result);
-    const isOutput = r.kind === 'binding' && state.outputs.some(s => s.name === r.name);
-    const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
-    return {
-      html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''),
-      text: n + (u ? ' ' + u : ''),
-      cls,
-    };
+  if (!r.result) return null;
+
+  const outputSpec = r.kind === 'binding'
+    ? state.outputs.find(s => s.name === r.name)
+    : null;
+  const isOutput = !!outputSpec;
+  const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
+
+  // If this binding is named in @outputs with a unit spec, honor it for
+  // gutter display too — keeps the gutter consistent with the output panel
+  // (no more "10.197 ozt" gutter next to a "0.317 kg" output chip).
+  // Falls through to auto-scale if the unit can't be resolved or doesn't
+  // match the binding's dimension.
+  let n, u;
+  if (outputSpec && outputSpec.unit) {
+    try {
+      const spec = resolveUnitExpression(outputSpec.unit);
+      if (dEq(spec.dim, r.result.dim)) {
+        n = fmtNum(r.result.value / spec.mul);
+        u = spec.displayName;
+      }
+    } catch { /* fall through to auto-scale */ }
   }
-  return null;
+  if (n === undefined) [n, u] = fmt(r.result);
+
+  return {
+    html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''),
+    text: n + (u ? ' ' + u : ''),
+    cls,
+  };
 }
 
 function mountCm6() {
