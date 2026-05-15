@@ -3,7 +3,7 @@
 // (via uniqueProgramName), leaving the user's existing programs untouched.
 
 import { state, evaluateAll } from './state.js';
-import { uniqueProgramName, setCurrentProgramName, applyEphemeralUI } from './storage.js';
+import { uniqueProgramName, setCurrentProgramName, applyEphemeralUI, writeDraft } from './storage.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { renderScenariosStrip } from './scenarios.js';
 
@@ -149,4 +149,5 @@ export function loadExample(example) {
   renderResults();
   renderScenariosStrip();
   applyEphemeralUI();
+  writeDraft();
 }

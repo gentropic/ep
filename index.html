@@ -4485,12 +4485,23 @@ function evaluateAll() {
 //     activeScenario?: string,
 //   } }
 //   localStorage["ep:current"]  = name
+//   localStorage["ep:draft"]    = {                          // optional
+//     name: string,                                          // intended slug if saved
+//     body: string[],
+//     ui:   { scenarios, activeScenario, collapsedBlocks },
+//     ts:   ms,
+//   }
+// The draft slot holds the current ephemeral program (example load or
+// "+ new program" that hasn't been explicitly saved). It survives reload
+// so the user doesn't lose work, but never appears in the saved-programs
+// list — that only happens when the user explicitly commits.
 //
 // readStore() and writeStore() are the only two functions to swap if the
 // backend moves to a future VFS abstraction; the schema can stay the same.
 
 const STORE_KEY   = 'ep:programs';
 const CURRENT_KEY = 'ep:current';
+const DRAFT_KEY   = 'ep:draft';
 
 let currentProgramName = 'ore_body';
 let saveStatusTimer = null;
@@ -4524,6 +4535,34 @@ function writeStore(store) {
   catch (e) { console.warn('localStorage write failed:', e); }
 }
 
+// Draft persistence for ephemeral state — the user's in-flight unsaved
+// program. Cleared on explicit save or switch to a saved program.
+function writeDraft() {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      name: currentProgramName,
+      body: state.body.map(r => r.src),
+      ui:   {
+        scenarios:       state.ui.scenarios       || {},
+        activeScenario:  state.ui.activeScenario  || null,
+        collapsedBlocks: state.ui.collapsedBlocks || [],
+      },
+      ts: Date.now(),
+    }));
+  } catch (e) { console.warn('localStorage write (draft) failed:', e); }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch {}
+}
+
+function readDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
 function uniqueProgramName(base) {
   const store = readStore();
   if (!store[base]) return base;
@@ -4551,9 +4590,14 @@ function showSaveStatus(status) {
 }
 
 function scheduleAutosave() {
-  // Ephemeral programs (examples / fresh untitled) don't autosave — the user
-  // commits them explicitly via Cmd+S or the header save button.
-  if (state._ephemeral) return;
+  if (state._ephemeral) {
+    // Ephemeral programs don't enter the saved list but DO persist to a
+    // draft slot so the user's work survives reloads. The header save button
+    // (or Cmd+S) commits the draft to a real saved program.
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(() => writeDraft(), 400);
+    return;
+  }
   showSaveStatus('saving');
   if (autosaveTimer) clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => saveCurrentProgram(), 400);
@@ -4575,6 +4619,8 @@ function saveCurrentProgram(opts = {}) {
   // Explicit save commits the program — no longer ephemeral.
   state._ephemeral = false;
   applyEphemeralUI();
+  // The draft, if any, has been promoted to a real saved record.
+  clearDraft();
   showSaveStatus('saved');
   if (saveStatusTimer) clearTimeout(saveStatusTimer);
   saveStatusTimer = setTimeout(() => showSaveStatus(''), 1500);
@@ -4589,6 +4635,8 @@ function loadProgramByName(name) {
   const store = readStore();
   const prog = store[name];
   if (!prog) return false;
+  // Switching to a saved program discards any in-flight ephemeral draft.
+  clearDraft();
   state.body = (prog.body || []).map(src => ({src}));
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = prog.scenarios || {};
@@ -4627,6 +4675,7 @@ function newProgram() {
   renderBody();
   renderResults();
   applyEphemeralUI();
+  writeDraft();
 }
 
 // First non-blank `#` or `--` comment line — used as program description in
@@ -4655,6 +4704,22 @@ function formatAgo(ms) {
 // `true` if we restored something, `false` if nothing was found (in which
 // case main.js seeds the demo program).
 function bootProgramFromStorage() {
+  // Draft takes precedence — the user was mid-edit on an ephemeral program,
+  // so coming back should restore that state (still ephemeral, still not in
+  // the saved list).
+  const draft = readDraft();
+  if (draft && Array.isArray(draft.body)) {
+    state.body = draft.body.map(src => ({src}));
+    if (draft.ui) {
+      state.ui.scenarios       = draft.ui.scenarios       || {};
+      state.ui.activeScenario  = draft.ui.activeScenario  || null;
+      state.ui.collapsedBlocks = draft.ui.collapsedBlocks || [];
+    }
+    state._ephemeral = true;
+    setCurrentProgramName(draft.name || 'untitled', false);
+    return true;
+  }
+
   let stored = null;
   try { stored = localStorage.getItem(CURRENT_KEY); } catch {}
   const store = readStore();
@@ -5834,6 +5899,7 @@ function loadExample(example) {
   renderResults();
   renderScenariosStrip();
   applyEphemeralUI();
+  writeDraft();
 }
 
 // ─── drawer.js ───────────────────────────────────────────────────
