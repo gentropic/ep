@@ -530,6 +530,15 @@ body {
   vertical-align: middle;
 }
 
+/* §4.2 error pinpoint — red wavy underline on the offending range in the
+ * editor body. The title attribute on the mark span surfaces the full
+ * message on hover. */
+.body .cm-content .cm-ep-error {
+  text-decoration: underline wavy var(--sw-red);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
 /* Accessory bar */
 .accessory {
   background: var(--sw-bg-raised);

@@ -31,6 +31,12 @@ const outMetaEl   = document.getElementById('outMeta');
 let cmView = null;
 let _syncingFromChip = false;
 
+// CM6 error-decoration plumbing — assigned inside mountCm6() (where CM6 is
+// destructured) and used by applyErrorMarks() after each evaluate. Held at
+// module scope so applyErrorMarks() can reach them without re-destructuring.
+let _errorEffect = null;
+let _errorsField = null;
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -91,6 +97,7 @@ function mountCm6() {
     StreamLanguage, syntaxHighlighting, HighlightStyle, tags,
     foldGutter, foldKeymap, foldService,
     bracketMatching, closeBrackets,
+    Decoration, StateField, StateEffect,
   } = CM6;
 
   // ── ep-script tokenizer (StreamLanguage) ────────────────────────
@@ -162,6 +169,44 @@ function mountCm6() {
     }
   }
 
+  // ── Error pinpoint (§4.2) ───────────────────────────────────────
+  // After each evaluate, dispatch _errorEffect with [{line, col, message}, …].
+  // The field translates that into Decoration.mark ranges so CM6 underlines
+  // the offending range in the editor. col is 1-based within the source
+  // line; if absent or <=1, the whole non-whitespace span of the line is
+  // underlined. Tooltip is via the native title attribute on the mark span.
+  // (Assigned at module scope so applyErrorMarks() can dispatch on cmView.)
+  _errorEffect = StateEffect.define();
+  _errorsField = StateField.define({
+    create() { return Decoration.none; },
+    update(value, tr) {
+      value = value.map(tr.changes);
+      for (const e of tr.effects) {
+        if (!e.is(_errorEffect)) continue;
+        const marks = [];
+        for (const it of e.value) {
+          if (!it || it.line < 1 || it.line > tr.state.doc.lines) continue;
+          const line = tr.state.doc.line(it.line);
+          if (line.length === 0) continue;
+          // Skip leading whitespace so the underline doesn't sit under
+          // indentation, which reads as a long dash rather than a marker.
+          const leadingWS = line.text.match(/^\s*/)[0].length;
+          const fromCol = it.col && it.col > leadingWS ? it.col - 1 : leadingWS;
+          const from = line.from + fromCol;
+          const to   = line.to;
+          if (from >= to) continue;
+          marks.push(Decoration.mark({
+            class: 'cm-ep-error',
+            attributes: { title: it.message || '' },
+          }).range(from, to));
+        }
+        value = Decoration.set(marks, true);
+      }
+      return value;
+    },
+    provide: f => EditorView.decorations.from(f),
+  });
+
   const resultGutter = gutter({
     side: 'after',
     class: 'ep-result-gutter',
@@ -189,6 +234,7 @@ function mountCm6() {
         EditorView.lineWrapping,
         history(),
         drawSelection(),
+        _errorsField,
         resultGutter,
         keymap.of([
           ...(historyKeymap || []),   // Mod-z / Mod-Shift-z / Mod-y
@@ -208,6 +254,7 @@ function mountCm6() {
             else                                syncChipInputsFromState();
             renderChipResults();
             renderOutputs();
+            applyErrorMarks();
             window.dispatchEvent(new CustomEvent('ep:params-changed'));
           } catch (e) {
             // Never let an evaluator hiccup wedge CM6's update cycle.
@@ -276,6 +323,7 @@ export function renderChips() {
       syncCmFromState();
       renderChipResults();
       renderOutputs();
+      applyErrorMarks();
       // storage.js listens for ep:params-changed and triggers autosave.
       // Decoupled from render so the viewer can reuse render.js without
       // pulling in the storage layer.
@@ -324,6 +372,39 @@ function renderChipResults() {
 export function renderResults() {
   renderChipResults();
   renderOutputs();
+  applyErrorMarks();
+}
+
+// §4.2 — push the current set of body-row errors into the CM6 decoration
+// field. The parser surfaces "<src>:1:<col>: msg" for parse errors; we
+// extract col and translate it into source-line coordinates by adding the
+// `name = ` prefix length on binding lines. Non-binding lines (or messages
+// without a parseable position) fall back to underlining the whole line.
+function applyErrorMarks() {
+  if (!cmView || !_errorEffect) return;
+  const items = [];
+  for (let i = 0; i < state.body.length; i++) {
+    const row = state.body[i];
+    if (!row.error) continue;
+    const message = row.error;
+    let col = 0;
+    const m = message.match(/^[^:]*:1:(\d+):/);   // numbat formats as "src:1:col: …"
+    if (m) {
+      const snippetCol = parseInt(m[1], 10);      // 1-based within the snippet
+      // Bindings are passed to the evaluator with their RHS only; recover
+      // the offset of the RHS within the source line so the col lines up.
+      const src = row.src || '';
+      const eq = src.indexOf('=');
+      let prefix = 0;
+      if (eq >= 0 && (row.kind === 'binding' || /^\s*[a-zA-Z_]/.test(src))) {
+        prefix = eq + 1;
+        while (prefix < src.length && src[prefix] === ' ') prefix++;
+      }
+      col = prefix + snippetCol;
+    }
+    items.push({ line: i + 1, col, message });
+  }
+  cmView.dispatch({ effects: _errorEffect.of(items) });
 }
 
 export function renderOutputs() {
