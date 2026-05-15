@@ -481,28 +481,41 @@ body {
   outline: 1px solid var(--sw-orange);
   border-radius: 2px;
 }
-/* Fixed gutter width — CM6 otherwise auto-fits to the widest visible cell,
- * which causes the body to reflow horizontally as you scroll past long
- * error messages or short results. Lock it so scrolling stays stable.
- * Inner ep-gutter-result truncates with ellipsis; the title attribute on
- * the marker (and the in-source wavy underline) still show the full text. */
+/* Fixed-width result gutter. CM6 by default auto-sizes a gutter to its
+ * widest visible cell, which causes the body to reflow horizontally as
+ * long error messages scroll into and out of view. Pinning width via
+ * !important on the gutter AND its cells overrides CM6's intrinsic
+ * sizing so the body wraps at a constant width regardless of content.
+ *
+ * Inner ep-gutter-result truncates with ellipsis; the marker's title
+ * attribute (and the §4.2 in-source underline) preserve the full text. */
 .body .ep-result-gutter {
   font-family: var(--sw-mono);
   font-size: 12px;
   text-align: right;
-  width: 180px;
-  min-width: 180px;
-  max-width: 180px;
+  width: 180px !important;
+  min-width: 180px !important;
+  max-width: 180px !important;
+  flex: 0 0 180px !important;
+  box-sizing: border-box;
 }
 .body .ep-result-gutter .cm-gutterElement {
   padding: 0 14px 0 8px;
   line-height: 21px;
   height: 21px;
-  width: 180px;
-  max-width: 180px;
+  width: 180px !important;
+  max-width: 180px !important;
   overflow: hidden;
   white-space: nowrap;
   box-sizing: border-box;
+}
+.body .ep-result-gutter .ep-gutter-result {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .ep-gutter-result {
   display: block;
