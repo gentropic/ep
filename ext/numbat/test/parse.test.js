@@ -249,11 +249,57 @@ unit bar: Foo = 5 meter`);
 
 // ── error reporting ──────────────────────────────────────────────
 
-test('error: unsupported keyword (fn) is rejected with span', () => {
+test('error: unsupported keyword (struct) is rejected with span', () => {
+  // struct lands in v0.5; for now top-level structs error.
   assert.throws(
-    () => parseSrc('fn foo() = 1'),
-    /unsupported keyword 'fn'/,
+    () => parseSrc('struct Foo { x: Scalar }'),
+    /unsupported keyword 'struct'/,
   );
+});
+
+// ── fn declarations (v0.3) ────────────────────────────────────────
+
+test('fn: zero params', () => {
+  const m = parseSrc('fn answer() = 42');
+  const d = m.decls[0];
+  assert.equal(d.type, 'FnDecl');
+  assert.equal(d.name, 'answer');
+  assert.deepEqual(d.params, []);
+  assert.equal(d.returnType, null);
+  assert.equal(d.body.value, 42);
+});
+
+test('fn: typed params + return type', () => {
+  const m = parseSrc('fn foo(z: Scalar) -> Scalar = 2 * z + 3');
+  const d = m.decls[0];
+  assert.equal(d.params.length, 1);
+  assert.equal(d.params[0].name, 'z');
+  assert.equal(d.params[0].typeExpr.name, 'Scalar');
+  assert.equal(d.returnType.name, 'Scalar');
+});
+
+test('fn: multiple params', () => {
+  const m = parseSrc('fn add(a, b) = a + b');
+  const d = m.decls[0];
+  assert.equal(d.params.length, 2);
+  assert.equal(d.params[0].name, 'a');
+  assert.equal(d.params[1].name, 'b');
+});
+
+test('fn call: parses with args', () => {
+  const m = parseSrc('let x = add(1, 2)');
+  const e = m.decls[0].expr;
+  assert.equal(e.type, 'Call');
+  assert.equal(e.name, 'add');
+  assert.equal(e.args.length, 2);
+  assert.equal(e.args[0].value, 1);
+});
+
+test('fn call: zero-arg', () => {
+  const m = parseSrc('let x = answer()');
+  const e = m.decls[0].expr;
+  assert.equal(e.type, 'Call');
+  assert.equal(e.args.length, 0);
 });
 
 test('error: missing identifier after dimension', () => {

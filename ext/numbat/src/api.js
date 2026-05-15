@@ -19,6 +19,7 @@ export class Numbat {
     this.registry = new UnitRegistry();
     this.dims     = new DimRegistry();
     this.values   = new Map();          // let bindings
+    this.fns      = new Map();          // user-defined functions (fn decls)
     this.modules  = new Map();          // path → source text (registered .nbt)
     this.loaded   = new Set();          // paths already loaded (idempotent)
 
@@ -85,6 +86,7 @@ export class Numbat {
       dims: this.dims,
       units: this.registry,
       values: this.values,
+      fns: this.fns,
       resolveUse: (path) => this.use(path.join('::')),
     });
     loadSource(text, sourceName, env);

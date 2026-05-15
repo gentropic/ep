@@ -52,6 +52,49 @@ export function evalDimExpr(node, env) {
   throw new Error(`unexpected node ${node.type} in dimension expression`);
 }
 
+// Built-in functions available without user-side `fn` definition.
+// Upstream Numbat defines these in math::transcendental / math::trigonometry
+// as `fn` bodies that call lower-level builtins; here we just expose the
+// host's Math directly. Once we load enough upstream .nbt math modules,
+// these become a fallback rather than the primary path.
+const BUILTIN_FNS = {
+  sqrt(q) {
+    // sqrt of a dim: halve each exponent. Odd exponents → error.
+    const r = {};
+    for (const k in q.dim) {
+      if (q.dim[k] % 2 !== 0) throw new Error(`sqrt: dimension ${k} has odd exponent`);
+      r[k] = q.dim[k] / 2;
+    }
+    return new Quantity(Math.sqrt(q.value), r);
+  },
+  cbrt(q) {
+    const r = {};
+    for (const k in q.dim) {
+      if (q.dim[k] % 3 !== 0) throw new Error(`cbrt: dimension ${k} has non-multiple-of-3 exponent`);
+      r[k] = q.dim[k] / 3;
+    }
+    return new Quantity(Math.cbrt(q.value), r);
+  },
+  abs(q) { return new Quantity(Math.abs(q.value), q.dim); },
+  sin(q) { mustBeDimensionless(q, 'sin'); return new Quantity(Math.sin(q.value), {}); },
+  cos(q) { mustBeDimensionless(q, 'cos'); return new Quantity(Math.cos(q.value), {}); },
+  tan(q) { mustBeDimensionless(q, 'tan'); return new Quantity(Math.tan(q.value), {}); },
+  asin(q){ mustBeDimensionless(q, 'asin');return new Quantity(Math.asin(q.value), {}); },
+  acos(q){ mustBeDimensionless(q, 'acos');return new Quantity(Math.acos(q.value), {}); },
+  atan(q){ mustBeDimensionless(q, 'atan');return new Quantity(Math.atan(q.value), {}); },
+  log(q) { mustBeDimensionless(q, 'log'); return new Quantity(Math.log10(q.value), {}); },
+  log2(q){ mustBeDimensionless(q, 'log2');return new Quantity(Math.log2(q.value), {}); },
+  ln(q)  { mustBeDimensionless(q, 'ln');  return new Quantity(Math.log(q.value), {}); },
+  exp(q) { mustBeDimensionless(q, 'exp'); return new Quantity(Math.exp(q.value), {}); },
+  floor(q) { return new Quantity(Math.floor(q.value), q.dim); },
+  ceil(q)  { return new Quantity(Math.ceil(q.value),  q.dim); },
+  round(q) { return new Quantity(Math.round(q.value), q.dim); },
+};
+
+function mustBeDimensionless(q, fnName) {
+  if (!dimEmpty(q.dim)) throw new Error(`${fnName}: argument must be dimensionless`);
+}
+
 export function evalValueExpr(node, env) {
   if (node.type === 'Num') return new Quantity(node.value, {});
   if (node.type === 'Ident') {
@@ -60,6 +103,9 @@ export function evalValueExpr(node, env) {
     return q;
   }
   if (node.type === 'Paren') return evalValueExpr(node.expr, env);
+  if (node.type === 'Call') {
+    return evalCall(node, env);
+  }
   if (node.type === 'Unary' && node.op === '-') {
     return evalValueExpr(node.expr, env).neg();
   }
@@ -90,6 +136,50 @@ export function evalValueExpr(node, env) {
     throw new Error(`operator '${node.op}' not supported in value expression`);
   }
   throw new Error(`unexpected node ${node.type} in value expression`);
+}
+
+// Evaluate a function call. User-defined fns take precedence over builtins so
+// users can shadow them if they really want to.
+function evalCall(node, env) {
+  const userFn = env.fns?.get(node.name);
+  if (userFn) {
+    if (node.args.length !== userFn.params.length) {
+      throw new Error(`${node.name}: expected ${userFn.params.length} args, got ${node.args.length}`);
+    }
+    const argVals = node.args.map(a => evalValueExpr(a, env));
+    // Lexical scope: parameters layered on top of the outer scope's let-bindings.
+    const fnValues = new Map(env.values);
+    for (let i = 0; i < userFn.params.length; i++) {
+      fnValues.set(userFn.params[i].name, argVals[i]);
+    }
+    const fnEnv = {
+      ...env,
+      values: fnValues,
+      lookupValue: (name) => {
+        if (fnValues.has(name)) return fnValues.get(name);
+        const u = env.units.resolve(name);
+        if (u) return new Quantity(u.mul, u.dim);
+        return null;
+      },
+    };
+    // Optional return-type check
+    const result = evalValueExpr(userFn.body, fnEnv);
+    if (userFn.returnType) {
+      const expected = evalDimExpr(userFn.returnType, env);
+      if (!dimEq(expected, result.dim)) {
+        throw new Error(`${node.name}: return type mismatch (annotated [${JSON.stringify(expected)}] vs result [${JSON.stringify(result.dim)}])`);
+      }
+    }
+    return result;
+  }
+  const builtin = BUILTIN_FNS[node.name];
+  if (builtin) {
+    if (node.args.length !== 1) {
+      throw new Error(`${node.name}: built-in takes 1 argument, got ${node.args.length}`);
+    }
+    return builtin(evalValueExpr(node.args[0], env));
+  }
+  throw new Error(`unknown function: ${node.name}`);
 }
 
 // ── decorator extraction ─────────────────────────────────────────
@@ -141,6 +231,7 @@ export function loadModule(ast, env) {
         case 'DimensionDecl': loadDimensionDecl(decl, env); break;
         case 'UnitDecl':      loadUnitDecl(decl, env); break;
         case 'LetDecl':       loadLetDecl(decl, env); break;
+        case 'FnDecl':        loadFnDecl(decl, env); break;
         default:
           throw new Error(`unsupported declaration: ${decl.type}`);
       }
@@ -149,6 +240,17 @@ export function loadModule(ast, env) {
       throw new Error(`${where}: ${e.message}`);
     }
   }
+}
+
+function loadFnDecl(decl, env) {
+  if (!env.fns) env.fns = new Map();
+  // Store the AST + parameter info for later invocation. No type-check yet —
+  // dimension annotations on params and return type are verified at call time.
+  env.fns.set(decl.name, {
+    params: decl.params,
+    body: decl.body,
+    returnType: decl.returnType,
+  });
 }
 
 function loadDimensionDecl(decl, env) {
@@ -223,11 +325,12 @@ export function loadSource(text, sourceName, env) {
 
 // Build the env object used by the loader. Hosts that want to use the
 // loader directly (without going through the Numbat class) call this.
-export function makeEnv({ dims, units, values, resolveUse }) {
+export function makeEnv({ dims, units, values, fns, resolveUse }) {
   return {
     dims,
     units,
     values,
+    fns: fns ?? new Map(),
     lookupValue: (name) => {
       if (values.has(name)) return values.get(name);
       const u = units.resolve(name);

@@ -85,11 +85,43 @@ export function parse(tokens, sourceName = '<input>') {
         case 'dimension': return parseDimension(decorators);
         case 'unit':      return parseUnit(decorators);
         case 'let':       return parseLet(decorators);
+        case 'fn':        return parseFn(decorators);
         default:
-          throw err(t, `unsupported keyword '${t.name}' at top level (v0.2 handles: use, dimension, unit, let)`);
+          throw err(t, `unsupported keyword '${t.name}' at top level (v0.3 handles: use, dimension, unit, let, fn)`);
       }
     }
-    throw err(t, `expected a declaration keyword (use / dimension / unit / let)`);
+    throw err(t, `expected a declaration keyword (use / dimension / unit / let / fn)`);
+  }
+
+  function parseFn(decorators) {
+    eat();  // 'fn'
+    const nameTok = expectType('id', 'function name');
+    // No generics (`<T: Dim>`) in v0.3 — that's v0.4.
+    expectOp('(');
+    const params = [];
+    if (!atOp(')')) {
+      params.push(parseFnParam());
+      while (atOp(',')) { eat(); params.push(parseFnParam()); }
+    }
+    expectOp(')');
+    // Optional return type. Uses parseAddExpr to avoid consuming the body's `->`
+    // if any (return type can't itself contain `->` at top level).
+    let returnType = null;
+    if (atOp('->')) {
+      eat();
+      returnType = parseAddExpr();
+    }
+    expectOp('=');
+    const body = parseExpr();
+    // `where` clauses arrive in v0.3 step 4.
+    return { type: 'FnDecl', name: nameTok.name, params, returnType, body, decorators };
+  }
+
+  function parseFnParam() {
+    const nameTok = expectType('id', 'parameter name');
+    let typeExpr = null;
+    if (atOp(':')) { eat(); typeExpr = parseAddExpr(); }
+    return { name: nameTok.name, typeExpr };
   }
 
   function parseDecorator() {
@@ -232,7 +264,21 @@ export function parse(tokens, sourceName = '<input>') {
     const t = peek();
     if (!t) throw err(null, 'unexpected end of input in expression');
     if (t.type === 'num') { eat(); return { type: 'Num', value: t.value, raw: t.raw }; }
-    if (t.type === 'id')  { eat(); return { type: 'Ident', name: t.name, span: t.span }; }
+    if (t.type === 'id')  {
+      eat();
+      // Function call: `name(args)` if `(` immediately follows.
+      if (atOp('(')) {
+        eat();
+        const args = [];
+        if (!atOp(')')) {
+          args.push(parseExpr());
+          while (atOp(',')) { eat(); args.push(parseExpr()); }
+        }
+        expectOp(')');
+        return { type: 'Call', name: t.name, args, span: t.span };
+      }
+      return { type: 'Ident', name: t.name, span: t.span };
+    }
     if (t.type === 'op' && t.op === '(') {
       eat();
       const inner = parseExpr();
