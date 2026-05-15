@@ -481,18 +481,25 @@ body {
   outline: 1px solid var(--sw-orange);
   border-radius: 2px;
 }
+/* Fixed gutter width — CM6 otherwise auto-fits to the widest visible cell,
+ * which causes the body to reflow horizontally as you scroll past long
+ * error messages or short results. Lock it so scrolling stays stable.
+ * Inner ep-gutter-result truncates with ellipsis; the title attribute on
+ * the marker (and the in-source wavy underline) still show the full text. */
 .body .ep-result-gutter {
   font-family: var(--sw-mono);
   font-size: 12px;
   text-align: right;
-  min-width: 120px;
-  max-width: 200px;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
 }
 .body .ep-result-gutter .cm-gutterElement {
   padding: 0 14px 0 8px;
   line-height: 21px;
   height: 21px;
-  max-width: 200px;
+  width: 180px;
+  max-width: 180px;
   overflow: hidden;
   white-space: nowrap;
   box-sizing: border-box;
