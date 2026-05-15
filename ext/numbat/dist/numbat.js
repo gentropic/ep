@@ -634,11 +634,38 @@ function parse(tokens, sourceName = '<input>') {
         case 'unit':      return parseUnit(decorators);
         case 'let':       return parseLet(decorators);
         case 'fn':        return parseFn(decorators);
+        case 'struct':    return parseStruct(decorators);
         default:
-          throw err(t, `unsupported keyword '${t.name}' at top level (v0.3 handles: use, dimension, unit, let, fn)`);
+          throw err(t, `unsupported keyword '${t.name}' at top level (v0.5 handles: use, dimension, unit, let, fn, struct)`);
       }
     }
-    throw err(t, `expected a declaration keyword (use / dimension / unit / let / fn)`);
+    throw err(t, `expected a declaration keyword (use / dimension / unit / let / fn / struct)`);
+  }
+
+  function parseStruct(decorators) {
+    eat();  // 'struct'
+    const nameTok = expectType('id', 'struct name');
+    const generics = [];
+    if (atOp('<')) {
+      eat();
+      if (!atOp('>')) {
+        generics.push(parseGenericParam());
+        while (atOp(',')) { eat(); generics.push(parseGenericParam()); }
+      }
+      if (!atOp('>')) throw err(peek(), `expected '>' to close struct generics`);
+      eat();
+    }
+    expectOp('{');
+    const fields = [];
+    while (!atOp('}')) {
+      const fname = expectType('id', 'field name');
+      expectOp(':');
+      const ftype = parseTypeExpr();
+      fields.push({ name: fname.name, type: ftype });
+      if (atOp(',')) eat();
+    }
+    expectOp('}');
+    return { type: 'StructDecl', name: nameTok.name, generics, fields, decorators };
   }
 
   function parseFn(decorators) {
@@ -708,9 +735,13 @@ function parse(tokens, sourceName = '<input>') {
 
   function parseWhereClause() {
     const nameTok = expectType('id', 'where-clause binding name');
+    // Optional type annotation: `where unit_val: D = ...`. We parse and store
+    // it for future type checking; v0.5 doesn't enforce it at runtime.
+    let typeAnno = null;
+    if (atOp(':')) { eat(); typeAnno = parseTypeExpr(); }
     expectOp('=');
     const expr = parseExpr();
-    return { name: nameTok.name, expr };
+    return { name: nameTok.name, typeAnno, expr };
   }
 
   function parseFnParam() {
@@ -721,23 +752,23 @@ function parse(tokens, sourceName = '<input>') {
   }
 
   // Type expression: parseAddExpr followed by optional generic-type-args
-  // `<...>`. v0.4 discards the contents — lists/structs in v0.5 will store and
-  // typecheck them. This lets us parse upstream signatures that use
-  // `List<String>`, `Vec2<Length>`, etc., without failing the file.
+  // `<...>` or function-type args `[(A) -> B]`. v0.5 discards the contents —
+  // structs will properly typecheck them in a later version. This lets us
+  // parse upstream signatures using `List<String>`, `Fn[(X) -> Y]`, etc.,
+  // without failing the file.
   function parseTypeExpr() {
     const t = parseAddExpr();
-    if (atOp('<')) {
+    while (atOp('<') || atOp('[')) {
+      const open  = atOp('<') ? '<' : '[';
+      const close = open === '<' ? '>' : ']';
       eat();
       let depth = 1;
       while (depth > 0 && peek()) {
-        if (atOp('<')) depth++;
-        else if (atOp('>')) {
-          depth--;
-          if (depth === 0) { eat(); return t; }
-        }
-        eat();
+        if (atOp(open))       { depth++; eat(); }
+        else if (atOp(close)) { depth--; eat(); if (depth === 0) break; }
+        else                  { eat(); }
       }
-      throw err(peek(), `expected '>' to close generic type args`);
+      if (depth !== 0) throw err(peek(), `expected '${close}' to close type-arg bracket`);
     }
     return t;
   }
@@ -805,7 +836,7 @@ function parse(tokens, sourceName = '<input>') {
     eat();  // 'unit'
     const nameTok = expectType('id', 'unit name');
     let dim = null, expr = null;
-    if (atOp(':')) { eat(); dim = parseExpr(); }
+    if (atOp(':')) { eat(); dim = parseTypeExpr(); }
     if (atOp('=')) { eat(); expr = parseExpr(); }
     return { type: 'UnitDecl', name: nameTok.name, dim, expr, decorators };
   }
@@ -813,8 +844,10 @@ function parse(tokens, sourceName = '<input>') {
   function parseLet(decorators) {
     eat();  // 'let'
     const nameTok = expectType('id', 'binding name');
+    // Type annotation may be a dimension or a non-dim type like
+    // `Fn[(DateTime) -> DateTime]`. parseTypeExpr handles both.
     let dim = null;
-    if (atOp(':')) { eat(); dim = parseExpr(); }
+    if (atOp(':')) { eat(); dim = parseTypeExpr(); }
     expectOp('=');
     const expr = parseExpr();
     return { type: 'LetDecl', name: nameTok.name, dim, expr, decorators };
@@ -938,11 +971,17 @@ function parse(tokens, sourceName = '<input>') {
 
   function parsePower() {
     let base = parseUnary();
-    // Postfix `!` factorial — desugars to a call to the `factorial` fn. Chains
-    // (`5!!`) work via the loop.
-    while (atOp('!')) {
-      eat();
-      base = { type: 'Call', name: 'factorial', args: [base] };
+    // Postfix forms: field access `.name` and factorial `!`. Loop so chains
+    // like `a.b.c!` work.
+    while (atOp('.') || atOp('!')) {
+      if (atOp('.')) {
+        eat();
+        const fnameTok = expectType('id', 'field name');
+        base = { type: 'Field', obj: base, name: fnameTok.name };
+      } else {
+        eat();
+        base = { type: 'Call', name: 'factorial', args: [base] };
+      }
     }
     if (atOp('^') || atOp('**')) {
       eat();
@@ -988,6 +1027,20 @@ function parse(tokens, sourceName = '<input>') {
         expectOp(')');
         return { type: 'Call', name: t.name, args, span: t.span };
       }
+      // Struct construction: `Name { field: value, ... }`.
+      if (atOp('{')) {
+        eat();
+        const fields = [];
+        while (!atOp('}')) {
+          const fname = expectType('id', 'field name');
+          expectOp(':');
+          const fval = parseExpr();
+          fields.push({ name: fname.name, value: fval });
+          if (atOp(',')) eat();
+        }
+        expectOp('}');
+        return { type: 'StructInit', name: t.name, fields, span: t.span };
+      }
       return { type: 'Ident', name: t.name, span: t.span };
     }
     if (t.type === 'op' && t.op === '(') {
@@ -995,6 +1048,18 @@ function parse(tokens, sourceName = '<input>') {
       const inner = parseExpr();
       expectOp(')');
       return { type: 'Paren', expr: inner };
+    }
+    // List literal: `[a, b, c]`, or `[]` for empty.
+    if (t.type === 'op' && t.op === '[') {
+      eat();
+      const items = [];
+      if (!atOp(']')) {
+        items.push(parseExpr());
+        while (atOp(',')) { eat(); items.push(parseExpr()); }
+      }
+      if (!atOp(']')) throw err(peek(), `expected ']' to close list literal`);
+      eat();
+      return { type: 'List', items, span: t.span };
     }
     throw err(t, `unexpected token in expression: ${t.type}${t.op ? ` '${t.op}'` : ''}${t.name ? ` '${t.name}'` : ''}`);
   }
@@ -1137,6 +1202,43 @@ const BUILTIN_PROCS = {
   print(args) {
     return new Quantity(0, {});
   },
+
+  // ── list primitives (v0.5) ──────────────────────────────────
+  // Upstream's core::lists declares these as `fn head<A>(xs: List<A>) -> A`
+  // (extern); the loader routes extern body-less fns here.
+  len(args) {
+    if (args.length !== 1) throw new Error(`len: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (Array.isArray(xs)) return new Quantity(xs.length, {});
+    if (typeof xs === 'string') return new Quantity(xs.length, {});
+    throw new Error('len: expected List or String');
+  },
+  head(args) {
+    if (args.length !== 1) throw new Error(`head: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('head: expected List');
+    if (xs.length === 0) throw new Error('head: empty list');
+    return xs[0];
+  },
+  tail(args) {
+    if (args.length !== 1) throw new Error(`tail: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('tail: expected List');
+    if (xs.length === 0) throw new Error('tail: empty list');
+    return xs.slice(1);
+  },
+  cons(args) {
+    if (args.length !== 2) throw new Error(`cons: expected 2 args, got ${args.length}`);
+    const [x, xs] = args;
+    if (!Array.isArray(xs)) throw new Error('cons: second arg must be a List');
+    return [x, ...xs];
+  },
+  cons_end(args) {
+    if (args.length !== 2) throw new Error(`cons_end: expected 2 args, got ${args.length}`);
+    const [x, xs] = args;
+    if (!Array.isArray(xs)) throw new Error('cons_end: second arg must be a List');
+    return [...xs, x];
+  },
   // assert_eq(a, b)        — strict equality (same dim, same value)
   // assert_eq(a, b, eps)   — approximate equality (|a - b| <= eps)
   // Works on Quantity-vs-Quantity (with dim check) or Bool-vs-Bool.
@@ -1191,6 +1293,26 @@ function evalValueExpr(node, env) {
   if (node.type === 'Paren') return evalValueExpr(node.expr, env);
   if (node.type === 'Call') {
     return evalCall(node, env);
+  }
+  if (node.type === 'List') {
+    return node.items.map(item => evalValueExpr(item, env));
+  }
+  if (node.type === 'StructInit') {
+    // v0.5 stores structs as plain JS objects with a __struct tag for the
+    // type name. Field types from the declaration aren't enforced at runtime.
+    const obj = { __struct: node.name };
+    for (const f of node.fields) obj[f.name] = evalValueExpr(f.value, env);
+    return obj;
+  }
+  if (node.type === 'Field') {
+    const o = evalValueExpr(node.obj, env);
+    if (o === null || typeof o !== 'object' || Array.isArray(o)) {
+      throw new Error(`field access on non-struct value`);
+    }
+    if (!(node.name in o)) {
+      throw new Error(`field '${node.name}' not in struct ${o.__struct ?? '(unknown)'}`);
+    }
+    return o[node.name];
   }
   if (node.type === 'Unary' && node.op === '!') {
     const v = evalValueExpr(node.expr, env);
@@ -1256,26 +1378,61 @@ function evalValueExpr(node, env) {
   throw new Error(`unexpected node ${node.type} in value expression`);
 }
 
-// Comparison: both operands must be Quantities with the same dim. `==`/`!=`
-// also accept booleans (so `is_empty(xs) == true` works once lists land).
+// Deep equality across Quantity / Bool / String / List values.
+function valueEq(a, b) {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((v, i) => valueEq(v, b[i]));
+  }
+  if (a instanceof Quantity && b instanceof Quantity) {
+    return a.value === b.value && dimEq(a.dim, b.dim);
+  }
+  return a === b;
+}
+
+// Comparison: both operands must agree on shape. ==/!= work on every value
+// type; ordering ops only on Quantities (with same dim).
 function evalCmp(node, env) {
   const l = evalValueExpr(node.left, env);
   const r = evalValueExpr(node.right, env);
+  // ==/!= are total: lists, strings, booleans, quantities all comparable to
+  // their own kind. Cross-kind compares throw to surface obvious bugs.
+  if (node.op === '==' || node.op === '!=') {
+    if (Array.isArray(l) || Array.isArray(r)) {
+      if (!Array.isArray(l) || !Array.isArray(r)) {
+        throw new Error(`${node.op}: cannot compare List with non-List`);
+      }
+      const eq = valueEq(l, r);
+      return node.op === '==' ? eq : !eq;
+    }
+    if (typeof l === 'boolean' || typeof r === 'boolean') {
+      if (typeof l !== typeof r) {
+        throw new Error(`${node.op}: cannot compare Bool with non-Bool`);
+      }
+      return node.op === '==' ? l === r : l !== r;
+    }
+    if (typeof l === 'string' || typeof r === 'string') {
+      if (typeof l !== typeof r) {
+        throw new Error(`${node.op}: cannot compare String with non-String`);
+      }
+      return node.op === '==' ? l === r : l !== r;
+    }
+    // Quantity-vs-Quantity
+    if (!dimEq(l.dim, r.dim)) {
+      throw new Error(`${node.op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
+    }
+    return node.op === '==' ? l.value === r.value : l.value !== r.value;
+  }
+  // Ordering ops: Quantity only.
   if (typeof l === 'boolean' || typeof r === 'boolean') {
-    if (node.op !== '==' && node.op !== '!=') {
-      throw new Error(`${node.op}: ordering not defined on booleans`);
-    }
-    if (typeof l !== typeof r) {
-      throw new Error(`${node.op}: cannot compare Bool with Quantity`);
-    }
-    return node.op === '==' ? l === r : l !== r;
+    throw new Error(`${node.op}: ordering not defined on booleans`);
+  }
+  if (Array.isArray(l) || Array.isArray(r) || typeof l === 'string' || typeof r === 'string') {
+    throw new Error(`${node.op}: ordering only defined on Quantities`);
   }
   if (!dimEq(l.dim, r.dim)) {
     throw new Error(`${node.op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
   }
   switch (node.op) {
-    case '==': return l.value === r.value;
-    case '!=': return l.value !== r.value;
     case '<':  return l.value <  r.value;
     case '<=': return l.value <= r.value;
     case '>':  return l.value >  r.value;
@@ -1365,7 +1522,10 @@ function unifyOne(pattern, target, genericNames) {
 }
 
 // Walk parameters, unify each annotated param's pattern with its concrete arg,
-// merge inferences. Throws if a generic is never inferred or inferences conflict.
+// merge inferences. Params whose type isn't a dim (List<A>, String, Bool)
+// can't contribute, so we skip them rather than fail — the fn might still work
+// if its body doesn't dim-sensitively reference the unsolved generic. Same
+// for Bool/String/List arg values, which carry no dim info.
 function solveGenerics(generics, params, argVals, env) {
   const genericNames = new Set(generics.map(g => g.name));
   const subs = {};
@@ -1373,8 +1533,12 @@ function solveGenerics(generics, params, argVals, env) {
     const p = params[i];
     if (!p.typeExpr) continue;
     const arg = argVals[i];
-    if (typeof arg === 'boolean') continue;
-    const pattern = evalSymDim(p.typeExpr, env, genericNames);
+    // Only Quantity args carry dim info usable for generic inference. Skip
+    // booleans, strings, lists, structs.
+    if (!(arg instanceof Quantity)) continue;
+    let pattern;
+    try { pattern = evalSymDim(p.typeExpr, env, genericNames); }
+    catch { continue; }   // param type isn't a dimension — skip
     const newSubs = unifyOne(pattern, arg.dim, genericNames);
     for (const [T, sub] of Object.entries(newSubs)) {
       if (subs[T] && !dimEq(subs[T], sub)) {
@@ -1383,11 +1547,8 @@ function solveGenerics(generics, params, argVals, env) {
       subs[T] = sub;
     }
   }
-  for (const g of generics) {
-    if (!subs[g.name]) {
-      throw new Error(`generic ${g.name} could not be inferred from arguments`);
-    }
-  }
+  // Unresolved generics stay out of `subs`; the return-type check handles that
+  // (it falls back to skipping when substitution doesn't resolve to a real dim).
   return subs;
 }
 
@@ -1413,18 +1574,20 @@ function evalCall(node, env) {
       throw new Error(`${node.name}: expected ${userFn.params.length} args, got ${node.args.length}`);
     }
     const argVals = node.args.map(a => evalValueExpr(a, env));
-    // Extern fn declaration (no body) — dispatch to host's BUILTIN_FNS.
+    // Extern fn declaration (no body) — dispatch to host. Try BUILTIN_PROCS
+    // first (variadic, accepts the args array directly), then unary
+    // BUILTIN_FNS as a fallback.
     if (userFn.body === null) {
+      const proc = BUILTIN_PROCS[node.name];
+      if (proc) return proc(argVals);
       const builtin = BUILTIN_FNS[node.name];
-      if (!builtin) {
-        const proc = BUILTIN_PROCS[node.name];
-        if (proc) return proc(argVals);
-        throw new Error(`extern fn ${node.name}: no built-in implementation provided by host`);
+      if (builtin) {
+        if (argVals.length !== 1) {
+          throw new Error(`${node.name}: extern builtin takes 1 arg, got ${argVals.length}`);
+        }
+        return builtin(argVals[0]);
       }
-      if (argVals.length !== 1) {
-        throw new Error(`${node.name}: extern builtin takes 1 arg, got ${argVals.length}`);
-      }
-      return builtin(argVals[0]);
+      throw new Error(`extern fn ${node.name}: no built-in implementation provided by host`);
     }
     // Lexical scope: parameters layered on top of the outer scope's let-bindings.
     const fnValues = new Map(env.values);
@@ -1457,19 +1620,27 @@ function evalCall(node, env) {
       subs = solveGenerics(userFn.generics, userFn.params, argVals, env);
     }
 
-    // Optional return-type check (with generic substitution)
+    // Optional return-type check (with generic substitution). Skip when the
+    // result isn't a Quantity — the return type might be List/String/Bool/
+    // etc., which our dim-based check can't validate (proper type-checking
+    // for those is future work). Skip also if the substituted return type
+    // still references unresolved generics — common when args carry no dim
+    // info (lists, structs) so generics couldn't be inferred.
     const result = evalValueExpr(userFn.body, fnEnv);
-    if (userFn.returnType) {
+    if (userFn.returnType && result instanceof Quantity) {
       let expected;
-      if (subs) {
-        const genericNames = new Set(userFn.generics.map(g => g.name));
-        const symRet = evalSymDim(userFn.returnType, env, genericNames);
-        expected = substituteVars(symRet, subs);
-      } else {
-        expected = evalDimExpr(userFn.returnType, env);
-      }
-      if (typeof result === 'boolean') {
-        throw new Error(`${node.name}: returned Bool but annotated dim`);
+      try {
+        if (subs) {
+          const genericNames = new Set(userFn.generics.map(g => g.name));
+          const symRet = evalSymDim(userFn.returnType, env, genericNames);
+          expected = substituteVars(symRet, subs);
+          // If any key is still a generic name, inference was incomplete; skip.
+          if (Object.keys(expected).some(k => genericNames.has(k))) return result;
+        } else {
+          expected = evalDimExpr(userFn.returnType, env);
+        }
+      } catch (e) {
+        return result;   // return type isn't a known dim — skip the check
       }
       if (!dimEq(expected, result.dim)) {
         throw new Error(`${node.name}: return type mismatch (annotated [${JSON.stringify(expected)}] vs result [${JSON.stringify(result.dim)}])`);
@@ -1553,6 +1724,7 @@ function loadModule(ast, env) {
         case 'UnitDecl':      loadUnitDecl(decl, env); break;
         case 'LetDecl':       loadLetDecl(decl, env); break;
         case 'FnDecl':        loadFnDecl(decl, env); break;
+        case 'StructDecl':    loadStructDecl(decl, env); break;
         default:
           throw new Error(`unsupported declaration: ${decl.type}`);
       }
@@ -1561,6 +1733,14 @@ function loadModule(ast, env) {
       throw new Error(`${where}: ${e.message}`);
     }
   }
+}
+
+function loadStructDecl(decl, env) {
+  env.structs.set(decl.name, {
+    name: decl.name,
+    generics: decl.generics,
+    fields: decl.fields.map(f => ({ name: f.name, type: f.type })),
+  });
 }
 
 function loadFnDecl(decl, env) {
@@ -1629,9 +1809,14 @@ function loadUnitDecl(decl, env) {
 
 function loadLetDecl(decl, env) {
   const q = evalValueExpr(decl.expr, env);
-  if (decl.dim !== null) {
-    const expected = evalDimExpr(decl.dim, env);
-    if (!dimEq(expected, q.dim)) {
+  // Dim check only when both annotation parses as a known dim AND the value
+  // is a Quantity. Non-Quantity values (List/Bool/String/fn) skip — proper
+  // typecheck for those is future work.
+  if (decl.dim !== null && q instanceof Quantity) {
+    let expected;
+    try { expected = evalDimExpr(decl.dim, env); }
+    catch { expected = null; }  // annotation isn't a dim — skip check
+    if (expected !== null && !dimEq(expected, q.dim)) {
       throw new Error(`let '${decl.name}': annotated dimension does not match value expression`);
     }
   }
@@ -1657,12 +1842,13 @@ function loadSource(text, sourceName, env) {
 
 // Build the env object used by the loader. Hosts that want to use the
 // loader directly (without going through the Numbat class) call this.
-function makeEnv({ dims, units, values, fns, resolveUse }) {
+function makeEnv({ dims, units, values, fns, structs, resolveUse }) {
   return {
     dims,
     units,
     values,
-    fns: fns ?? new Map(),
+    fns:     fns     ?? new Map(),
+    structs: structs ?? new Map(),
     lookupValue: (name) => {
       if (values.has(name)) return values.get(name);
       const u = units.resolve(name);
@@ -1760,6 +1946,7 @@ class Numbat {
     this.dims     = new DimRegistry();
     this.values   = new Map();          // let bindings
     this.fns      = new Map();          // user-defined functions (fn decls)
+    this.structs  = new Map();          // user-defined struct schemas
     this.modules  = new Map();          // path → source text (registered .nbt)
     this.loaded   = new Set();          // paths already loaded (idempotent)
 
@@ -1827,6 +2014,7 @@ class Numbat {
       units: this.registry,
       values: this.values,
       fns: this.fns,
+      structs: this.structs,
       resolveUse: (path) => this.use(path.join('::')),
     });
     loadSource(text, sourceName, env);

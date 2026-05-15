@@ -249,12 +249,13 @@ unit bar: Foo = 5 meter`);
 
 // ── error reporting ──────────────────────────────────────────────
 
-test('error: unsupported keyword (struct) is rejected with span', () => {
-  // struct lands in v0.5; for now top-level structs error.
-  assert.throws(
-    () => parseSrc('struct Foo { x: Scalar }'),
-    /unsupported keyword 'struct'/,
-  );
+test('struct: parses a basic struct declaration', () => {
+  const m = parseSrc('struct Foo { x: Scalar }');
+  const d = m.decls[0];
+  assert.equal(d.type, 'StructDecl');
+  assert.equal(d.name, 'Foo');
+  assert.equal(d.fields.length, 1);
+  assert.equal(d.fields[0].name, 'x');
 });
 
 // ── fn declarations (v0.3) ────────────────────────────────────────

@@ -80,7 +80,7 @@ test('Bool: ordering rejected', () => {
 
 test('Bool: compare Bool to Quantity rejected', () => {
   const n = new Numbat({ prelude: 'none' });
-  assert.throws(() => n.loadSource('let x = true == 5'), /cannot compare Bool with Quantity/);
+  assert.throws(() => n.loadSource('let x = true == 5'), /cannot compare Bool with non-Bool/);
 });
 
 // ── if-then-else ─────────────────────────────────────────────────

@@ -88,11 +88,38 @@ export function parse(tokens, sourceName = '<input>') {
         case 'unit':      return parseUnit(decorators);
         case 'let':       return parseLet(decorators);
         case 'fn':        return parseFn(decorators);
+        case 'struct':    return parseStruct(decorators);
         default:
-          throw err(t, `unsupported keyword '${t.name}' at top level (v0.3 handles: use, dimension, unit, let, fn)`);
+          throw err(t, `unsupported keyword '${t.name}' at top level (v0.5 handles: use, dimension, unit, let, fn, struct)`);
       }
     }
-    throw err(t, `expected a declaration keyword (use / dimension / unit / let / fn)`);
+    throw err(t, `expected a declaration keyword (use / dimension / unit / let / fn / struct)`);
+  }
+
+  function parseStruct(decorators) {
+    eat();  // 'struct'
+    const nameTok = expectType('id', 'struct name');
+    const generics = [];
+    if (atOp('<')) {
+      eat();
+      if (!atOp('>')) {
+        generics.push(parseGenericParam());
+        while (atOp(',')) { eat(); generics.push(parseGenericParam()); }
+      }
+      if (!atOp('>')) throw err(peek(), `expected '>' to close struct generics`);
+      eat();
+    }
+    expectOp('{');
+    const fields = [];
+    while (!atOp('}')) {
+      const fname = expectType('id', 'field name');
+      expectOp(':');
+      const ftype = parseTypeExpr();
+      fields.push({ name: fname.name, type: ftype });
+      if (atOp(',')) eat();
+    }
+    expectOp('}');
+    return { type: 'StructDecl', name: nameTok.name, generics, fields, decorators };
   }
 
   function parseFn(decorators) {
@@ -162,9 +189,13 @@ export function parse(tokens, sourceName = '<input>') {
 
   function parseWhereClause() {
     const nameTok = expectType('id', 'where-clause binding name');
+    // Optional type annotation: `where unit_val: D = ...`. We parse and store
+    // it for future type checking; v0.5 doesn't enforce it at runtime.
+    let typeAnno = null;
+    if (atOp(':')) { eat(); typeAnno = parseTypeExpr(); }
     expectOp('=');
     const expr = parseExpr();
-    return { name: nameTok.name, expr };
+    return { name: nameTok.name, typeAnno, expr };
   }
 
   function parseFnParam() {
@@ -175,23 +206,23 @@ export function parse(tokens, sourceName = '<input>') {
   }
 
   // Type expression: parseAddExpr followed by optional generic-type-args
-  // `<...>`. v0.4 discards the contents — lists/structs in v0.5 will store and
-  // typecheck them. This lets us parse upstream signatures that use
-  // `List<String>`, `Vec2<Length>`, etc., without failing the file.
+  // `<...>` or function-type args `[(A) -> B]`. v0.5 discards the contents —
+  // structs will properly typecheck them in a later version. This lets us
+  // parse upstream signatures using `List<String>`, `Fn[(X) -> Y]`, etc.,
+  // without failing the file.
   function parseTypeExpr() {
     const t = parseAddExpr();
-    if (atOp('<')) {
+    while (atOp('<') || atOp('[')) {
+      const open  = atOp('<') ? '<' : '[';
+      const close = open === '<' ? '>' : ']';
       eat();
       let depth = 1;
       while (depth > 0 && peek()) {
-        if (atOp('<')) depth++;
-        else if (atOp('>')) {
-          depth--;
-          if (depth === 0) { eat(); return t; }
-        }
-        eat();
+        if (atOp(open))       { depth++; eat(); }
+        else if (atOp(close)) { depth--; eat(); if (depth === 0) break; }
+        else                  { eat(); }
       }
-      throw err(peek(), `expected '>' to close generic type args`);
+      if (depth !== 0) throw err(peek(), `expected '${close}' to close type-arg bracket`);
     }
     return t;
   }
@@ -259,7 +290,7 @@ export function parse(tokens, sourceName = '<input>') {
     eat();  // 'unit'
     const nameTok = expectType('id', 'unit name');
     let dim = null, expr = null;
-    if (atOp(':')) { eat(); dim = parseExpr(); }
+    if (atOp(':')) { eat(); dim = parseTypeExpr(); }
     if (atOp('=')) { eat(); expr = parseExpr(); }
     return { type: 'UnitDecl', name: nameTok.name, dim, expr, decorators };
   }
@@ -267,8 +298,10 @@ export function parse(tokens, sourceName = '<input>') {
   function parseLet(decorators) {
     eat();  // 'let'
     const nameTok = expectType('id', 'binding name');
+    // Type annotation may be a dimension or a non-dim type like
+    // `Fn[(DateTime) -> DateTime]`. parseTypeExpr handles both.
     let dim = null;
-    if (atOp(':')) { eat(); dim = parseExpr(); }
+    if (atOp(':')) { eat(); dim = parseTypeExpr(); }
     expectOp('=');
     const expr = parseExpr();
     return { type: 'LetDecl', name: nameTok.name, dim, expr, decorators };
@@ -392,11 +425,17 @@ export function parse(tokens, sourceName = '<input>') {
 
   function parsePower() {
     let base = parseUnary();
-    // Postfix `!` factorial — desugars to a call to the `factorial` fn. Chains
-    // (`5!!`) work via the loop.
-    while (atOp('!')) {
-      eat();
-      base = { type: 'Call', name: 'factorial', args: [base] };
+    // Postfix forms: field access `.name` and factorial `!`. Loop so chains
+    // like `a.b.c!` work.
+    while (atOp('.') || atOp('!')) {
+      if (atOp('.')) {
+        eat();
+        const fnameTok = expectType('id', 'field name');
+        base = { type: 'Field', obj: base, name: fnameTok.name };
+      } else {
+        eat();
+        base = { type: 'Call', name: 'factorial', args: [base] };
+      }
     }
     if (atOp('^') || atOp('**')) {
       eat();
@@ -442,6 +481,20 @@ export function parse(tokens, sourceName = '<input>') {
         expectOp(')');
         return { type: 'Call', name: t.name, args, span: t.span };
       }
+      // Struct construction: `Name { field: value, ... }`.
+      if (atOp('{')) {
+        eat();
+        const fields = [];
+        while (!atOp('}')) {
+          const fname = expectType('id', 'field name');
+          expectOp(':');
+          const fval = parseExpr();
+          fields.push({ name: fname.name, value: fval });
+          if (atOp(',')) eat();
+        }
+        expectOp('}');
+        return { type: 'StructInit', name: t.name, fields, span: t.span };
+      }
       return { type: 'Ident', name: t.name, span: t.span };
     }
     if (t.type === 'op' && t.op === '(') {
@@ -449,6 +502,18 @@ export function parse(tokens, sourceName = '<input>') {
       const inner = parseExpr();
       expectOp(')');
       return { type: 'Paren', expr: inner };
+    }
+    // List literal: `[a, b, c]`, or `[]` for empty.
+    if (t.type === 'op' && t.op === '[') {
+      eat();
+      const items = [];
+      if (!atOp(']')) {
+        items.push(parseExpr());
+        while (atOp(',')) { eat(); items.push(parseExpr()); }
+      }
+      if (!atOp(']')) throw err(peek(), `expected ']' to close list literal`);
+      eat();
+      return { type: 'List', items, span: t.span };
     }
     throw err(t, `unexpected token in expression: ${t.type}${t.op ? ` '${t.op}'` : ''}${t.name ? ` '${t.name}'` : ''}`);
   }

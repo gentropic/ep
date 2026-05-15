@@ -20,6 +20,7 @@ export class Numbat {
     this.dims     = new DimRegistry();
     this.values   = new Map();          // let bindings
     this.fns      = new Map();          // user-defined functions (fn decls)
+    this.structs  = new Map();          // user-defined struct schemas
     this.modules  = new Map();          // path → source text (registered .nbt)
     this.loaded   = new Set();          // paths already loaded (idempotent)
 
@@ -87,6 +88,7 @@ export class Numbat {
       units: this.registry,
       values: this.values,
       fns: this.fns,
+      structs: this.structs,
       resolveUse: (path) => this.use(path.join('::')),
     });
     loadSource(text, sourceName, env);
