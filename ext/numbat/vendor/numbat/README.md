@@ -4,7 +4,7 @@ These `.nbt` files are copied verbatim from upstream [Numbat](https://github.com
 
 They're loaded at runtime by `Numbat.loadVendoredPrelude()` (or individually via `Numbat.use('path::name')`) to provide a Numbat-compatible standard library subset.
 
-## What's here (v0.2)
+## What's here (v0.3 reach: 12 / 62 upstream modules)
 
 ```
 modules/
@@ -16,9 +16,24 @@ modules/
   units/
     si.nbt            # SI base + derived units + metric prefixes
     partsperx.nbt     # ppm, ppb, ppt, percent, permille
+    time.nbt          # minute, hour, day, week, year, decade, century, ...
+    astronomical.nbt  # parsec, light-year, AU, julian-year, ...
+    nautical.nbt      # knot, nautical mile, fathom, league
+    bit.nbt           # bit, byte, KiB/MiB/GiB, kbit/Mbit
+    currency.nbt      # abstract Currency dimension + named units (rates needed)
+  physics/
+    temperature_conversion.nbt   # celsius / fahrenheit helpers
+  extra/
+    cooking.nbt       # cup, tablespoon, teaspoon, etc.
 ```
 
-Subsequent versions of numbat-js will vendor more of upstream's standard library as the loader handles more of the language (lists in v0.5, etc.).
+The remaining 50 of 62 upstream modules need features still ahead of us:
+- **Dimension generics** (`fn sqrt<T: Dim>(x: T^2) -> T`) — v0.4
+- **Structs** (`struct Vec2<D: Dim> { x: D, y: D }`) — v0.5
+- **Lists, strings, datetime types** — v0.5+
+- A few have minor blockers (units::misc needs `kcal` definition outside `use`,
+  physics::constants references a let binding before its definition, etc.) —
+  fixable opportunistically.
 
 ## License
 

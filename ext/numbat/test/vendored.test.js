@@ -15,9 +15,16 @@ test('VENDORED_MODULES bundles the expected upstream files', () => {
   const expected = [
     'core::dimensions',
     'core::scalar',
+    'extra::cooking',
     'math::constants',
+    'physics::temperature_conversion',
+    'units::astronomical',
+    'units::bit',
+    'units::currency',
+    'units::nautical',
     'units::partsperx',
     'units::si',
+    'units::time',
   ];
   assert.deepEqual(Object.keys(VENDORED_MODULES).sort(), expected);
 });
@@ -132,4 +139,41 @@ test('Numbat: format() against vendored prelude auto-scales mass', () => {
   const q = n.q(2.16e11, 'g');
   const out = n.format(q);
   assert.match(out, /^216\s+(Gg|gigagram)$/);
+});
+
+// ── opt-in modules (via n.use) ───────────────────────────────────
+
+test('opt-in: units::time loads with hour, day, year, etc.', () => {
+  const n = new Numbat({ prelude: 'vendored' });
+  n.use('units::time');
+  assert.ok(n.hasUnit('hour'));
+  assert.ok(n.hasUnit('day'));
+  assert.ok(n.hasUnit('week'));
+  assert.ok(n.hasUnit('year'));
+  assert.equal(n.q(1, 'hour').value, 3600);
+  assert.equal(n.q(1, 'day').value,  86400);
+});
+
+test('opt-in: units::astronomical loads with parsec, light_year', () => {
+  const n = new Numbat({ prelude: 'vendored' });
+  n.use('units::astronomical');
+  assert.ok(n.hasUnit('parsec') || n.hasUnit('light_year'));
+});
+
+test('opt-in: units::nautical loads with knot, nautical_mile', () => {
+  const n = new Numbat({ prelude: 'vendored' });
+  n.use('units::nautical');
+  assert.ok(n.hasUnit('knot') || n.hasUnit('nautical_mile'));
+});
+
+test('opt-in: units::bit loads with byte / bit', () => {
+  const n = new Numbat({ prelude: 'vendored' });
+  n.use('units::bit');
+  assert.ok(n.hasUnit('byte') || n.hasUnit('bit'));
+});
+
+test('opt-in: physics::temperature_conversion loads (has fns like from_celsius)', () => {
+  const n = new Numbat({ prelude: 'vendored' });
+  n.use('physics::temperature_conversion');
+  // We just verify it loads without error; the fns are usable via n.loadSource.
 });
