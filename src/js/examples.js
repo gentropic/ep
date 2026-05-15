@@ -3,7 +3,7 @@
 // (via uniqueProgramName), leaving the user's existing programs untouched.
 
 import { state, evaluateAll } from './state.js';
-import { uniqueProgramName, setCurrentProgramName, saveCurrentProgram } from './storage.js';
+import { uniqueProgramName, setCurrentProgramName } from './storage.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { renderScenariosStrip } from './scenarios.js';
 
@@ -127,6 +127,11 @@ flight_time = 2 * v0 * sin(angle) / g
 
 export function getExamples() { return EXAMPLES; }
 
+// Load an example ephemerally: state.body is replaced and the header shows
+// the example's slug, but nothing is written to storage. The example only
+// becomes a real saved program when the user first edits something (the
+// autosave path picks it up under uniqueProgramName(slug)). This lets
+// users browse examples freely without cluttering the saved-programs list.
 export function loadExample(example) {
   const lines = example.body.replace(/\r\n/g, '\n').split('\n');
   while (lines.length > 1 && lines[lines.length - 1].trim() === '') lines.pop();
@@ -134,11 +139,13 @@ export function loadExample(example) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
-  setCurrentProgramName(uniqueProgramName(example.slug));
+  // Pick a non-colliding slot now (so a future autosave doesn't overwrite
+  // an existing program with the same slug) but don't persist ep:current
+  // — that happens the first time autosave actually writes the record.
+  setCurrentProgramName(uniqueProgramName(example.slug), false);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
   renderScenariosStrip();
-  saveCurrentProgram({force: true});
 }

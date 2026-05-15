@@ -4532,6 +4532,10 @@ function saveCurrentProgram(opts = {}) {
     activeScenario: state.ui.activeScenario || null,
   };
   writeStore(store);
+  // Keep ep:current in sync — covers the case where an ephemeral example
+  // load (which doesn't persist the name) gets promoted to a real saved
+  // program by the user's first edit.
+  try { localStorage.setItem(CURRENT_KEY, currentProgramName); } catch {}
   showSaveStatus('saved');
   if (saveStatusTimer) clearTimeout(saveStatusTimer);
   saveStatusTimer = setTimeout(() => showSaveStatus(''), 1500);
@@ -5765,6 +5769,11 @@ flight_time = 2 * v0 * sin(angle) / g
 
 function getExamples() { return EXAMPLES; }
 
+// Load an example ephemerally: state.body is replaced and the header shows
+// the example's slug, but nothing is written to storage. The example only
+// becomes a real saved program when the user first edits something (the
+// autosave path picks it up under uniqueProgramName(slug)). This lets
+// users browse examples freely without cluttering the saved-programs list.
 function loadExample(example) {
   const lines = example.body.replace(/\r\n/g, '\n').split('\n');
   while (lines.length > 1 && lines[lines.length - 1].trim() === '') lines.pop();
@@ -5772,13 +5781,15 @@ function loadExample(example) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
-  setCurrentProgramName(uniqueProgramName(example.slug));
+  // Pick a non-colliding slot now (so a future autosave doesn't overwrite
+  // an existing program with the same slug) but don't persist ep:current
+  // — that happens the first time autosave actually writes the record.
+  setCurrentProgramName(uniqueProgramName(example.slug), false);
   evaluateAll();
   renderChips();
   renderBody();
   renderResults();
   renderScenariosStrip();
-  saveCurrentProgram({force: true});
 }
 
 // ─── drawer.js ───────────────────────────────────────────────────

@@ -78,6 +78,10 @@ export function saveCurrentProgram(opts = {}) {
     activeScenario: state.ui.activeScenario || null,
   };
   writeStore(store);
+  // Keep ep:current in sync — covers the case where an ephemeral example
+  // load (which doesn't persist the name) gets promoted to a real saved
+  // program by the user's first edit.
+  try { localStorage.setItem(CURRENT_KEY, currentProgramName); } catch {}
   showSaveStatus('saved');
   if (saveStatusTimer) clearTimeout(saveStatusTimer);
   saveStatusTimer = setTimeout(() => showSaveStatus(''), 1500);
