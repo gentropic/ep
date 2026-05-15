@@ -82,13 +82,20 @@ test('builtin: sqrt(9 m²) = 3 m', () => {
   assert.deepEqual(area.dim, { length: 2 });
 });
 
-test('mod: 17 mod 5 = 2', () => {
+test('mod: 17 mod 5 = 2 (Euclidean — always nonneg)', () => {
   const n = fresh();
   n.use('core::functions');
-  // `mod` is declared extern in core::functions; we don't have a builtin for
-  // it yet. This test documents the gap — once we add a `mod` builtin,
-  // change `assert.throws` to `assert.equal`.
-  assert.throws(() => n.loadSource('let r = mod(17, 5)'), /no built-in implementation/);
+  n.loadSource('let r = mod(17, 5)');
+  assert.equal(n.values.get('r').value, 2);
+  // Negative LHS — Euclidean mod is always non-negative
+  n.loadSource('let s = mod(-7, 3)');
+  assert.equal(n.values.get('s').value, 2);
+});
+
+test('mod: requires matching dims', () => {
+  const n = fresh();
+  n.use('core::functions');
+  assert.throws(() => n.loadSource('let bad = mod(5 metre, 2 second)'), /dim mismatch/);
 });
 
 test('factorial: 5! = 120', () => {
@@ -167,6 +174,65 @@ test('prelude: upstream prelude.nbt loads without error', () => {
   assert.ok(n.hasUnit('ppm'));
 });
 
+// ── higher-order fns ─────────────────────────────────────────────
+
+test('higher-order: map with user fn', () => {
+  const n = fresh();
+  n.use('core::lists');
+  n.loadSource('fn dbl(x) = 2 * x');
+  n.loadSource('let r = map(dbl, [1, 2, 3])');
+  const r = n.values.get('r');
+  assert.equal(r.length, 3);
+  assert.equal(r[0].value, 2);
+  assert.equal(r[2].value, 6);
+});
+
+test('higher-order: filter with predicate', () => {
+  const n = fresh();
+  n.use('core::lists');
+  n.loadSource('fn pos(x) = x > 0');
+  n.loadSource('let r = filter(pos, [-1, 2, -3, 4])');
+  const r = n.values.get('r');
+  assert.equal(r.length, 2);
+  assert.equal(r[0].value, 2);
+  assert.equal(r[1].value, 4);
+});
+
+test('higher-order: foldl reduces a list', () => {
+  const n = fresh();
+  n.use('core::lists');
+  n.loadSource('fn add(a, b) = a + b');
+  n.loadSource('let r = foldl(add, 0, [1, 2, 3, 4])');
+  assert.equal(n.values.get('r').value, 10);
+});
+
+test('math::statistics: mean and sum (using foldl internally)', () => {
+  const n = fresh();
+  n.use('math::statistics');
+  n.loadSource('let m = mean([10, 20, 30, 40, 50])');
+  n.loadSource('let s = sum([1, 2, 3, 4, 5])');
+  assert.equal(n.values.get('m').value, 30);
+  assert.equal(n.values.get('s').value, 15);
+});
+
+test('math::transcendental: cosh / sinh / tanh', () => {
+  const n = fresh();
+  n.use('math::transcendental');
+  n.loadSource('let c = cosh(0)');
+  n.loadSource('let s = sinh(0)');
+  n.loadSource('let t = tanh(0)');
+  assert.equal(n.values.get('c').value, 1);
+  assert.equal(n.values.get('s').value, 0);
+  assert.equal(n.values.get('t').value, 0);
+});
+
+test('math::number_theory: gcd', () => {
+  const n = fresh();
+  n.use('math::number_theory');
+  n.loadSource('let r = gcd(12, 18)');
+  assert.equal(n.values.get('r').value, 6);
+});
+
 // ── chemistry ────────────────────────────────────────────────────
 
 test('chemistry::elements: defines the element list', () => {
@@ -179,12 +245,13 @@ test('chemistry::elements: defines the element list', () => {
 
 // ── known gaps (documented for future fixes) ─────────────────────
 
-test('GAP: random() not implemented as builtin', () => {
+test('random() returns dimensionless in [0, 1)', () => {
   const n = fresh();
   n.use('core::random');
-  // random() is extern; we haven't added a host implementation.
-  // Calling it would throw.
-  assert.throws(() => n.loadSource('let r = random()'), /no built-in implementation/);
+  n.loadSource('let r = random()');
+  const r = n.values.get('r');
+  assert.ok(r.value >= 0 && r.value < 1);
+  assert.deepEqual(r.dim, {});
 });
 
 test('GAP: parse(string) not implemented', () => {

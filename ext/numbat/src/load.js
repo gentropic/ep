@@ -86,6 +86,12 @@ const BUILTIN_FNS = {
   log2(q){ mustBeDimensionless(q, 'log2');return new Quantity(Math.log2(q.value), {}); },
   ln(q)  { mustBeDimensionless(q, 'ln');  return new Quantity(Math.log(q.value), {}); },
   exp(q) { mustBeDimensionless(q, 'exp'); return new Quantity(Math.exp(q.value), {}); },
+  sinh(q){ mustBeDimensionless(q, 'sinh');return new Quantity(Math.sinh(q.value), {}); },
+  cosh(q){ mustBeDimensionless(q, 'cosh');return new Quantity(Math.cosh(q.value), {}); },
+  tanh(q){ mustBeDimensionless(q, 'tanh');return new Quantity(Math.tanh(q.value), {}); },
+  asinh(q){ mustBeDimensionless(q,'asinh');return new Quantity(Math.asinh(q.value),{}); },
+  acosh(q){ mustBeDimensionless(q,'acosh');return new Quantity(Math.acosh(q.value),{}); },
+  atanh(q){ mustBeDimensionless(q,'atanh');return new Quantity(Math.atanh(q.value),{}); },
   floor(q) { return new Quantity(Math.floor(q.value), q.dim); },
   ceil(q)  { return new Quantity(Math.ceil(q.value),  q.dim); },
   round(q) { return new Quantity(Math.round(q.value), q.dim); },
@@ -147,6 +153,29 @@ const BUILTIN_PROCS = {
     // Parse ISO-ish input into seconds-since-epoch; falls back to 0 on bad input.
     const t = Date.parse(String(args[0] ?? ''));
     return new Quantity(Number.isFinite(t) ? t / 1000 : 0, { time: 1 });
+  },
+
+  // mod(a, b) — least nonnegative remainder. Upstream declares this as
+  // `fn mod<T: Dim>(a: T, b: T) -> T` so it's an extern that dispatches here.
+  mod(args) {
+    if (args.length !== 2) throw new Error(`mod: expected 2 args, got ${args.length}`);
+    const [a, b] = args;
+    if (!(a instanceof Quantity) || !(b instanceof Quantity)) {
+      throw new Error('mod: both args must be Quantities');
+    }
+    if (!dimEq(a.dim, b.dim)) {
+      throw new Error(`mod: dim mismatch [${JSON.stringify(a.dim)}] vs [${JSON.stringify(b.dim)}]`);
+    }
+    // Euclidean remainder (always non-negative)
+    const r = ((a.value % b.value) + b.value) % b.value;
+    return new Quantity(r, a.dim);
+  },
+
+  // random() — host-provided pseudo-random in [0, 1). Returns a dimensionless
+  // Quantity. For deterministic testing the host can override this.
+  random(args) {
+    if (args.length !== 0) throw new Error(`random: expected 0 args, got ${args.length}`);
+    return new Quantity(Math.random(), {});
   },
 
   // ── list primitives (v0.5) ──────────────────────────────────
@@ -548,16 +577,22 @@ function invokeUserFn(userFn, name, argVals, env) {
   for (let i = 0; i < userFn.params.length; i++) {
     fnValues.set(userFn.params[i].name, argVals[i]);
   }
-  const buildFnEnv = () => ({
-    ...env,
-    values: fnValues,
-    lookupValue: (n) => {
+  const buildFnEnv = () => {
+    const fnEnv = { ...env, values: fnValues };
+    fnEnv.lookupValue = (n) => {
       if (fnValues.has(n)) return fnValues.get(n);
+      if (env.fns.has(n)) {
+        const f = env.fns.get(n);
+        return (...a) => invokeUserFn(f, n, a, env);
+      }
+      if (BUILTIN_FNS[n])   return (q) => BUILTIN_FNS[n](q);
+      if (BUILTIN_PROCS[n]) return (...a) => BUILTIN_PROCS[n](a);
       const u = env.units.resolve(n);
       if (u) return new Quantity(u.mul, u.dim);
       return null;
-    },
-  });
+    };
+    return fnEnv;
+  };
   if (userFn.whereClauses) {
     for (const clause of userFn.whereClauses) {
       const v = evalValueExpr(clause.expr, buildFnEnv());
@@ -590,12 +625,23 @@ function invokeUserFn(userFn, name, argVals, env) {
   return result;
 }
 
-// Evaluate a function call. User-defined fns take precedence over builtins.
+// Evaluate a function call. Dispatch order: user-defined fns by name → local
+// scope (params holding fn values, for higher-order calls) → builtins.
 function evalCall(node, env) {
   const userFn = env.fns?.get(node.name);
   if (userFn) {
     const argVals = node.args.map(a => evalValueExpr(a, env));
     return invokeUserFn(userFn, node.name, argVals, env);
+  }
+  // Higher-order: the callee may be a fn value bound to a local name
+  // (e.g. `foldl(_add, ...)` where `_add` is a fn passed as the `f` param,
+  // then called inside foldl's body as `f(acc, x)`).
+  if (env.values.has(node.name)) {
+    const v = env.values.get(node.name);
+    if (typeof v === 'function') {
+      const argVals = node.args.map(a => evalValueExpr(a, env));
+      return v(...argVals);
+    }
   }
   const argVals = node.args.map(a => evalValueExpr(a, env));
   const proc = BUILTIN_PROCS[node.name];
@@ -791,18 +837,27 @@ export function loadSource(text, sourceName, env) {
 // Build the env object used by the loader. Hosts that want to use the
 // loader directly (without going through the Numbat class) call this.
 export function makeEnv({ dims, units, values, fns, structs, resolveUse }) {
-  return {
+  const env = {
     dims,
     units,
     values,
     fns:     fns     ?? new Map(),
     structs: structs ?? new Map(),
-    lookupValue: (name) => {
-      if (values.has(name)) return values.get(name);
-      const u = units.resolve(name);
-      if (u) return new Quantity(u.mul, u.dim);
-      return null;
-    },
     resolveUse: resolveUse ?? (() => {}),
   };
+  // Identifier lookup with first-class fn support. Order: let bindings > user
+  // fns (wrapped as JS callables for higher-order use) > builtins > units.
+  env.lookupValue = (name) => {
+    if (values.has(name)) return values.get(name);
+    if (env.fns.has(name)) {
+      const userFn = env.fns.get(name);
+      return (...args) => invokeUserFn(userFn, name, args, env);
+    }
+    if (BUILTIN_FNS[name])   return (q) => BUILTIN_FNS[name](q);
+    if (BUILTIN_PROCS[name]) return (...args) => BUILTIN_PROCS[name](args);
+    const u = units.resolve(name);
+    if (u) return new Quantity(u.mul, u.dim);
+    return null;
+  };
+  return env;
 }
