@@ -75,6 +75,11 @@ function stripModules(src, file, opts = {}) {
   if (/^\s*import\s+\{[^}]*$/m.test(src)) {
     throw new Error(`${file}: multi-line imports are not allowed (single-line only)`);
   }
+  // Aliased imports (`import { X as Y }`) would leave call sites referencing
+  // a name (Y) that doesn't exist in flat scope after strip. Forbid them.
+  if (/^\s*import\s+\{[^}]*\bas\b[^}]*\}/m.test(src)) {
+    throw new Error(`${file}: aliased imports (\`import { X as Y }\`) are not allowed — references to Y would dangle after strip; use the original name`);
+  }
   if (/^\s*export\s+default\b/m.test(src)) {
     throw new Error(`${file}: \`export default\` is not allowed; use named exports`);
   }

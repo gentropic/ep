@@ -4,7 +4,7 @@
 // reconcile into a UI state object (state.js does that).
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { epTokenize as tokenize, epParseExpr as parseExpr } from './parser.js';
+import { epTokenize, epParseExpr } from './parser.js';
 
 export function classify(src) {
   const t = src.trim();
@@ -124,7 +124,7 @@ export function evaluate(body) {
       const name = c.name;
       let q = null, err = null;
       try {
-        q = parseExpr(tokenize(c.expr), scope);
+        q = epParseExpr(epTokenize(c.expr), scope);
         if (c.anno) {
           const expected = parseAnno(c.anno);
           if (!dEq(expected, q.d)) {
@@ -148,7 +148,7 @@ export function evaluate(body) {
       continue;
     }
     try {
-      const q = parseExpr(tokenize(c.expr), scope);
+      const q = epParseExpr(epTokenize(c.expr), scope);
       // Optional type annotation check
       if (c.kind === 'binding' && c.anno) {
         try {

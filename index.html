@@ -3584,7 +3584,7 @@ function evaluate(body) {
       const name = c.name;
       let q = null, err = null;
       try {
-        q = parseExpr(tokenize(c.expr), scope);
+        q = epParseExpr(epTokenize(c.expr), scope);
         if (c.anno) {
           const expected = parseAnno(c.anno);
           if (!dEq(expected, q.d)) {
@@ -3608,7 +3608,7 @@ function evaluate(body) {
       continue;
     }
     try {
-      const q = parseExpr(tokenize(c.expr), scope);
+      const q = epParseExpr(epTokenize(c.expr), scope);
       // Optional type annotation check
       if (c.kind === 'binding' && c.anno) {
         try {
