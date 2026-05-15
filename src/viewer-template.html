@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!-- ep — viewer artifact. Purpose-built calculator for one program.
+     Reuses ep's styles + numbat-js evaluator, but no editor / drawer /
+     export / share — just chip-driven inputs and computed outputs. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ep — viewer</title>
+<style>
+/* MARKER:STYLE */
+</style>
+</head>
+<body>
+
+<div class="app form" id="app">
+  <div class="hdr">
+    <div class="hdr-left">
+      <span class="name" title="ep — eval-print calculator (viewer)">ep</span>
+      <span class="file" id="hdrFile">untitled</span>
+    </div>
+  </div>
+
+  <div class="panel" id="paramsPanel">
+    <div class="panel-hdr">
+      <span><span class="at">@</span>params <span class="meta" id="paramMeta"></span></span>
+    </div>
+    <div class="chip-grid" id="chips"></div>
+  </div>
+
+  <div class="panel outputs" id="outputsPanel">
+    <div class="panel-hdr">
+      <span><span class="at">@</span>outputs <span class="meta" id="outMeta"></span></span>
+    </div>
+    <div class="chip-grid" id="outChips"></div>
+  </div>
+
+  <div class="form-spacer"></div>
+</div>
+
+<script>
+/* MARKER:STATE_START */
+const INITIAL_STATE = {
+  name: 'untitled',
+  body: [],
+  ui: { paramsCollapsed: false, outputsCollapsed: false, formView: true, showSource: false },
+};
+/* MARKER:STATE_END */
+
+'use strict';
+
+/* MARKER:SCRIPT */
+</script>
+
+</body></html>

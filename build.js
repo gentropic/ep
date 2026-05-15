@@ -25,7 +25,7 @@
 // Set EP_SKIP_VENDOR_BUILD=1 to reuse existing vendor dist files (useful when
 // iterating on ep without changing numbat-js).
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -45,6 +45,17 @@ const VENDORS = [
   { build: 'ext/numbat/build.js', dist: 'ext/numbat/dist/numbat.js' },
   { build: 'ext/qrcode/build.js', dist: 'ext/qrcode/dist/qrcode.js' },
   {                                dist: 'ext/cm6/cm6.min.js' },
+];
+
+// JS subset for the viewer artifact — chip eval + render only. No editor,
+// no drawer, no persistence. render.js is reusable because it fires
+// ep:params-changed via event (not a storage.js function call).
+const VIEWER_JS_FILES = [
+  'units.js',
+  'evaluator.js',
+  'state.js',
+  'render.js',
+  'viewer-main.js',
 ];
 
 // Concat order for ep's own sources: dependencies before dependents.
@@ -112,8 +123,49 @@ function buildVendors() {
   }
 }
 
+// Build the viewer artifact — a slim purpose-built HTML that ep's .html
+// export uses as its template. Includes only numbat-js (for evaluation)
+// plus the chip-rendering subset of ep's source. No CM6, no drawer, no
+// share, no autosave; the artifact is locked to form view.
+function buildViewer() {
+  const template = readFileSync(join(SRC, 'viewer-template.html'), 'utf8');
+  const style    = readFileSync(join(SRC, 'style.css'), 'utf8').replace(/\s+$/, '');
+
+  const numbatRaw = readFileSync(join(ROOT, 'ext/numbat/dist/numbat.js'), 'utf8');
+  const numbat    = stripModules(numbatRaw, 'ext/numbat/dist/numbat.js', { allowExportBlock: true });
+
+  const srcStripped = VIEWER_JS_FILES.map(name => {
+    const raw = readFileSync(join(JS_DIR, name), 'utf8');
+    return { name, src: stripModules(raw, name) };
+  });
+
+  const parts = [];
+  parts.push('// ─── (viewer vendor) numbat.js ' + '─'.repeat(40) + '\n' + numbat.replace(/\s+$/, ''));
+  for (const { name, src } of srcStripped) {
+    const sep = `// ─── (viewer) ${name} ` + '─'.repeat(Math.max(0, 50 - name.length)) + '\n';
+    parts.push(sep + src.replace(/\s+$/, ''));
+  }
+  const js = parts.join('\n\n');
+
+  let out = template;
+  if (!out.includes('/* MARKER:STYLE */'))  throw new Error('viewer-template.html: missing /* MARKER:STYLE */');
+  if (!out.includes('/* MARKER:SCRIPT */')) throw new Error('viewer-template.html: missing /* MARKER:SCRIPT */');
+  out = out.replace('/* MARKER:STYLE */',  () => style);
+  out = out.replace('/* MARKER:SCRIPT */', () => js);
+
+  mkdirSync(join(ROOT, 'dist'), { recursive: true });
+  writeFileSync(join(ROOT, 'dist/viewer.html'), out);
+  console.log(`built dist/viewer.html (${out.length.toLocaleString()} bytes)`);
+  return out;
+}
+
 function build() {
   buildVendors();
+
+  // Build the viewer artifact first; its bytes get embedded into ep's main
+  // bundle as a string so .html export can substitute the STATE block
+  // without needing a separate file at runtime.
+  const viewerHtml = buildViewer();
 
   const template = readFileSync(join(SRC, 'template.html'), 'utf8');
   const style    = readFileSync(join(SRC, 'style.css'), 'utf8').replace(/\s+$/, '');
@@ -164,6 +216,16 @@ function build() {
   }
 
   out = out.replace('/* MARKER:STYLE */', () => style);
+  // The viewer HTML is embedded as a const so .html export can do a STATE
+  // marker substitution at runtime. Escape `</script>` so the HTML parser
+  // doesn't close the outer <script> tag mid-string. JSON.stringify handles
+  // the rest. (`<\/script>` is valid JSON+JS and evaluates back to
+  // `</script>` at runtime.)
+  if (out.includes('/* MARKER:VIEWER_HTML */')) {
+    const embedded = JSON.stringify(viewerHtml).replace(/<\/(script|style)/gi, '<\\/$1');
+    out = out.replace('/* MARKER:VIEWER_HTML */',
+                      () => `const VIEWER_HTML = ${embedded};`);
+  }
   out = out.replace('/* MARKER:SCRIPT */', () => js);
 
   if (!/\/\* MARKER:STATE_START \*\/[\s\S]*?\/\* MARKER:STATE_END \*\//.test(out)) {

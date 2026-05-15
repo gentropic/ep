@@ -49,6 +49,12 @@ if (saveEphemeralBtn) {
   saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram());
 }
 
+// render.js fires ep:params-changed after any chip / body edit. We listen
+// here (rather than have render.js call scheduleAutosave directly) so
+// render.js stays decoupled from storage — the viewer can reuse render.js
+// without pulling in the autosave / drawer / persistence layer.
+window.addEventListener('ep:params-changed', () => scheduleAutosave());
+
 export function readStore() {
   try {
     const raw = localStorage.getItem(STORE_KEY);

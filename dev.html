@@ -204,6 +204,10 @@ const INITIAL_STATE = {
   },
 };
 </script>
+<!-- Viewer artifact placeholder for dev mode — production gets the real
+     viewer.html embedded by build.js. In dev, .html export shows a stub. -->
+<script>const VIEWER_HTML = '<!DOCTYPE html><html><body><p style="font-family:monospace;padding:20px">Viewer export is available only in the built artifact (index.html). Run `node build.js` then open index.html.</p></body></html>';</script>
+
 <!-- CM6 IIFE bundle — sets window.CM6 before modules load -->
 <script src="ext/cm6/cm6.min.js"></script>
 <script type="module" src="src/js/main.js"></script>

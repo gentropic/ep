@@ -45,18 +45,32 @@ dlEpBtn.addEventListener('click', () => {
 });
 
 dlHtmlBtn.addEventListener('click', () => {
-  const html = document.documentElement.outerHTML;
+  // Use the prebuilt viewer artifact (~280 KB) instead of self-cloning the
+  // full editor (~1.3 MB). The viewer has no CM6, no drawer, no share — it
+  // just renders the chips and recomputes outputs. Source view is locked.
+  if (typeof VIEWER_HTML !== 'string' || !VIEWER_HTML.includes('MARKER:STATE_START')) {
+    console.error('ep: VIEWER_HTML constant is missing or malformed; aborting .html export.');
+    return;
+  }
   const newState = {
+    name: exportNameEl.value || currentProgramName || 'program',
     body: state.body.map(r => ({src: r.src})),
-    ui:   {...state.ui, formView: true, showSource: false},
+    ui:   {
+      paramsCollapsed:  false,
+      outputsCollapsed: false,
+      formView:         true,
+      showSource:       false,
+      scenarios:        state.ui.scenarios       || {},
+      activeScenario:   state.ui.activeScenario  || null,
+    },
   };
   const stateJs = 'const INITIAL_STATE = ' + JSON.stringify(newState, null, 2) + ';';
-  const newHtml = html.replace(
+  const newHtml = VIEWER_HTML.replace(
     /\/\* MARKER:STATE_START \*\/[\s\S]*?\/\* MARKER:STATE_END \*\//,
     `/* MARKER:STATE_START */\n${stateJs}\n/* MARKER:STATE_END */`
   );
   const name = (exportNameEl.value || 'program') + '.html';
-  downloadFile('<!DOCTYPE html>\n' + newHtml, name, 'text/html');
+  downloadFile(newHtml, name, 'text/html');
   scrim.classList.remove('on');
 });
 

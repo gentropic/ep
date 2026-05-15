@@ -35,6 +35,11 @@ CLAUDE.md
 /tmp/
 /scratch/
 
+# Build artifact — dist/viewer.html is regenerated on each `node build.js`
+# and embedded into index.html as the VIEWER_HTML constant. No need to
+# commit the intermediate.
+/dist/
+
 # Commit-message tempfiles (see workflow note in CLAUDE.md)
 .commit-msg.tmp
 .commit-msg.*

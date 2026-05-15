@@ -20,7 +20,6 @@
 import { state, evaluateAll } from './state.js';
 import { fmt, fmtNum, dEq, fmtDim } from './units.js';
 import { resolveUnitExpression } from './evaluator.js';
-import { scheduleAutosave } from './storage.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -209,7 +208,6 @@ function mountCm6() {
             renderChipResults();
             renderOutputs();
             window.dispatchEvent(new CustomEvent('ep:params-changed'));
-            scheduleAutosave();
           } catch (e) {
             // Never let an evaluator hiccup wedge CM6's update cycle.
             console.error('ep: evaluator threw during doc update:', e);
@@ -277,8 +275,10 @@ export function renderChips() {
       syncCmFromState();
       renderChipResults();
       renderOutputs();
+      // storage.js listens for ep:params-changed and triggers autosave.
+      // Decoupled from render so the viewer can reuse render.js without
+      // pulling in the storage layer.
       window.dispatchEvent(new CustomEvent('ep:params-changed'));
-      scheduleAutosave();
     });
     inp.addEventListener('focus', () => { state._lastFocused = inp; });
     const res = document.createElement('div');
