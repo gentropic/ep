@@ -57,6 +57,10 @@ export const dimFormat = (d) => {
 //
 // Used by the .nbt loader (see load.js); the runtime Quantity/UnitRegistry
 // only cares about the dim vectors themselves.
+function dimensionsEqual(a, b) {
+  return dimEq(a, b);
+}
+
 export class DimRegistry {
   constructor() {
     this._dims = new Map();
@@ -64,15 +68,25 @@ export class DimRegistry {
 
   // Declare a base dimension. Allocates a new axis named after the dimension
   // (lowercased). E.g. `defineBase('Length')` → registers Length as {length: 1}.
+  // Idempotent: re-defining with the same shape is a no-op (so a vendored
+  // module's `dimension Length` doesn't conflict with the host's pre-seed).
   defineBase(name) {
-    if (this._dims.has(name)) throw new Error(`dimension already defined: ${name}`);
     const axis = name.toLowerCase();
-    this._dims.set(name, { [axis]: 1 });
+    const desired = { [axis]: 1 };
+    if (this._dims.has(name)) {
+      if (dimensionsEqual(this._dims.get(name), desired)) return;
+      throw new Error(`dimension already defined with different shape: ${name}`);
+    }
+    this._dims.set(name, desired);
   }
 
   // Declare a derived dimension with an already-computed dim vector.
+  // Same idempotency rule as defineBase.
   defineDerived(name, dim) {
-    if (this._dims.has(name)) throw new Error(`dimension already defined: ${name}`);
+    if (this._dims.has(name)) {
+      if (dimensionsEqual(this._dims.get(name), dim)) return;
+      throw new Error(`dimension already defined with different shape: ${name}`);
+    }
     this._dims.set(name, dim);
   }
 

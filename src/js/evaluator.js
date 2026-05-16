@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES } from '../../ext/numbat/dist/numbat.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
 // Uses the v0.1 prelude: ep's existing ore-body-shaped unit table. The
@@ -47,12 +47,29 @@ function host() {
   _host.values.set('tau', new Quantity(Math.PI * 2, {}));
   _host.values.set('τ',   new Quantity(Math.PI * 2, {}));
   _host.values.set('e',   new Quantity(Math.E,      {}));
+  _host.values.set('NaN', new Quantity(NaN,         {}));
+  _host.values.set('nan', new Quantity(NaN,         {}));
+  _host.values.set('inf', new Quantity(Infinity,    {}));
+  _host.values.set('infinity', new Quantity(Infinity, {}));
 
   // Seed the standard dimensions so user-side `dimension X = ...` decls
   // resolve `Length`, `Mass`, etc. The v0.1 prelude registers units only.
+  //
+  // defineDerived for every entry — the dim shapes are already correct in
+  // DIMENSION_OF. defineBase would allocate a fresh axis from `name`,
+  // which is wrong for dimensionless dims (Scalar, Angle) where empty {}
+  // is the actual desired shape, not "needs a new axis".
   for (const [name, dim] of Object.entries(DIMENSION_OF)) {
-    if (Object.keys(dim).length === 0) _host.dims.defineBase(name);
-    else                                _host.dims.defineDerived(name, dim);
+    _host.dims.defineDerived(name, dim);
+  }
+
+  // Register the 62 vendored .nbt modules so `use units::stoney` etc.
+  // resolve. Modules are registered but NOT auto-loaded — the user
+  // pays for what they reference.
+  if (typeof VENDORED_MODULES === 'object') {
+    for (const [path, source] of Object.entries(VENDORED_MODULES)) {
+      _host.registerModule(path, source);
+    }
   }
 
   // ep prelude fn library — gcu/units parity for the most common
@@ -120,15 +137,25 @@ export function parseEpBody(source) {
     const bindingLine = tokens[i].span.line;
     let depth = 0;
     let end = i;
+    let stopBeforeSemicolon = false;
     while (end < tokens.length) {
       const tok = tokens[end];
       if (tok.type === 'op') {
         if (tok.op === '(' || tok.op === '[' || tok.op === '{') depth++;
         else if (tok.op === ')' || tok.op === ']' || tok.op === '}') depth--;
       }
-      // Look at the next token: if we're at depth 0 and the next token
-      // is on a later line AND starts a new statement, stop here.
+      // Semicolon at depth 0 — hard statement terminator. The semicolon
+      // itself isn't part of the statement; we leave `end` pointing at
+      // the last real token and skip the `;` afterwards.
       const next = tokens[end + 1];
+      if (depth <= 0 && next && next.type === 'op' && next.op === ';') {
+        stopBeforeSemicolon = true;
+        break;
+      }
+      // Look at the next token: if we're at depth 0 and the next token
+      // is on a later line AND starts a new statement, stop here. The
+      // `where`/`and` continuation case is handled by startsStatement
+      // returning false for those keywords — they keep extending.
       if (depth <= 0 && next && next.span.line > tok.span.line && startsStatement(tokens, end + 1)) {
         break;
       }
@@ -146,7 +173,12 @@ export function parseEpBody(source) {
       bindingLine,
       endLine,
     });
+    // Skip past a terminating `;` if we stopped on one, otherwise just
+    // advance past the last consumed token.
     i = end + 1;
+    if (stopBeforeSemicolon && i < tokens.length && tokens[i].type === 'op' && tokens[i].op === ';') {
+      i++;
+    }
   }
   return statements;
 }
@@ -188,21 +220,18 @@ function readDecorator(tokens, i) {
   return { value: { name, args }, next };
 }
 
-// Does the token at index i start a new statement? Used as the boundary
-// test when deciding whether a line break ends the current statement.
+// Does the token at index i start a new statement? Called only at depth-0
+// line breaks. `where` and `and` explicitly DON'T start statements — they
+// continue the preceding fn declaration's where-clause chain. Everything
+// else on a fresh line at top level is a new statement: a new keyword
+// declaration, a new binding, or a naked expression. The previous regime
+// (only id-followed-by-= counted as a binding-start) wrongly merged
+// `f(x)` on a new line into the previous statement.
 function startsStatement(tokens, i) {
   const t = tokens[i];
   if (!t) return false;
-  if (t.type === 'dec') return true;
-  if (t.type === 'kw' && ['let', 'fn', 'dimension', 'unit', 'use', 'struct'].includes(t.name)) {
-    return true;
-  }
-  // Bare-binding pattern: `id` followed by `=` or `:` (annotation start).
-  if (t.type === 'id') {
-    const next = tokens[i + 1];
-    if (next && next.type === 'op' && (next.op === '=' || next.op === ':')) return true;
-  }
-  return false;
+  if (t.type === 'kw' && (t.name === 'where' || t.name === 'and')) return false;
+  return true;
 }
 
 export function classify(src) {
@@ -238,6 +267,13 @@ export function classify(src) {
   if (/^unit\s+/.test(t)) {
     const m = t.match(/^unit\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
     return {kind: 'unit-decl', name: m ? m[1] : null, src: t};
+  }
+  if (/^struct\s+/.test(t)) {
+    const m = t.match(/^struct\s+([A-Z][a-zA-Z0-9_]*)/);
+    return {kind: 'struct-decl', name: m ? m[1] : null, src: t};
+  }
+  if (/^use\s+/.test(t)) {
+    return {kind: 'use-decl', src: t};
   }
 
   // Binding: `[let] name [: Type] = expr [trailing-comment]`. The optional
@@ -380,7 +416,10 @@ export const DIMENSION_OF = {
   Length:    {length: 1},
   Mass:      {mass: 1},
   Time:      {time: 1},
-  Angle:     {angle: 1},
+  // Angle is dimensionless to match numbat's convention (`dimension Angle = 1`
+  // in `core::dimensions`). Radians are pure ratios — keeping Angle as a
+  // separate axis would type-mismatch any vendored module that uses them.
+  Angle:     {},
   Area:      {length: 2},
   Volume:    {length: 3},
   Density:   {mass: 1, length: -3},
@@ -562,6 +601,8 @@ export function evaluate(body) {
           }
         }
         env.values.set(name, q);
+        env.values.set('_',   q);
+        env.values.set('ans', q);
       } catch (e) { q = null; err = e.message; }
       row.result = q;
       row.error  = err;
@@ -594,7 +635,22 @@ export function evaluate(body) {
       }
     }
 
-    if (c.kind === 'fn-decl' || c.kind === 'dim-decl' || c.kind === 'unit-decl') {
+    if (c.kind === 'fn-decl' || c.kind === 'dim-decl' || c.kind === 'unit-decl' || c.kind === 'struct-decl') {
+      // For unit/dimension/struct decls, prepend any leading non-ep
+      // decorators (`@aliases(...)`, `@metric_prefixes`, etc.) back to
+      // the source text so numbat's loader sees them. Our parseEpBody
+      // strips decorators above the statement; this re-attaches the
+      // numbat-recognized ones the loader needs.
+      const passthrough = stmt.decorators
+        .filter(d => d.name !== 'input' && d.name !== 'output' && d.name !== 'options')
+        .map(d => '@' + d.name + (d.args.length ? '(' + d.args.join(', ') + ')' : ''))
+        .join('\n');
+      const src = passthrough ? passthrough + '\n' + c.src : c.src;
+      try { loadStatement(src, env); }
+      catch (e) { row.error = e.message; }
+      continue;
+    }
+    if (c.kind === 'use-decl') {
       try { loadStatement(c.src, env); }
       catch (e) { row.error = e.message; }
       continue;
@@ -604,6 +660,11 @@ export function evaluate(body) {
       try {
         const q = evalExprText(c.expr, env);
         row.result = q;
+        // `_` and `ans` resolve to the most recent expression / binding
+        // result. Re-bind on every successful eval so the next
+        // statement sees the right value.
+        env.values.set('_',   q);
+        env.values.set('ans', q);
       } catch (e) { row.error = e.message; }
       continue;
     }

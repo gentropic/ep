@@ -22,25 +22,27 @@ export function loadPrelude(registry) {
   // only the common engineering prefixes explicitly. The omitted prefixes
   // (da/h/d, the very-large Q/R/Y/Z/E/P/T-positive ones, and the very-small
   // f/a/z/y/r/q ones) are out of scope for a calculator-shaped tool.
-  registry.define('gram',       { dim: {mass: 1}, shortAliases: ['g']   });
-  registry.define('milligram',  { dim: {mass: 1}, mul: 1e-3, shortAliases: ['mg'] });
-  registry.define('microgram',  { dim: {mass: 1}, mul: 1e-6, shortAliases: ['µg', 'μg', 'ug'] });
-  registry.define('kilogram',   { dim: {mass: 1}, mul: 1e3,  shortAliases: ['kg'] });
+  registry.define('gram',       { dim: {mass: 1}, aliases: ['grams'], shortAliases: ['g']   });
+  registry.define('milligram',  { dim: {mass: 1}, mul: 1e-3, aliases: ['milligrams'], shortAliases: ['mg'] });
+  registry.define('microgram',  { dim: {mass: 1}, mul: 1e-6, aliases: ['micrograms'], shortAliases: ['µg', 'μg', 'ug'] });
+  registry.define('kilogram',   { dim: {mass: 1}, mul: 1e3,  aliases: ['kilograms'], shortAliases: ['kg'] });
 
-  registry.define('meter',      { dim: {length: 1}, shortAliases: ['m']  });
-  registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, shortAliases: ['mm'] });
-  registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, shortAliases: ['cm'] });
-  registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  shortAliases: ['km'] });
+  registry.define('meter',      { dim: {length: 1}, aliases: ['meters', 'metre', 'metres'], shortAliases: ['m']  });
+  registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, aliases: ['millimeters', 'millimetre', 'millimetres'], shortAliases: ['mm'] });
+  registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, aliases: ['centimeters', 'centimetre', 'centimetres'], shortAliases: ['cm'] });
+  registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  aliases: ['kilometers', 'kilometre', 'kilometres'], shortAliases: ['km'] });
 
-  registry.define('second',      { dim: {time: 1}, shortAliases: ['s']  });
-  registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, shortAliases: ['ms'] });
-  registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, shortAliases: ['µs', 'μs', 'us'] });
-  registry.define('minute',      { dim: {time: 1}, mul: 60,         shortAliases: ['min'] });
-  registry.define('hour',        { dim: {time: 1}, mul: 3600,        shortAliases: ['h', 'hr'] });
-  registry.define('day',         { dim: {time: 1}, mul: 86400,       shortAliases: ['d'] });
+  registry.define('second',      { dim: {time: 1}, aliases: ['seconds'], shortAliases: ['s']  });
+  registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, aliases: ['milliseconds'], shortAliases: ['ms'] });
+  registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, aliases: ['microseconds'], shortAliases: ['µs', 'μs', 'us'] });
+  registry.define('minute',      { dim: {time: 1}, mul: 60,         aliases: ['minutes'], shortAliases: ['min'] });
+  registry.define('hour',        { dim: {time: 1}, mul: 3600,        aliases: ['hours'], shortAliases: ['h', 'hr'] });
+  registry.define('day',         { dim: {time: 1}, mul: 86400,       aliases: ['days'], shortAliases: ['d'] });
   registry.define('year',        { dim: {time: 1}, mul: 31557600,    aliases: ['years'], shortAliases: ['yr'] });
 
-  registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
+  // Angles are dimensionless in numbat's convention (a radian is a pure
+  // ratio). ep matches that so the vendored modules' angular code loads.
+  registry.define('radian', { dim: {}, aliases: ['radians'], shortAliases: ['rad'] });
 
   // Imperial / US customary — convenience for input and explicit `-> ft`
   // conversion. Flagged inputOnly so the auto-scaler still prefers metric
@@ -132,8 +134,8 @@ export function loadPrelude(registry) {
   registry.define('pct', { dim: {}, mul: 1e-2, displayName: '%', aliases: ['percent'] });
   registry.define('g/t', { dim: {}, mul: 1e-6, shortAliases: ['g/t'] });
 
-  // Angles.
-  registry.define('degree', { dim: {angle: 1}, mul: Math.PI / 180, shortAliases: ['deg'] });
+  // Angles. Dimensionless per numbat convention; one full turn = 2π radians.
+  registry.define('degree', { dim: {}, mul: Math.PI / 180, aliases: ['degrees'], shortAliases: ['deg'] });
 
   // Tyler / ASTM sieve mesh apertures — discrete table, mirrored from
   // gcu/units (auditable/ext/units/src/sieve.js). Each registered as a

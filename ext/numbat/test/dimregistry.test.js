@@ -28,11 +28,15 @@ test('resolve / has', () => {
   assert.equal(r.resolve('Mass'), null);
 });
 
-test('redeclaration throws', () => {
+test('redeclaration with same shape is idempotent; different shape throws', () => {
   const r = new DimRegistry();
   r.defineBase('Length');
-  assert.throws(() => r.defineBase('Length'), /already defined/);
-  assert.throws(() => r.defineDerived('Length', { mass: 1 }), /already defined/);
+  // Same-shape redefines are no-ops — lets vendored .nbt modules redeclare
+  // dimensions the host already seeded.
+  r.defineBase('Length');                                  // OK
+  r.defineDerived('Length', { length: 1 });                // OK
+  // Different shape still throws.
+  assert.throws(() => r.defineDerived('Length', { mass: 1 }), /different shape/);
 });
 
 test('list: enumerates name+dim pairs', () => {

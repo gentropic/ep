@@ -61,6 +61,10 @@ const dimFormat = (d) => {
 //
 // Used by the .nbt loader (see load.js); the runtime Quantity/UnitRegistry
 // only cares about the dim vectors themselves.
+function dimensionsEqual(a, b) {
+  return dimEq(a, b);
+}
+
 class DimRegistry {
   constructor() {
     this._dims = new Map();
@@ -68,15 +72,25 @@ class DimRegistry {
 
   // Declare a base dimension. Allocates a new axis named after the dimension
   // (lowercased). E.g. `defineBase('Length')` → registers Length as {length: 1}.
+  // Idempotent: re-defining with the same shape is a no-op (so a vendored
+  // module's `dimension Length` doesn't conflict with the host's pre-seed).
   defineBase(name) {
-    if (this._dims.has(name)) throw new Error(`dimension already defined: ${name}`);
     const axis = name.toLowerCase();
-    this._dims.set(name, { [axis]: 1 });
+    const desired = { [axis]: 1 };
+    if (this._dims.has(name)) {
+      if (dimensionsEqual(this._dims.get(name), desired)) return;
+      throw new Error(`dimension already defined with different shape: ${name}`);
+    }
+    this._dims.set(name, desired);
   }
 
   // Declare a derived dimension with an already-computed dim vector.
+  // Same idempotency rule as defineBase.
   defineDerived(name, dim) {
-    if (this._dims.has(name)) throw new Error(`dimension already defined: ${name}`);
+    if (this._dims.has(name)) {
+      if (dimensionsEqual(this._dims.get(name), dim)) return;
+      throw new Error(`dimension already defined with different shape: ${name}`);
+    }
     this._dims.set(name, dim);
   }
 
@@ -385,7 +399,7 @@ const KEYWORDS = new Set([
 const MULTI_OPS = ['->', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
 
 // Single-character operators / punctuation.
-const SINGLE_OPS = '+-*/^=(){}[],:.<>!';
+const SINGLE_OPS = '+-*/^=(){}[],:.<>!;';
 
 const UNICODE_OP_ALIAS = {
   '→': '->',
@@ -483,9 +497,27 @@ function tokenize(source, sourceName = '<input>') {
       continue;
     }
 
-    // Number literal
+    // Number literal — decimal (incl. underscore separators, scientific),
+    // hexadecimal (0x), octal (0o), or binary (0b).
     if ((c >= '0' && c <= '9') || (c === '.' && source[i + 1] >= '0' && source[i + 1] <= '9')) {
       const numStart = i;
+      // Radix-prefixed integers: `0x`, `0o`, `0b` (case-insensitive prefix).
+      if (c === '0' && i + 1 < source.length) {
+        const radixCh = source[i + 1];
+        let radix = 0, allowed = null;
+        if (radixCh === 'x' || radixCh === 'X') { radix = 16; allowed = /[0-9a-fA-F_]/; }
+        else if (radixCh === 'o' || radixCh === 'O') { radix = 8;  allowed = /[0-7_]/;       }
+        else if (radixCh === 'b' || radixCh === 'B') { radix = 2;  allowed = /[01_]/;        }
+        if (radix) {
+          advance(2);
+          while (i < source.length && allowed.test(source[i])) advance();
+          const raw = source.slice(numStart, i);
+          const digits = raw.slice(2).replace(/_/g, '');
+          if (!digits) throw new Error(`${sourceName}:${start.line}:${start.col}: empty radix literal`);
+          emit('num', { value: parseInt(digits, radix), raw }, start);
+          continue;
+        }
+      }
       let dot = false, eExp = false;
       while (i < source.length) {
         const ch = source[i];
@@ -2057,25 +2089,27 @@ function loadPrelude(registry) {
   // only the common engineering prefixes explicitly. The omitted prefixes
   // (da/h/d, the very-large Q/R/Y/Z/E/P/T-positive ones, and the very-small
   // f/a/z/y/r/q ones) are out of scope for a calculator-shaped tool.
-  registry.define('gram',       { dim: {mass: 1}, shortAliases: ['g']   });
-  registry.define('milligram',  { dim: {mass: 1}, mul: 1e-3, shortAliases: ['mg'] });
-  registry.define('microgram',  { dim: {mass: 1}, mul: 1e-6, shortAliases: ['µg', 'μg', 'ug'] });
-  registry.define('kilogram',   { dim: {mass: 1}, mul: 1e3,  shortAliases: ['kg'] });
+  registry.define('gram',       { dim: {mass: 1}, aliases: ['grams'], shortAliases: ['g']   });
+  registry.define('milligram',  { dim: {mass: 1}, mul: 1e-3, aliases: ['milligrams'], shortAliases: ['mg'] });
+  registry.define('microgram',  { dim: {mass: 1}, mul: 1e-6, aliases: ['micrograms'], shortAliases: ['µg', 'μg', 'ug'] });
+  registry.define('kilogram',   { dim: {mass: 1}, mul: 1e3,  aliases: ['kilograms'], shortAliases: ['kg'] });
 
-  registry.define('meter',      { dim: {length: 1}, shortAliases: ['m']  });
-  registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, shortAliases: ['mm'] });
-  registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, shortAliases: ['cm'] });
-  registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  shortAliases: ['km'] });
+  registry.define('meter',      { dim: {length: 1}, aliases: ['meters', 'metre', 'metres'], shortAliases: ['m']  });
+  registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, aliases: ['millimeters', 'millimetre', 'millimetres'], shortAliases: ['mm'] });
+  registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, aliases: ['centimeters', 'centimetre', 'centimetres'], shortAliases: ['cm'] });
+  registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  aliases: ['kilometers', 'kilometre', 'kilometres'], shortAliases: ['km'] });
 
-  registry.define('second',      { dim: {time: 1}, shortAliases: ['s']  });
-  registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, shortAliases: ['ms'] });
-  registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, shortAliases: ['µs', 'μs', 'us'] });
-  registry.define('minute',      { dim: {time: 1}, mul: 60,         shortAliases: ['min'] });
-  registry.define('hour',        { dim: {time: 1}, mul: 3600,        shortAliases: ['h', 'hr'] });
-  registry.define('day',         { dim: {time: 1}, mul: 86400,       shortAliases: ['d'] });
+  registry.define('second',      { dim: {time: 1}, aliases: ['seconds'], shortAliases: ['s']  });
+  registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, aliases: ['milliseconds'], shortAliases: ['ms'] });
+  registry.define('microsecond', { dim: {time: 1}, mul: 1e-6, aliases: ['microseconds'], shortAliases: ['µs', 'μs', 'us'] });
+  registry.define('minute',      { dim: {time: 1}, mul: 60,         aliases: ['minutes'], shortAliases: ['min'] });
+  registry.define('hour',        { dim: {time: 1}, mul: 3600,        aliases: ['hours'], shortAliases: ['h', 'hr'] });
+  registry.define('day',         { dim: {time: 1}, mul: 86400,       aliases: ['days'], shortAliases: ['d'] });
   registry.define('year',        { dim: {time: 1}, mul: 31557600,    aliases: ['years'], shortAliases: ['yr'] });
 
-  registry.define('radian', { dim: {angle: 1},  shortAliases: ['rad'] });
+  // Angles are dimensionless in numbat's convention (a radian is a pure
+  // ratio). ep matches that so the vendored modules' angular code loads.
+  registry.define('radian', { dim: {}, aliases: ['radians'], shortAliases: ['rad'] });
 
   // Imperial / US customary — convenience for input and explicit `-> ft`
   // conversion. Flagged inputOnly so the auto-scaler still prefers metric
@@ -2167,8 +2201,8 @@ function loadPrelude(registry) {
   registry.define('pct', { dim: {}, mul: 1e-2, displayName: '%', aliases: ['percent'] });
   registry.define('g/t', { dim: {}, mul: 1e-6, shortAliases: ['g/t'] });
 
-  // Angles.
-  registry.define('degree', { dim: {angle: 1}, mul: Math.PI / 180, shortAliases: ['deg'] });
+  // Angles. Dimensionless per numbat convention; one full turn = 2π radians.
+  registry.define('degree', { dim: {}, mul: Math.PI / 180, aliases: ['degrees'], shortAliases: ['deg'] });
 
   // Tyler / ASTM sieve mesh apertures — discrete table, mirrored from
   // gcu/units (auditable/ext/units/src/sieve.js). Each registered as a

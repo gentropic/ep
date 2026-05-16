@@ -25,7 +25,7 @@ export const KEYWORDS = new Set([
 const MULTI_OPS = ['->', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
 
 // Single-character operators / punctuation.
-const SINGLE_OPS = '+-*/^=(){}[],:.<>!';
+const SINGLE_OPS = '+-*/^=(){}[],:.<>!;';
 
 const UNICODE_OP_ALIAS = {
   '→': '->',
@@ -123,9 +123,27 @@ export function tokenize(source, sourceName = '<input>') {
       continue;
     }
 
-    // Number literal
+    // Number literal — decimal (incl. underscore separators, scientific),
+    // hexadecimal (0x), octal (0o), or binary (0b).
     if ((c >= '0' && c <= '9') || (c === '.' && source[i + 1] >= '0' && source[i + 1] <= '9')) {
       const numStart = i;
+      // Radix-prefixed integers: `0x`, `0o`, `0b` (case-insensitive prefix).
+      if (c === '0' && i + 1 < source.length) {
+        const radixCh = source[i + 1];
+        let radix = 0, allowed = null;
+        if (radixCh === 'x' || radixCh === 'X') { radix = 16; allowed = /[0-9a-fA-F_]/; }
+        else if (radixCh === 'o' || radixCh === 'O') { radix = 8;  allowed = /[0-7_]/;       }
+        else if (radixCh === 'b' || radixCh === 'B') { radix = 2;  allowed = /[01_]/;        }
+        if (radix) {
+          advance(2);
+          while (i < source.length && allowed.test(source[i])) advance();
+          const raw = source.slice(numStart, i);
+          const digits = raw.slice(2).replace(/_/g, '');
+          if (!digits) throw new Error(`${sourceName}:${start.line}:${start.col}: empty radix literal`);
+          emit('num', { value: parseInt(digits, radix), raw }, start);
+          continue;
+        }
+      }
       let dot = false, eExp = false;
       while (i < source.length) {
         const ch = source[i];
