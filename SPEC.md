@@ -2,7 +2,7 @@
 
 `ep` is a single-file browser-native calculator that turns one-off calculations into shareable parameterized forms. It's part of the GCU stack — sibling in spirit to `calque`, `dee`, `gcu-press`, `plan`, `rv` (which live in the `auditable` repo) — but ships standalone from its own repo at `gentropic.org/ep`.
 
-The language ep-script is **Numbat-shaped** — syntax inspired by [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT) — with deliberate simplifications and two form-builder directives (`@params`, `@outputs`) original to ep.
+The language ep-script is **Numbat-shaped** — syntax inspired by [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT) — with deliberate simplifications and three form-builder decorators (`@input`, `@output`, `@options`) original to ep.
 
 **Status:** 0.1-shaped. The Phase 1–3 plan from earlier versions of this doc has landed: source-split build, CodeMirror 6 editor, full numbat-js evaluator co-located under `ext/numbat/`, drawer + multi-program persistence, URL+QR sharing, examples library, scenarios, viewer-only export. What was design substrate is now working artifact. Sections below are annotated with **Shipped** / **Future** where useful.
 
@@ -16,7 +16,7 @@ ep is in **CalcNote / Soulver** territory — a notepad calculator where you typ
 
 1. **Dimensional analysis on geological units.** `1.5 g/t * 100 Mt → 150 t` works. So does sieve mesh, density, grade in any expression of ppm/ppb/g/t/oz/lt. Catches `length + mass` as a dimension mismatch.
 
-2. **Programs are shareable single-file forms.** A program with `@params { … }` and `@outputs { … }` exports as a standalone HTML file your colleague can open, fill in different inputs, and read the results — no server, no install, no auth, no infrastructure. Same auditable single-file ethos as the rest of the GCU stack.
+2. **Programs are shareable single-file forms.** A program with `@input` and `@output` decorators exports as a standalone HTML file your colleague can open, fill in different inputs, and read the results — no server, no install, no auth, no infrastructure. Same auditable single-file ethos as the rest of the GCU stack.
 
 ep is *not*:
 - A scientific calculator in the HP-15C sense (no stack mode, no RPN — the keypad mock is in `prior-art/ep-mock-rpn.html` for reference but was retired)
@@ -30,7 +30,7 @@ ep is *not*:
 
 The same program has three presentations:
 
-**Designer view.** What the program author sees. CodeMirror 6 editor body shows the full source with syntax highlighting + fold gutter for `@params` blocks. Chips above for `@params` inputs; chips below for `@outputs` results, each with copy buttons. Right-side gutter shows per-line results aligned to source lines. Accessory bar of tokens/units sits at the bottom.
+**Designer view.** What the program author sees. CodeMirror 6 editor body shows the full source with syntax highlighting. Chips above for `@input`-tagged bindings; chips below for `@output`-tagged bindings, each with copy buttons. Right-side gutter shows per-line results aligned to source lines. Accessory bar of tokens/units sits at the bottom.
 
 **Form view.** What a consumer of the program sees inside the designer. Same artifact, but the editor body is hidden behind a "show calculation" toggle. Big chips top and bottom. Accessory bar hidden. Toggled via the `form / editor` button in the header.
 
@@ -60,8 +60,9 @@ The same program has three presentations:
 | `if`/`then`/`else` | `kicker = if future > threshold then 0.05 * future else 0` (expression-level) |
 | `dimension` decl | `dimension Frequency = 1 / Time` |
 | `unit` decl | `unit hertz: Frequency = 1 / second` |
-| `@params { … }` block | reactive input panel (multi-line) |
-| `@outputs { … }` directive | output panel selection (single line or multi-line; each name takes an optional `: unit`) |
+| `@input` (decorator) | tags the next binding as an input chip in the top panel |
+| `@output[(unit)]` (decorator) | tags the next binding as an output chip; optional unit override |
+| `@options(a, b, c)` (decorator) | renders the next binding's chip as a `<select>` with the given options |
 
 Multi-line `fn` bodies, `struct` declarations, `where` clauses across multiple lines, and `use module::path` aren't supported at the line classifier level yet. `where` clauses on single-line `fn` definitions work.
 
@@ -120,53 +121,43 @@ metal_oz = metal -> ozt    # display in troy ounces
 
 Arithmetic on a `->` -tagged value does NOT propagate the display tag — once you do further math, the result auto-scales again.
 
-### `@params { … }` block
+### Decorators — `@input`, `@output`, `@options`
 
-> **Note:** `@params { }` is ep-invented syntax, not a real numbat construct. We hijack the `@` decorator token + `{ }` block syntax for our own purposes; numbat's `@` only supports `@name` / `@name(args)` decorators that adorn the next declaration, never followed by `{}`. See "Numbat compatibility status" under Relationship to Numbat for what we're doing and the proposed decorator-form migration.
-
-A multi-line block with binding-shaped contents. Each line declares a reactive input parameter:
+ep extends numbat-script with three decorators that adorn the binding on the line *below* them. They're real numbat-grammar decorators (`@<name>` or `@<name>(<args>)`) — unknown to upstream numbat at semantic-time but parsed cleanly there, so programs using ep decorators round-trip through pure numbat without errors. See "Numbat compatibility status" below.
 
 ```ep
-@params {
-  length            = 200 m
-  width             = 50 m
-  thickness         = 8 m
-  density : Density = 2.7 g/cm3
-  grade             = 1_800 ppb
-}
+# Drill core sample
+
+@input
+core_size = NQ_core
+
+@input
+length = 5 m
+
+@input
+@options(granite, basalt, sandstone, limestone)
+rock_type = granite
+
+@output(L)
+volume = cylinder_volume(core_size, length)
+
+@output(kg)
+mass = sample_mass(core_size, length, density)
 ```
 
-Behavior:
-- Each line behaves as a normal binding: visible in scope from that point forward.
-- The chip panel above the editor renders these as user-editable input chips.
-- Editing a chip writes through to the body source line, preserving the prefix up to `=` (annotation and indentation survive).
-- Editing the source line live-updates the chip.
-- When the user changes a parameter (in either place), all bindings transitively depending on it re-evaluate.
+**`@input`** — the binding shows up in the top chip panel as a user-editable input. Editing the chip writes through to the source line, preserving the prefix up to `=` (annotation and indentation survive). Editing the source live-updates the chip. When a param changes (in either place), all bindings transitively depending on it re-evaluate.
 
-Programs without an `@params { }` block don't show a top chip panel. Naked bindings still work.
+**`@output[(unit)]`** — the binding shows up in the bottom chip panel with a copy button. The optional argument is a display-unit override (resolved as a Numbat expression, so compound forms like `ft^3`, `kg/m^2`, `km/h` work without pre-registered aliases). Without an argument, the auto-scale formatter picks the unit.
 
-### `@outputs { … }` directive
+**`@options(a, b, c, …)`** — the binding's chip renders as a `<select>` with exactly those options. Useful for enum-style tags (`rock_type = granite`) where the value is a label, not a numeric quantity. When `@options` is present and the value is a bare label rather than a numbat-resolvable expression, ep skips evaluation entirely (no "unknown identifier" noise). Implies `@input` semantics for chip rendering even without an explicit `@input` line.
 
-> **Note:** `@outputs { }` is also ep-invented, with the same caveats as `@params { }`. See "Numbat compatibility status".
+Decorators stack — `@input` + `@output(km)` on the same binding makes it both an input chip and an output chip (e.g. for round-tripping unit conversions). Blank lines and `#` comments between a decorator and its target binding are tolerated.
 
-Lists names of bindings to promote to the output panel. Single-line or multi-line; each name optionally takes a `: unit` display override.
+Programs with no `@input`-tagged bindings don't show a top chip panel; programs with no `@output` don't show a bottom panel.
 
-```ep
-@outputs { tonnage, metal, metal_oz }            # single-line, no overrides
+### `@params { … }` and `@outputs { … }` blocks — removed (v0.1 only)
 
-@outputs {                                       # multi-line, with overrides
-  volume:   ft^3,
-  tonnage:  Mt,
-  metal:    kg,
-  pressure: lb/ft^2,
-}
-```
-
-The block is purely a layout + display directive — it doesn't define or modify the named bindings, just promotes them to the bottom chip panel where each gets a copy button. Names must refer to existing bindings; missing names show as `undefined` in the output chip.
-
-When a unit is provided, both the output chip and the binding's right-gutter result render in that unit. The unit text is resolved as a Numbat expression — compound forms like `ft^3`, `kg/m^2`, `lb/ft^3`, `km/h` work without needing pre-registered aliases. Dimension-mismatch errors surface on the affected chip.
-
-Programs without an `@outputs { }` directive don't show a bottom panel.
+Earlier versions used `@params { … }` and `@outputs { … }` block syntax. v0.2 dropped both in favor of the decorator form above. The old block form is no longer recognized — programs in that style won't parse.
 
 ---
 
@@ -219,13 +210,13 @@ Errors halt evaluation of the affected binding but don't crash the script. Indep
 The body source is the single source of truth. Chip panels are views.
 
 - Editing a chip → updates `state.body[N].src` for the corresponding line → re-evaluates → re-renders the body row in-place.
-- Editing a body line inside `@params { }` → re-evaluates → re-renders chips.
-- Adding a new binding inside `@params { }` (just typing a new `name = expr` line) → a new chip appears.
+- Editing a body line of an `@input`-tagged binding → re-evaluates → re-renders chips.
+- Adding a new `@input` + binding pair → a new chip appears.
 - Removing a line → its chip disappears.
 
 ### Collapsible blocks
 
-`@params {` lines are foldable in the CM6 editor via the left-side fold gutter (chevron next to the line). Fold state isn't persisted yet — refresh expands. Body-side fold for other multi-line blocks (`fn` etc.) when those land.
+No ep-specific folding yet — the old `@params { }` block fold was removed with the v0.2 decorator migration. A future enhancement could group consecutive `@input`-tagged bindings into a foldable section.
 
 ### Export
 
@@ -248,7 +239,7 @@ Three input paths, all feeding the same `loadProgramText(text, sourceName)`:
 
 Load wholesale-replaces `state.body`, discards stale collapse state, re-evaluates, and updates the header filename (extension stripped).
 
-The chip ↔ source sync also recovers from mid-edit malformed states: if the user briefly empties a chip (so the underlying line momentarily fails the binding regex), the evaluator's @params branch keeps the param bound with an `empty expression` error rather than dropping it. Once the user types a valid value, the chip flows through cleanly.
+The chip ↔ source sync also recovers from mid-edit malformed states: if the user briefly empties a chip (so the underlying line momentarily fails the binding regex), the evaluator's `@input` recovery branch keeps the param bound with an `empty expression` error rather than dropping it. Once the user types a valid value, the chip flows through cleanly.
 
 ---
 
@@ -278,64 +269,17 @@ ep-script still diverges on:
 - **Multi-line `fn` bodies** — the line classifier only recognizes single-line `fn name(args) = body`. Multi-line bodies (`fn foo(x) =\n  long\n  expression`) aren't classified yet.
 - **`struct` declarations** — not classified at the line level; would need block-aware parsing.
 - **`use module::path`** — classified but not yet wired to the host's module registry. The host has all 62 upstream modules vendored; surfacing them needs a host-side `registerModule` call when `use` is seen.
-- **Added directives:** `@params { }` and `@outputs { }` — ep's actual differentiation. Multi-line `@outputs` with per-name `: unit` overrides is ep-specific syntax. **See "Numbat compatibility status" below for what we're actually doing with `@`.**
+- **Added decorators:** `@input`, `@output[(unit)]`, `@options(…)` — ep's form-builder differentiation, applied per-binding. These are grammatically real numbat decorators (numbat's parser accepts any `@name`/`@name(args)`); numbat would ignore them at semantic time, so a program using them still parses upstream cleanly. See "Numbat compatibility status" below.
 
-A program written in ep that doesn't use `@params` or `@outputs` should round-trip through Numbat without modification. Full feature compatibility is the de-facto outcome of the numbat-js migration; remaining gaps (multi-line blocks, struct decls, module imports) are line-classifier ergonomics, not evaluator gaps.
+A program written in ep round-trips through Numbat without modification — the decorators are just attached to `let`-shaped declarations and numbat ignores unknown decorator names. Full feature compatibility is the de-facto outcome of the numbat-js migration; remaining gaps (multi-line blocks, struct decls, module imports) are line-classifier ergonomics, not evaluator gaps.
 
-### Numbat compatibility status (honest)
+### Numbat compatibility status
 
-`@params { … }` and `@outputs { … }` are **not** numbat constructs and never were. We hijack the `@` token.
+ep-script's three form-builder decorators (`@input`, `@output[(unit)]`, `@options(…)`) use real numbat decorator grammar — `@<name>` or `@<name>(<arg>, …)`, adorning the next declaration. Numbat's parser accepts arbitrary decorator names (only specific ones like `@aliases`, `@metric_prefixes` get acted on at semantic time); unknown decorators are kept on the AST node and otherwise ignored.
 
-**What numbat's `@` actually is:** decorators that adorn the *next* declaration. Grammar is `@<name>` or `@<name>(<arg>, …)` — never followed by `{ }`. Known names: `@aliases`, `@name`, `@description`, `@url`, `@metric_prefixes`, `@binary_prefixes`, `@example`. Args are strings (`"..."`) or identifiers (with optional `name: modifier`).
+**Consequence:** an ep program runs through pure numbat without parse errors. The decorators get attached to `let`-shaped declarations; numbat ignores them at semantic time. ep does the form-rendering work on top.
 
-**What ep does:** `classify()` recognizes `@params {`, `@outputs {`, and `}` as structural markers and routes around numbat for those rows. Only the binding RHS *inside* the block is handed to numbat (where it parses as a valid `let`-shaped declaration). Numbat never sees `@params` at all.
-
-**Consequence:** programs using ep directives are not parseable by upstream numbat. Programs without them are.
-
-The trailing `# options: a, b, c` comment annotation on @params bindings is another janky workaround — comments are universally ignored by parsers, but encoding structured data in them is ugly and fragile.
-
-### Path forward: decorator form (v0.2 proposal, not implemented)
-
-The cleaner alternative is to express each input/output/option as a real numbat decorator on the binding it modifies:
-
-```ep
-# Drill core sample
-
-@input
-core_size = NQ_core
-
-@input
-@options(granite, basalt, sandstone)
-rock_type = granite
-
-@input
-length = 5 m
-
-mass = sample_mass(core_size, length, density)
-
-@output(L)
-volume = cylinder_volume(core_size, length)
-
-@output(kg)
-metal = mass
-```
-
-Properties:
-- **Grammatically legitimate numbat.** `@input` and `@output(unit)` and `@options(…)` parse cleanly as numbat decorators (unknown decorator names don't error at parse time; semantic-layer handling decides whether to act on them).
-- **Per-binding metadata is colocated** with its binding, not in a sidecar block.
-- **Round-trips through pure numbat** — decorators get attached to the `let` AST nodes; if numbat doesn't recognize them at load time it can ignore or warn, but the program is still valid.
-- **No more `# options:` hack** — `@options(a, b, c)` uses real decorator-arg grammar.
-- **No more `}` ambiguity** with @params block close vs struct close vs anything else.
-
-Tradeoffs:
-- More vertical space (one decorator line per binding).
-- Loses the "visual grouping" of an `@params { }` block. If grouping matters, an optional `# section: Geometry` comment per row, or a separate panel-ordering decorator (`@section("Geometry")`), can recover it.
-- Multi-line `@outputs { name: unit, … }` becomes N separate `@output(unit)` decorators. That's a real lossy refactor for outputs-heavy programs.
-- Migration: every existing ep program needs a one-time rewrite.
-
-The migration would be a v0.2 syntactic break — old programs continue to work via a compatibility shim in `classify()`, but new examples and the new-file template move to decorator form. Eventually the block form gets removed.
-
-**Not implemented yet.** Capturing here so the next person touching this layer has the context.
+**History (v0.1 → v0.2 migration).** Earlier versions used `@params { … }` and `@outputs { … }` block syntax, which abused the `@` token: numbat's `@` is decorator-only, never followed by `{ }`, so `@params {` would error at parse time in upstream numbat. v0.2 switched to per-binding decorators (real numbat grammar) and dropped the old block form entirely. The `# options: a, b, c` comment-annotation hack from v0.1 was also dropped in favor of the proper `@options(a, b, c)` decorator.
 
 ### Originator courtesy
 
@@ -343,7 +287,7 @@ ep and this spec are derivative-by-syntax of Numbat. The implementation is origi
 
 README must credit Numbat prominently in its first paragraph. Suggested wording:
 
-> ep-script is a JavaScript implementation of a calculator-shaped subset of [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT), extended with form-builder directives (`@params`, `@outputs`) original to ep. Programs without these directives are syntactically valid Numbat.
+> ep-script is a JavaScript implementation of a calculator-shaped subset of [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT), extended with form-builder decorators (`@input`, `@output`, `@options`) original to ep. Decorators use real Numbat decorator grammar, so ep programs round-trip through Numbat unchanged.
 
 ---
 
@@ -352,7 +296,7 @@ README must credit Numbat prominently in its first paragraph. Suggested wording:
 The Phase 1–3 plan from earlier versions of this doc has all landed:
 
 - **Source split + build script** — `src/template.html`, `src/style.css`, `src/js/*.js`, plus a second `src/viewer-template.html` for the export artifact. Zero-deps `build.js` at the repo root concatenates them into `index.html`. Two vendor builds run as prerequisites (`ext/numbat/build.js`, `ext/qrcode/build.js`) and a third (`ext/cm6/build.js`) produces the CM6 bundle from npm-installed sources on demand. `node_modules/` is gitignored under `ext/cm6/`; the prebuilt `cm6.min.js` is committed.
-- **CodeMirror 6 editor** — vendored from auditable's pattern, ~597 KB IIFE bundle. Syntax highlighting via a StreamLanguage for ep-script (comments, `@directives`, keywords, type names, constants, operators). Fold gutter for `@params { }` blocks. Bracket matching + auto-close. `EditorView.lineWrapping` so long lines don't trigger horizontal scroll.
+- **CodeMirror 6 editor** — vendored from auditable's pattern, ~597 KB IIFE bundle. Syntax highlighting via a StreamLanguage for ep-script (comments, `@decorators`, keywords, type names, constants, operators). Bracket matching + auto-close. `EditorView.lineWrapping` so long lines don't trigger horizontal scroll.
 - **numbat-js** — full port under `ext/numbat/`, drives expression evaluation. All 62 upstream Numbat modules vendored as strings; 345+ tests pass. ep's own evaluator is now ~180 LOC: classify the line, route through numbat-js's tokenize + parse + evalValueExpr.
 
 Things deferred to "when use cases pull":
@@ -374,7 +318,7 @@ Worth building when the need is real, not before:
 
 1. **Two-tier IR.** Cold path stays tree-walker; hot bindings compile to specialized closures with dimensions erased, just raw float ops. V8 monomorphizes hard from there.
 
-2. **Incremental DAG reactivity.** Track which bindings depend on which. On `@params` change, re-evaluate only the transitive downstream set, not the whole program. Probably 10-50× speedup for typical edit-and-watch use.
+2. **Incremental DAG reactivity.** Track which bindings depend on which. On `@input` change, re-evaluate only the transitive downstream set, not the whole program. Probably 10-50× speedup for typical edit-and-watch use.
 
 3. **Dimension-erase after inference.** Once inference proves a chain dimensionally consistent, runtime values become plain numbers; dimension info lives alongside binding metadata, not in every `Q`. Eliminates per-op allocation.
 
@@ -413,7 +357,7 @@ If a feature here turns out to be load-bearing, that's a signal ep isn't the rig
 
 What's still genuinely undecided. Items answered by the implementation have been removed; see the Enhancements roadmap below for everything else marked **Future**.
 
-- **`@outputs` UI for adding/removing.** Currently you edit the `@outputs { … }` directive line directly. A pin icon on each binding row to toggle "include in output panel" is the natural gesture but isn't implemented.
+- **Output pin UI.** Currently you toggle a binding into the output panel by adding/removing the `@output` decorator above its definition. A pin icon on each binding row to toggle that decorator visually is the natural gesture but isn't implemented.
 - **Error message quality.** numbat-js produces single-line errors with location info. Numbat upstream sets a higher bar (multi-line traces with both operands' dimensions, span pointers). ep could improve this when token spans get wired into the gutter.
 - **IndexedDB migration.** localStorage works fine for current use cases (~5 MB quota, programs are small). The `readStore` / `writeStore` seam is ready for IDB; the migration trigger is snapshots (§7.4) landing.
 - **Module discovery.** numbat-js has all 62 upstream modules vendored, but ep's line classifier doesn't yet recognize `use module::path` to bring them into scope. Could surface them via a "modules" section in the drawer, or just auto-import the math + physics constants set into every program.
@@ -450,7 +394,7 @@ ep/
       dialogs.js           ← in-app epConfirm / epPrompt
       ctxmenu.js           ← long-press + program context menu
       drawer.js            ← hamburger drawer + saved programs list
-      scenarios.js         ← named @params presets
+      scenarios.js         ← named @input presets
       examples.js          ← built-in starter programs
       tutorial.js          ← first-launch walkthrough
       accessory.js         ← bottom token bar
@@ -711,7 +655,7 @@ Currently the body uses plain `<input>` rows. Replace with a vendored CodeMirror
 
 Token categories to color:
 - Comments (`#` and `--` to end of line) — `--sw-text-soft` italic
-- Keywords (`@params`, `@outputs`, eventually `fn`, `where`, `to`) — `--sw-orange`
+- Keywords (`@input`, `@output`, `@options`, eventually `fn`, `where`, `to`) — `--sw-orange`
 - Identifiers — `--sw-text`
 - Number literals — `--sw-text-mid`
 - Unit names (anything in the units table after a number or after `->`) — `--sw-teal`
@@ -729,7 +673,7 @@ Parser already tracks token positions; just isn't exposed in the AST yet.
 
 ### 4.3 Auto-pair brackets/braces — **Shipped** (S)
 
-In the body editor (and the `@params { }` block specifically), typing `(`, `[`, `{` inserts the matching close character with the cursor in the middle. Typing the close character when the next char is already that close just moves the cursor past. Backspace at the empty pair deletes both.
+In the body editor, typing `(`, `[`, `{` inserts the matching close character with the cursor in the middle. Typing the close character when the next char is already that close just moves the cursor past. Backspace at the empty pair deletes both.
 
 Standard editor affordance. CM6 has this built-in via `closeBrackets()` extension.
 
@@ -782,19 +726,22 @@ Read `navigator.language` on boot. Pick decimal/thousands separators accordingly
 
 Implementation lives in `fmtNum`; everything else flows through it.
 
-### 5.4 Format directive — **Superseded** by @outputs unit specs (M)
+### 5.4 Format directive — **Superseded** by `@output(unit)` decorator (M)
 
-The originally-designed `@format { name: "0.00 unit" }` directive was superseded by the simpler approach of putting unit overrides directly on the `@outputs` directive:
+The originally-designed `@format { name: "0.00 unit" }` directive was superseded by putting unit overrides directly on the `@output` decorator:
 
 ```ep
-@outputs {
-  tonnage: t,
-  grade:   g/t,
-  metal:   kg,
-}
+@output(t)
+tonnage = volume * density
+
+@output(g/t)
+grade = metal / tonnage
+
+@output(kg)
+metal = tonnage * grade
 ```
 
-This handles the "show this in a specific unit" case (the dominant use case) without introducing a new directive. The precision / pattern aspect of the original `@format` design is still **Future** — would need §5.2 sig-digits work to land first.
+This handles the "show this in a specific unit" case (the dominant use case) without introducing a new directive. The precision / pattern aspect of the original `@format` design is still **Future**.
 
 ### 5.5 Live preview smoothing (S)
 
@@ -842,9 +789,9 @@ On absolute-first launch (no entry in `ep:installedAt`), instead of going straig
 
 **Four steps**, each tied to a real interaction rather than a wall of text:
 
-1. **"Tap a chip to edit it."** Highlight one of the `@params` chips. Wait for the user to tap-and-edit. Show a "👀 nice" confirmation on success, then advance.
-2. **"Watch the outputs update."** Highlight the `@outputs` chip panel. After the first re-evaluation completes, advance.
-3. **"The chips are just source."** Highlight the body's `@params { }` block. Show that the line the user just edited (in the chip) is also visible in source. Tap-to-continue.
+1. **"Tap a chip to edit it."** Highlight one of the `@input`-tagged chips. Wait for the user to tap-and-edit. Show a "👀 nice" confirmation on success, then advance.
+2. **"Watch the outputs update."** Highlight the `@output`-tagged chip panel. After the first re-evaluation completes, advance.
+3. **"The chips are just source."** Highlight the body's `@input` bindings. Show that the line the user just edited (in the chip) is also visible in source. Tap-to-continue.
 4. **"Programs travel as files or links."** Highlight the `export` button. Tap-to-continue closes the tutorial.
 
 **Visual treatment.** Semi-opaque dark overlay (`rgba(0,0,0,0.55)`) over the whole screen with a hole cut out around the currently-highlighted element. Implement via SVG mask or CSS `clip-path` with a generous padding. Tooltip near the highlighted element with the step text + `next →` or `skip tutorial` links.

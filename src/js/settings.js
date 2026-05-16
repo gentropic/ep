@@ -35,13 +35,11 @@ const ON_OFF = [
 export const DEFAULT_NEW_FILE_TEMPLATE = [
   '# new program',
   '',
-  '@params {',
-  '  x = 1',
-  '}',
+  '@input',
+  'x = 1',
   '',
+  '@output',
   'y = x * 2',
-  '',
-  '@outputs { y }',
 ].join('\n');
 
 const panel             = document.getElementById('settingsPanel');

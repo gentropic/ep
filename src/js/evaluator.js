@@ -1,4 +1,11 @@
 // Pure evaluator: classify lines, parse dimension annotations, evaluate a body
+//
+// v0.2 — decorator form. Inputs and outputs are now expressed as numbat-style
+// decorators (`@input`, `@output[(unit)]`, `@options(a, b, c)`) on the line
+// ABOVE the binding they modify, rather than via the old `@params { … }` /
+// `@outputs { … }` block syntax. This matches numbat's grammar (decorators
+// adorn the next declaration) so programs round-trip through pure numbat
+// cleanly. See SPEC.md → "Numbat compatibility status" for the rationale.
 // of ep-script statements into rows/params/outputs/scope.
 //
 // Expression evaluation is delegated to numbat-js: each binding/expression is
@@ -8,7 +15,7 @@
 // vendored unit/dim system "for free."
 //
 // What remains ep-specific:
-//   - classify(): recognizes @params { }, @outputs { }, # / -- comments
+//   - classify(): recognizes @<decorator>, # / -- comments
 //   - parseAnno() + DIMENSION_OF: type-annotation syntax for parameters
 //   - evaluate() loop: line-level error resilience (one bad row doesn't stop
 //     siblings), reactive scope build-up across the body
@@ -66,23 +73,7 @@ function host() {
   return _host;
 }
 
-// ── line classification (unchanged) ───────────────────────────────
-
-// Parse a comma-separated list of `name [: unit]` specs from inside an
-// @outputs block. Trailing commas and empty pieces are tolerated.
-//
-//   "volume, metal: kg, moz: oz"
-//     → [{name:'volume', unit:null}, {name:'metal', unit:'kg'}, {name:'moz', unit:'oz'}]
-export function parseOutputSpecs(text) {
-  return text.split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-    .map(piece => {
-      const c = piece.indexOf(':');
-      if (c < 0) return { name: piece, unit: null };
-      return { name: piece.slice(0, c).trim(), unit: piece.slice(c + 1).trim() || null };
-    });
-}
+// ── line classification ───────────────────────────────────────────
 
 // Walk the body and collapse multi-line expressions into single logical
 // rows. ep classifies one body row at a time, so something like
@@ -102,25 +93,27 @@ export function parseOutputSpecs(text) {
 //               continuation rows so they classify as "empty" and skip
 //               cleanly through the rest of evaluate().
 //
-// Only () and [] count toward depth — {} is reserved for the @params /
-// @outputs blocks and would clash with the structural pre-scan.
-// Structural lines (@params { / @outputs { / } on its own) never merge.
+// Only () and [] count toward depth. ({} would clash with struct literals
+// and any future block syntax we adopt; brackets are not used in the
+// decorator form, so we don't need them.)
 export function buildLogicalLines(body) {
   const owner  = body.map((_, i) => i);
   const effSrc = body.map(r => r.src);
   let i = 0;
   while (i < body.length) {
     const t = body[i].src.trim();
-    if (/^@\w+\s*\{\s*$/.test(t) || /^\}\s*$/.test(t)) { i++; continue; }
+    // Decorator lines never participate in multi-line merging; they're
+    // their own classification and apply to the next binding.
+    if (/^@[a-zA-Z_]/.test(t)) { i++; continue; }
     let depth = bracketDepth(body[i].src);
     if (depth <= 0) { i++; continue; }
     let merged = body[i].src;
     let j = i + 1;
     while (depth > 0 && j < body.length) {
       const t2 = body[j].src.trim();
-      // Don't suck a block-opening line into an expression — it would
-      // make the rest of the file un-classifiable.
-      if (/^@\w+\s*\{\s*$/.test(t2)) break;
+      // Don't suck a decorator into an expression — it adorns its own
+      // binding, not whatever paren-soup precedes it.
+      if (/^@[a-zA-Z_]/.test(t2)) break;
       merged += '\n' + body[j].src;
       depth += bracketDepth(body[j].src);
       j++;
@@ -157,11 +150,22 @@ export function classify(src) {
   const t = src.trim();
   if (t === '') return {kind: 'empty'};
   if (t.startsWith('--') || t.startsWith('#')) return {kind: 'comment'};
-  if (/^@params\s*\{\s*$/.test(t))  return {kind: 'params-open'};
-  if (/^@outputs\s*\{\s*$/.test(t)) return {kind: 'outputs-open'};
-  if (/^\}\s*$/.test(t))            return {kind: 'block-close'};
-  const om = t.match(/^@outputs\s*\{\s*([^}]*)\s*\}\s*$/);
-  if (om) return {kind: 'outputs', specs: parseOutputSpecs(om[1])};
+
+  // Decorator line: `@<name>` or `@<name>(<arg>, …)`. Numbat-style grammar;
+  // adorns the next non-trivial declaration in evaluate(). ep recognizes
+  // three decorator names with semantic meaning — @input, @output, @options
+  // — but classify() captures any well-formed decorator and lets evaluate()
+  // decide what to do with it (other names are accepted and ignored, which
+  // is also how numbat treats unknown decorators).
+  const dec = t.match(/^@([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\(\s*([^)]*?)\s*\))?\s*$/);
+  if (dec) {
+    const name = dec[1];
+    const argsRaw = dec[2] || '';
+    const args = argsRaw.trim()
+      ? argsRaw.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    return { kind: 'decorator', name, args };
+  }
 
   // Numbat statement decls — single-line, routed through numbat-js's loader.
   if (/^fn\s+/.test(t)) {
@@ -246,7 +250,8 @@ export function getCompletionData() {
     'let', 'fn', 'if', 'then', 'else', 'where', 'dimension', 'unit',
     'struct', 'use', 'to', 'per', 'and', 'or', 'not', 'true', 'false',
   ];
-  return { units, functions, dimensions, keywords };
+  const decorators = ['@input', '@output', '@options'];
+  return { units, functions, dimensions, keywords, decorators };
 }
 
 // Unit-picker categorization. Returns array of {category, units:[{name, displayName, dim}]}.
@@ -440,46 +445,31 @@ function freshEnv() {
 
 export function evaluate(body) {
   // Stitch multi-line expressions back together before any classification.
-  // Structural lines (@params {, @outputs {, } on its own) never merge,
-  // so the block-scan loops below still see them as standalone rows.
+  // Decorator lines never participate in merging.
   const { owner: _owner, effSrc } = buildLogicalLines(body);
-
-  // Pre-scan: find @params block bounds
-  let blockOpen = -1, blockClose = -1;
-  for (let i = 0; i < body.length; i++) {
-    const t = body[i].src.trim();
-    if (blockOpen < 0 && /^@params\s*\{\s*$/.test(t)) { blockOpen = i; continue; }
-    if (blockOpen >= 0 && blockClose < 0 && /^\}\s*$/.test(t)) { blockClose = i; break; }
-  }
-  const blockComplete = (blockOpen >= 0 && blockClose > blockOpen);
-
-  // Pre-scan: find a multi-line @outputs block (independent of @params).
-  let oOpen = -1, oClose = -1;
-  for (let i = 0; i < body.length; i++) {
-    // Skip lines that are inside the @params block — its closing `}` must
-    // not be confused with an @outputs close.
-    if (blockComplete && i >= blockOpen && i <= blockClose) continue;
-    const t = body[i].src.trim();
-    if (oOpen < 0 && /^@outputs\s*\{\s*$/.test(t)) { oOpen = i; continue; }
-    if (oOpen >= 0 && oClose < 0 && /^\}\s*$/.test(t)) { oClose = i; break; }
-  }
-  const outputsBlockComplete = (oOpen >= 0 && oClose > oOpen);
 
   const env = freshEnv();
   const params = [];
   const outputs = [];
   const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
 
-  // Collect @outputs specs from the multi-line block, if present.
-  if (outputsBlockComplete) {
-    const pieces = [];
-    for (let i = oOpen + 1; i < oClose; i++) {
-      const t = body[i].src.trim();
-      if (!t || t.startsWith('#') || t.startsWith('--')) continue;
-      pieces.push(t);
-    }
-    // Join with commas so trailing commas on individual lines don't matter.
-    outputs.push(...parseOutputSpecs(pieces.join(',')));
+  // State machine: decorators stack above each binding they modify and are
+  // consumed when the next non-trivial line lands. Empty / comment rows
+  // between a decorator and its binding don't reset the stack.
+  let pending = [];
+
+  function consumePending() {
+    const isInput   = pending.some(d => d.name === 'input');
+    const outDec    = pending.find(d => d.name === 'output');
+    const optDec    = pending.find(d => d.name === 'options');
+    const isOutput  = !!outDec;
+    const outputUnit = isOutput && outDec.args.length ? outDec.args[0] : null;
+    const options    = optDec ? optDec.args : null;
+    // `@options` without `@input` still gives the binding a chip — options
+    // only make sense as a user-editable selection.
+    const wantsChip = isInput || !!options;
+    pending = [];
+    return { wantsChip, isOutput, outputUnit, options };
   }
 
   for (let i = 0; i < body.length; i++) {
@@ -487,49 +477,36 @@ export function evaluate(body) {
     const row = rows[i];
     row.kind = c.kind;
     row.name = c.name || null;
-    row.inParams = blockComplete && i >= blockOpen && i <= blockClose;
 
-    const inBlockBody = blockComplete && i > blockOpen && i < blockClose;
+    if (c.kind === 'decorator') {
+      pending.push(c);
+      continue;
+    }
+    if (c.kind === 'empty' || c.kind === 'comment') continue;
 
-    if (inBlockBody) {
-      if (c.kind === 'empty' || c.kind === 'comment') continue;
-      if (c.kind !== 'binding') {
-        // Recover the binding name from a malformed `name [: anno] = …` line
-        // so the chip stays bound during mid-edit (e.g. the user briefly
-        // clears the value to retype it). Without this, classify fails on
-        // an empty expression, the param drops from state.params, and the
-        // chip's input handler can't find its binding on subsequent edits.
-        const recovery = effSrc[i].match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*(.*)$/);
-        if (recovery) {
-          const recName = recovery[1];
-          const recAnno = recovery[2] ? recovery[2].trim() : null;
-          const recExpr = (recovery[3] || '').trim();
-          const err = recExpr ? `couldn't parse: ${recExpr}` : 'empty expression';
-          params.push({
-            name: recName, valueSrc: recExpr, anno: recAnno,
-            bodyIdx: i, result: null, error: err,
-          });
-          row.kind  = 'binding';
-          row.name  = recName;
-          row.error = err;
-          continue;
-        }
-        row.error = 'expected `name = expr` inside @params';
-        continue;
-      }
+    // From here on we're at a "real" line that consumes any pending decorators.
+    const { wantsChip, isOutput, outputUnit, options } = consumePending();
+    row.inParams = wantsChip;
+
+    if (c.kind === 'binding') {
       const name = c.name;
-      // Tag-style binding: when an `# options:` annotation is present,
-      // the value is a label the user picks via the chip — not a Quantity
-      // to evaluate. Skip evaluation entirely (no error noise, no scope
-      // pollution). Downstream uses would still error if the user tries
-      // to multiply a tag by a length, which is the right behavior.
-      if (c.options && c.options.length) {
+      const finalOptions = options || c.options || null;   // decorator beats inline comment
+
+      // Tag-style binding: when options are present and the value is a
+      // bare label (not a numbat-resolvable expression), skip evaluation
+      // entirely — the chip drives selection, no Quantity needed.
+      if (wantsChip && finalOptions && finalOptions.length) {
         params.push({
-          name, valueSrc: c.expr, anno: c.anno || null, options: c.options,
+          name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
           bodyIdx: i, result: null, error: null,
         });
+        if (isOutput) {
+          outputs.push({ name, unit: outputUnit });
+          row.outputs = [name];
+        }
         continue;
       }
+
       let q = null, err = null;
       try {
         q = evalExprText(c.expr, env);
@@ -543,49 +520,54 @@ export function evaluate(body) {
       } catch (e) { q = null; err = e.message; }
       row.result = q;
       row.error  = err;
-      params.push({name, valueSrc: c.expr, anno: c.anno || null, options: c.options || null, bodyIdx: i, result: q, error: err});
+      if (wantsChip) {
+        params.push({
+          name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
+          bodyIdx: i, result: q, error: err,
+        });
+      }
+      if (isOutput) {
+        outputs.push({ name, unit: outputUnit });
+        row.outputs = [name];
+      }
       continue;
     }
 
-    // Inside a multi-line @outputs block: rows are layout-only; specs were
-    // already collected in the pre-scan above.
-    const inOutputsBlock = outputsBlockComplete && i >= oOpen && i <= oClose;
-    if (inOutputsBlock) {
-      if (i === oOpen)        row.kind = 'outputs-open';
-      else if (i === oClose)  row.kind = 'block-close';
-      else                    row.kind = 'outputs-line';
-      continue;
+    // Mid-edit recovery: an @input binding whose RHS isn't parseable yet
+    // (typing in progress). Keep the chip alive so the user's input
+    // handler can find its slot on the next keystroke.
+    if (wantsChip) {
+      const recovery = effSrc[i].match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*(.*)$/);
+      if (recovery) {
+        const recName = recovery[1];
+        const recAnno = recovery[2] ? recovery[2].trim() : null;
+        const recExpr = (recovery[3] || '').trim();
+        const err = recExpr ? `couldn't parse: ${recExpr}` : 'empty expression';
+        params.push({
+          name: recName, valueSrc: recExpr, anno: recAnno, options: options || null,
+          bodyIdx: i, result: null, error: err,
+        });
+        row.kind  = 'binding';
+        row.name  = recName;
+        row.error = err;
+        continue;
+      }
     }
 
-    // Lines outside any complete @params block
-    if (c.kind === 'empty' || c.kind === 'comment') continue;
-    if (c.kind === 'params-open' || c.kind === 'outputs-open' || c.kind === 'block-close') continue;
-    if (c.kind === 'outputs') {
-      row.outputs = c.specs.map(s => s.name);
-      outputs.push(...c.specs);
-      continue;
-    }
     if (c.kind === 'fn-decl' || c.kind === 'dim-decl' || c.kind === 'unit-decl') {
       try { loadStatement(c.src, env); }
       catch (e) { row.error = e.message; }
       continue;
     }
-    try {
-      const q = evalExprText(c.expr, env);
-      if (c.kind === 'binding' && c.anno) {
-        const expected = parseAnno(c.anno);
-        if (!dEq(expected, q.dim)) {
-          throw new Error(`annotated ${c.anno} but got [${fmtDim(q.dim)}]`);
-        }
-      }
-      row.result = q;
-      if (c.kind === 'binding') env.values.set(c.name, q);
-    } catch (e) { row.error = e.message; }
-  }
 
-  const blocks = [];
-  if (blockComplete) {
-    blocks.push({open: blockOpen, close: blockClose, kind: 'params', count: params.length});
+    // Naked expression — evaluate but don't bind. Result shows in gutter.
+    if (c.kind === 'expr') {
+      try {
+        const q = evalExprText(c.expr, env);
+        row.result = q;
+      } catch (e) { row.error = e.message; }
+      continue;
+    }
   }
 
   // Convert the values Map to a plain object — render.js does `state._scope[name]`.
@@ -597,5 +579,5 @@ export function evaluate(body) {
     if (!seeded.has(k)) scope[k] = v;
   }
 
-  return {rows, params, outputs, scope, blockComplete, blocks};
+  return {rows, params, outputs, scope, blockComplete: false, blocks: []};
 }

@@ -1,5 +1,5 @@
-// Param scenarios: named presets of @params values that the user can swap
-// between in one program. The strip above the @params panel renders one
+// Param scenarios: named presets of @input values that the user can swap
+// between in one program. The strip above the @input panel renders one
 // chip per scenario plus a `+ scenario` chip to save the current values.
 //
 // Scenarios live on state.ui (so they round-trip through export and URL
@@ -17,7 +17,7 @@ function getScenarios()   { return state.ui.scenarios || (state.ui.scenarios = {
 function getActive()      { return state.ui.activeScenario || null; }
 function setActive(name)  { state.ui.activeScenario = name || null; }
 
-// Snapshot the current @params chip values keyed by param name.
+// Snapshot the current @input chip values keyed by param name.
 function captureCurrentParams() {
   const out = {};
   for (const p of state.params) out[p.name] = p.valueSrc;
@@ -42,7 +42,7 @@ export async function saveCurrentAsNewScenario() {
   if (state.params.length === 0) {
     await epConfirm({
       title: 'No params to capture',
-      message: 'Add an @params block first.',
+      message: 'Add one or more @input-tagged bindings first.',
       okLabel: 'OK',
     });
     return;
@@ -122,7 +122,7 @@ async function renameScenario(oldName) {
 async function deleteScenario(name) {
   const ok = await epConfirm({
     title: 'Delete scenario?',
-    message: `"${name}" will be removed. (The current @params values stay as-is.)`,
+    message: `"${name}" will be removed. (The current @input values stay as-is.)`,
     okLabel: 'Delete',
     danger: true,
   });
@@ -187,7 +187,7 @@ export function renderScenariosStrip() {
     const add = document.createElement('button');
     add.className = 'scenario-chip add';
     add.textContent = '+ scenario';
-    add.title = 'Save the current @params values as a new scenario';
+    add.title = 'Save the current @input values as a new scenario';
     add.addEventListener('click', saveCurrentAsNewScenario);
     stripEl.appendChild(add);
   }

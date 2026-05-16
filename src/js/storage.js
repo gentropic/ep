@@ -234,13 +234,11 @@ export function loadProgramByName(name) {
 const DEFAULT_NEW_PROGRAM_BODY = [
   '# new program',
   '',
-  '@params {',
-  '  x = 1',
-  '}',
+  '@input',
+  'x = 1',
   '',
+  '@output',
   'y = x * 2',
-  '',
-  '@outputs { y }',
 ];
 
 export function newProgram() {

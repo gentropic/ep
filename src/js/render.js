@@ -109,6 +109,7 @@ function mountCm6() {
     Decoration, StateField, StateEffect,
     autocompletion, CompletionContext, acceptCompletion,
   } = CM6;
+  void foldService;  // no @params fold in decorator form; service still imported for future use
 
   // ── ep-script tokenizer (StreamLanguage) ────────────────────────
   const KEYWORDS = /^(let|fn|if|then|else|where|dimension|unit|struct|use|to|per|and|or|not|true|false)\b/;
@@ -149,19 +150,9 @@ function mountCm6() {
     { tag: tags.operator,        color: 'var(--sw-text-mid)' },
   ]);
 
-  // Fold @params { ... } blocks via foldService. Returns the range from end
-  // of `@params {` line to before the matching `}` line; CM6's foldGutter
-  // renders a chevron next to lines with foldable content.
-  const epFold = foldService.of((state, lineStart, lineEnd) => {
-    const lineText = state.doc.sliceString(lineStart, lineEnd);
-    if (!/^\s*@params\s*\{\s*$/.test(lineText)) return null;
-    const openLineNo = state.doc.lineAt(lineStart).number;
-    for (let i = openLineNo + 1; i <= state.doc.lines; i++) {
-      const next = state.doc.line(i);
-      if (/^\s*\}\s*$/.test(next.text)) return { from: lineEnd, to: next.from - 1 };
-    }
-    return null;
-  });
+  // (No fold service yet — the old @params { } block fold doesn't apply to
+  // decorator form. A future fold could group consecutive @input chips, but
+  // there's no clear win until users have programs big enough to need it.)
 
   // The result-gutter marker class. eq() lets CM6 skip DOM updates when the
   // formatted result hasn't changed line-to-line. title attr carries the
@@ -200,6 +191,17 @@ function mountCm6() {
   // included unconditionally — it's the most painful thing to type and
   // remember, so the cost of a longer popup is worth it.
   const _epCompletions = (context) => {
+    // Decorator context: line starts with `@`, suggest @input/@output/@options
+    // (and let the user complete partial names).
+    const decoratorWord = context.matchBefore(/@[a-zA-Z_]*/);
+    if (decoratorWord && (decoratorWord.from !== decoratorWord.to || context.explicit)) {
+      const { decorators } = getCompletionData();
+      return {
+        from: decoratorWord.from,
+        options: decorators.map(d => ({ label: d, type: 'keyword', boost: 50 })),
+      };
+    }
+
     const word = context.matchBefore(/[a-zA-Z_µμπτφ][a-zA-Z0-9_]*/);
     if (!word || (word.from === word.to && !context.explicit)) return null;
     const { units, functions, dimensions, keywords } = getCompletionData();
@@ -292,7 +294,6 @@ function mountCm6() {
           maxRenderedOptions: 60,
         }),
         foldGutter(),
-        epFold,
         EditorView.lineWrapping,
         history(),
         drawSelection(),

@@ -16,35 +16,26 @@ test('classify: empty lines and comments', () => {
   assert.deepEqual(classify('-- also'),  {kind: 'comment'});
 });
 
-test('classify: @params and block-close', () => {
-  assert.deepEqual(classify('@params {'),  {kind: 'params-open'});
-  assert.deepEqual(classify('}'),          {kind: 'block-close'});
+test('classify: decorator with no args', () => {
+  assert.deepEqual(classify('@input'),  {kind: 'decorator', name: 'input', args: []});
+  assert.deepEqual(classify('@output'), {kind: 'decorator', name: 'output', args: []});
   // whitespace tolerated
-  assert.deepEqual(classify('  @params { '), {kind: 'params-open'});
+  assert.deepEqual(classify('  @input  '), {kind: 'decorator', name: 'input', args: []});
 });
 
-test('classify: @outputs parses comma-separated name list', () => {
-  const c = classify('@outputs { tonnage, metal, metal_oz }');
-  assert.equal(c.kind, 'outputs');
-  assert.deepEqual(c.specs, [
-    { name: 'tonnage',  unit: null },
-    { name: 'metal',    unit: null },
-    { name: 'metal_oz', unit: null },
-  ]);
+test('classify: decorator with single unit arg', () => {
+  assert.deepEqual(classify('@output(kg)'),
+    {kind: 'decorator', name: 'output', args: ['kg']});
+  assert.deepEqual(classify('@output( m^3 )'),
+    {kind: 'decorator', name: 'output', args: ['m^3']});
 });
 
-test('classify: @outputs with per-output unit specs', () => {
-  const c = classify('@outputs { volume: m^3, metal: kg, moz }');
-  assert.equal(c.kind, 'outputs');
-  assert.deepEqual(c.specs, [
-    { name: 'volume', unit: 'm^3' },
-    { name: 'metal',  unit: 'kg' },
-    { name: 'moz',    unit: null },
-  ]);
-});
-
-test('classify: @outputs { on its own line is a block-open', () => {
-  assert.deepEqual(classify('@outputs {'), { kind: 'outputs-open' });
+test('classify: decorator with multiple args (options list)', () => {
+  assert.deepEqual(classify('@options(granite, basalt, sandstone)'),
+    {kind: 'decorator', name: 'options', args: ['granite', 'basalt', 'sandstone']});
+  // empty trailing arg is dropped
+  assert.deepEqual(classify('@options(a, b, )'),
+    {kind: 'decorator', name: 'options', args: ['a', 'b']});
 });
 
 test('classify: binding with and without annotation', () => {
@@ -112,27 +103,29 @@ test('evaluate: simple binding lands in scope and row.result', () => {
   assert.equal(r.scope.x.v, 5);
 });
 
-test('evaluate: ore_body program end-to-end', () => {
+test('evaluate: ore_body program end-to-end (decorator form)', () => {
   const body = bodyOf([
-    '@params {',
-    '  length            = 200 m',
-    '  width             = 50 m',
-    '  thickness         = 8 m',
-    '  density : Density = 2.7 g/cm3',
-    '  grade             = 1_800 ppb',
-    '}',
+    '@input',
+    'length = 200 m',
+    '@input',
+    'width = 50 m',
+    '@input',
+    'thickness = 8 m',
+    '@input',
+    'density : Density = 2.7 g/cm3',
+    '@input',
+    'grade = 1_800 ppb',
     'volume   = length * width * thickness',
+    '@output',
     'tonnage  = volume * density',
+    '@output',
     'metal    = tonnage * grade',
-    'metal_oz = metal -> ozt',
-    '@outputs { tonnage, metal, metal_oz }',
+    '@output(ozt)',
+    'metal_oz = metal',
   ]);
   const r = evaluate(body);
 
-  // Params block recognized
-  assert.equal(r.blockComplete, true);
-  assert.equal(r.blocks.length, 1);
-  assert.equal(r.blocks[0].count, 5);
+  // Inputs collected from @input decorators
   assert.deepEqual(r.params.map(p => p.name), ['length', 'width', 'thickness', 'density', 'grade']);
 
   // No row-level errors
@@ -144,14 +137,12 @@ test('evaluate: ore_body program end-to-end', () => {
   assert.ok(approx(r.scope.tonnage.v, 2.16e11));        // g (canonical mass)
   assert.deepEqual(r.scope.tonnage.d, {mass: 1});
   assert.ok(approx(r.scope.metal.v, 388800));           // g
-  assert.equal(r.scope.metal_oz.disp, 'ozt');           // -> tag honored
-  assert.equal(r.scope.metal_oz.v, r.scope.metal.v);    // canonical preserved through ->
 
-  // Outputs collected
+  // Outputs collected from @output decorators (unit from arg)
   assert.deepEqual(r.outputs, [
     { name: 'tonnage',  unit: null },
     { name: 'metal',    unit: null },
-    { name: 'metal_oz', unit: null },
+    { name: 'metal_oz', unit: 'ozt' },
   ]);
 });
 
@@ -180,85 +171,72 @@ test('evaluate: undefined identifier in body line', () => {
   assert.match(r.rows[0].error, /unknown identifier: unknown_thing/);
 });
 
-test('evaluate: @outputs collects names even when bindings missing', () => {
+test('evaluate: @output decorator collects binding (with optional unit)', () => {
   const r = evaluate(bodyOf([
     'x = 5',
-    '@outputs { x, missing_binding }',
+    '@output',
+    'y = x * 2',
+    '@output(kg)',
+    'z = 317 g',
   ]));
   assert.deepEqual(r.outputs, [
-    { name: 'x',               unit: null },
-    { name: 'missing_binding', unit: null },
-  ]);
-  assert.equal(r.scope.x.v, 5);
-  assert.equal(r.scope.missing_binding, undefined);  // caller decides how to render
-});
-
-test('evaluate: multi-line @outputs block', () => {
-  const r = evaluate(bodyOf([
-    'x = 5 m',
-    'y = 10 m',
-    '@outputs {',
-    '  x,',
-    '  y,',
-    '}',
-  ]));
-  assert.deepEqual(r.outputs, [
-    { name: 'x', unit: null },
     { name: 'y', unit: null },
+    { name: 'z', unit: 'kg' },
   ]);
+  assert.equal(r.scope.y.v, 10);
 });
 
-test('evaluate: @outputs with units (single-line)', () => {
+test('evaluate: @input + @output on same binding shows up as both', () => {
   const r = evaluate(bodyOf([
-    'metal = 317.15 g',
-    '@outputs { metal: kg }',
+    '@input',
+    '@output(km)',
+    'distance = 1500 m',
   ]));
-  assert.deepEqual(r.outputs, [{ name: 'metal', unit: 'kg' }]);
-});
-
-test('evaluate: multi-line @outputs with units', () => {
-  const r = evaluate(bodyOf([
-    'volume = 80000 m^3',
-    'metal  = 317.15 g',
-    '@outputs {',
-    '  volume: km^3,',
-    '  metal:  kg,',
-    '}',
-  ]));
-  assert.deepEqual(r.outputs, [
-    { name: 'volume', unit: 'km^3' },
-    { name: 'metal',  unit: 'kg' },
-  ]);
-});
-
-test('evaluate: @params block recognized only with matching close brace', () => {
-  // Missing closing `}` — the block is incomplete, body should evaluate without param scoping
-  const r = evaluate(bodyOf([
-    '@params {',
-    '  x = 5',
-    'y = x + 1',  // should fail: x isn't in scope without a complete block
-  ]));
-  assert.equal(r.blockComplete, false);
-  assert.deepEqual(r.params, []);
-});
-
-test('evaluate: non-binding line inside @params is flagged', () => {
-  const r = evaluate(bodyOf([
-    '@params {',
-    '  2 + 2',           // bad: expressions not allowed in @params
-    '}',
-  ]));
-  assert.match(r.rows[1].error, /expected `name = expr` inside @params/);
+  assert.deepEqual(r.params.map(p => p.name), ['distance']);
+  assert.deepEqual(r.outputs, [{ name: 'distance', unit: 'km' }]);
 });
 
 test('evaluate: param binding with annotation respected', () => {
   const r = evaluate(bodyOf([
-    '@params {',
-    '  density : Density = 2.7 g/cm3',
-    '}',
+    '@input',
+    'density : Density = 2.7 g/cm3',
   ]));
   assert.equal(r.rows[1].error, null);
   assert.deepEqual(r.params[0].anno, 'Density');
+});
+
+test('evaluate: @options decorator with bare-label values skips evaluation', () => {
+  const r = evaluate(bodyOf([
+    '@input',
+    '@options(granite, basalt, sandstone)',
+    'rock_type = granite',
+  ]));
+  assert.equal(r.params.length, 1);
+  assert.equal(r.params[0].name, 'rock_type');
+  assert.deepEqual(r.params[0].options, ['granite', 'basalt', 'sandstone']);
+  assert.equal(r.params[0].error, null);
+  assert.equal(r.params[0].result, null);
+});
+
+test('evaluate: comments between decorator and binding are tolerated', () => {
+  const r = evaluate(bodyOf([
+    '@input',
+    '# a clarifying comment',
+    '',
+    'x = 7',
+  ]));
+  assert.deepEqual(r.params.map(p => p.name), ['x']);
+  assert.equal(r.scope.x.v, 7);
+});
+
+test('evaluate: malformed @input binding recovers so chip stays alive', () => {
+  const r = evaluate(bodyOf([
+    '@input',
+    'x = ',     // user mid-edit
+  ]));
+  assert.equal(r.params.length, 1);
+  assert.equal(r.params[0].name, 'x');
+  assert.match(r.params[0].error, /empty expression/);
 });
 
 // ── extended classify: let / fn / dimension / unit ────────────────
@@ -350,11 +328,14 @@ test('evaluate: unit declaration registers a callable unit', () => {
   assert.deepEqual(r.scope.f.dim, {time: -1});
 });
 
-test('evaluate: fn-decl inside @params is rejected (params expect bindings)', () => {
+test('evaluate: @input followed by fn decl — decorator is consumed but fn still loads', () => {
+  // @input on a non-binding line is essentially ignored (no chip is made
+  // for an fn decl); the fn itself still loads normally.
   const r = evaluate(bodyOf([
-    '@params {',
-    '  fn dbl(x) = 2 * x',   // not a binding
-    '}',
+    '@input',
+    'fn dbl(x) = 2 * x',
+    'y = dbl(5)',
   ]));
-  assert.match(r.rows[1].error, /expected `name = expr` inside @params/);
+  assert.equal(r.params.length, 0);
+  assert.equal(r.scope.y.v, 10);
 });

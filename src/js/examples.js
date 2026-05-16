@@ -9,6 +9,10 @@ import { renderScenariosStrip } from './scenarios.js';
 
 // Each example: slug (becomes the program name on load), display name,
 // one-line description for the drawer item, and the source body.
+//
+// All examples use v0.2 decorator form — @input / @output(unit) / @options
+// adorn the binding they modify, instead of the old @params { } /
+// @outputs { } block syntax.
 const EXAMPLES = [
   {
     slug: 'cylinder',
@@ -16,18 +20,17 @@ const EXAMPLES = [
     desc: 'Simple geometry — π, exponent, units',
     body: `# Cylinder volume — radius, height, area, volume
 
-@params {
-  radius = 5 cm
-  height = 20 cm
-}
+@input
+radius = 5 cm
 
+@input
+height = 20 cm
+
+@output(cm^2)
 base_area = pi * radius^2
-volume    = base_area * height
 
-@outputs {
-  base_area: cm^2,
-  volume:    cm^3,
-}
+@output(cm^3)
+volume = base_area * height
 `,
   },
 
@@ -37,18 +40,17 @@ volume    = base_area * height
     desc: 'Imperial ↔ metric, mph, km/h — fluent unit math',
     body: `# Unit conversions — type any combination of units
 
-@params {
-  height = 6 ft + 2 in
-  weight = 175 lb
-  speed  = 60 mile/hour
-}
+@input
+@output(cm)
+height = 6 ft + 2 in
 
-# Display each in metric:
-@outputs {
-  height: cm,
-  weight: kg,
-  speed:  km/h,
-}
+@input
+@output(kg)
+weight = 175 lb
+
+@input
+@output(km/h)
+speed = 60 mile/hour
 `,
   },
 
@@ -58,24 +60,32 @@ volume    = base_area * height
     desc: 'Geological resource — volume × density × grade',
     body: `# Ore body — volume × density × grade
 
-@params {
-  length    = 200 m
-  width     = 50 m
-  thickness = 8 m
-  density   = 2.7 g/cm3
-  grade     = 1_800 ppb
-}
+@input
+length = 200 m
 
-volume   = length * width * thickness
-tonnage  = volume * density
-metal    = tonnage * grade
+@input
+width = 50 m
 
-@outputs {
-  volume:  m^3,
-  tonnage: kt,
-  metal:   kg,
-  metal_oz = metal -> ozt,
-}
+@input
+thickness = 8 m
+
+@input
+density = 2.7 g/cm3
+
+@input
+grade = 1_800 ppb
+
+@output(m^3)
+volume = length * width * thickness
+
+@output(kt)
+tonnage = volume * density
+
+@output(kg)
+metal = tonnage * grade
+
+@output(ozt)
+metal_oz = metal
 `,
   },
 
@@ -87,25 +97,29 @@ metal    = tonnage * grade
 # pre-registered as length units (NQ_core, HQ_core, PQ_core, …).
 # sample_mass(diameter, length, density) is a prelude fn.
 
-@params {
-  core_size = NQ_core
-  length    = 5 m
-  density   = 2.7 g/cm3
-  rock_type = granite   # options: granite, basalt, sandstone, limestone
-}
+@input
+core_size = NQ_core
+
+@input
+length = 5 m
+
+@input
+density = 2.7 g/cm3
+
+@input
+@options(granite, basalt, sandstone, limestone)
+rock_type = granite
 
 # Multi-line calls are fine — ep stitches unbalanced parens.
+@output(kg)
 mass = sample_mass(
   core_size,
   length,
   density,
 )
-volume = cylinder_volume(core_size, length)
 
-@outputs {
-  volume: L,
-  mass:   kg,
-}
+@output(L)
+volume = cylinder_volume(core_size, length)
 `,
   },
 
@@ -116,17 +130,23 @@ volume = cylinder_volume(core_size, length)
     body: `# Sieve mesh — Tyler / ASTM lookup baked into the prelude as
 # length units (mesh200 = 75 µm, mesh100 = 150 µm, …).
 
-@params {
-  coarse = mesh10
-  mid    = mesh100
-  fine   = mesh200
-}
+@input
+coarse = mesh10
 
-coarse_um = coarse -> um
-mid_um    = mid    -> um
-fine_um   = fine   -> um
+@input
+mid = mesh100
 
-@outputs { coarse_um, mid_um, fine_um }
+@input
+fine = mesh200
+
+@output(um)
+coarse_um = coarse
+
+@output(um)
+mid_um = mid
+
+@output(um)
+fine_um = fine
 `,
   },
 
@@ -138,16 +158,20 @@ fine_um   = fine   -> um
 
 fn compound(principal, rate, years) = principal * (1 + rate)^years
 
-@params {
-  principal = 10000
-  rate      = 0.05
-  years     = 30
-}
+@input
+principal = 10000
 
+@input
+rate = 0.05
+
+@input
+years = 30
+
+@output
 future_value = compound(principal, rate, years)
-gain         = future_value - principal
 
-@outputs { future_value, gain }
+@output
+gain = future_value - principal
 `,
   },
 
@@ -157,21 +181,23 @@ gain         = future_value - principal
     desc: 'No-drag ballistics — sin, sqrt, angle dimension',
     body: `# Projectile range — no air resistance
 
-@params {
-  v0    = 60 m/s
-  angle = 45 deg
-  g     = 9.81 m/s^2
-}
+@input
+v0 = 60 m/s
 
-range       = v0^2 * sin(2 * angle) / g
-max_height  = (v0 * sin(angle))^2 / (2 * g)
+@input
+angle = 45 deg
+
+@input
+g = 9.81 m/s^2
+
+@output
+range = v0^2 * sin(2 * angle) / g
+
+@output
+max_height = (v0 * sin(angle))^2 / (2 * g)
+
+@output(s)
 flight_time = 2 * v0 * sin(angle) / g
-
-@outputs {
-  range,
-  max_height,
-  flight_time: s,
-}
 `,
   },
 ];

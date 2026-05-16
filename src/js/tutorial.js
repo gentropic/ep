@@ -27,7 +27,7 @@ export function resetTutorial() {
 const STEPS = [
   {
     title: 'tap a chip',
-    body: 'These are your @params — the inputs to the calculation. Try editing one to see what happens.',
+    body: 'These are your inputs (bindings tagged @input). Try editing one to see what happens.',
     target: () => document.querySelector('#chips .chip'),
     auto: (advance) => {
       const el = document.getElementById('chips');
@@ -38,13 +38,13 @@ const STEPS = [
   },
   {
     title: 'outputs update live',
-    body: 'Down here in @outputs, the values just changed. ep recomputes the whole DAG on every keystroke.',
+    body: 'Down here are your outputs (bindings tagged @output). The values just changed — ep recomputes the whole DAG on every keystroke.',
     target: () => document.getElementById('outputsPanel'),
     delay: 2200,
   },
   {
     title: 'the chips are just source',
-    body: 'The chips above mirror the @params { } block in the source below — edit either side and both update.',
+    body: 'The chips above mirror the @input-tagged bindings in the source below — edit either side and both update.',
     target: () => document.getElementById('paramsPanel'),
     manual: true,
   },

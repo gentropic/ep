@@ -7,11 +7,9 @@
 import { evaluate } from './evaluator.js';
 
 export const state = JSON.parse(JSON.stringify(INITIAL_STATE));
-state.params = [];   // derived from @params { } block in body
-state.outputs = [];  // derived from @outputs { } directive lines
+state.params = [];   // bindings tagged with @input (or @options) decorators
+state.outputs = [];  // bindings tagged with @output decorators
 state._scope = {};
-state._blockComplete = false;
-state._blocks = [];                              // [{open, close, kind, count}]
 state._lastFocused = null;                       // last focused chip/row input (for accessory bar)
 state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bodyIdx (persistable)
 state.ui.scenarios       = state.ui.scenarios || {};        // { scenarioName: { paramName: valueSrc } }
@@ -66,10 +64,4 @@ export function evaluateAll() {
   state.params         = newParams;
   state.outputs        = r.outputs;
   state._scope         = r.scope;
-  state._blockComplete = r.blockComplete;
-  state._blocks        = r.blocks;
-
-  // Drop collapsed entries that no longer point at a block opening.
-  const validOpens = new Set(r.blocks.map(b => b.open));
-  state.ui.collapsedBlocks = (state.ui.collapsedBlocks || []).filter(idx => validOpens.has(idx));
 }
