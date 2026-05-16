@@ -122,6 +122,8 @@ Arithmetic on a `->` -tagged value does NOT propagate the display tag — once y
 
 ### `@params { … }` block
 
+> **Note:** `@params { }` is ep-invented syntax, not a real numbat construct. We hijack the `@` decorator token + `{ }` block syntax for our own purposes; numbat's `@` only supports `@name` / `@name(args)` decorators that adorn the next declaration, never followed by `{}`. See "Numbat compatibility status" under Relationship to Numbat for what we're doing and the proposed decorator-form migration.
+
 A multi-line block with binding-shaped contents. Each line declares a reactive input parameter:
 
 ```ep
@@ -144,6 +146,8 @@ Behavior:
 Programs without an `@params { }` block don't show a top chip panel. Naked bindings still work.
 
 ### `@outputs { … }` directive
+
+> **Note:** `@outputs { }` is also ep-invented, with the same caveats as `@params { }`. See "Numbat compatibility status".
 
 Lists names of bindings to promote to the output panel. Single-line or multi-line; each name optionally takes a `: unit` display override.
 
@@ -274,9 +278,64 @@ ep-script still diverges on:
 - **Multi-line `fn` bodies** — the line classifier only recognizes single-line `fn name(args) = body`. Multi-line bodies (`fn foo(x) =\n  long\n  expression`) aren't classified yet.
 - **`struct` declarations** — not classified at the line level; would need block-aware parsing.
 - **`use module::path`** — classified but not yet wired to the host's module registry. The host has all 62 upstream modules vendored; surfacing them needs a host-side `registerModule` call when `use` is seen.
-- **Added directives:** `@params { }` and `@outputs { }` — ep's actual differentiation. Multi-line `@outputs` with per-name `: unit` overrides is ep-specific syntax.
+- **Added directives:** `@params { }` and `@outputs { }` — ep's actual differentiation. Multi-line `@outputs` with per-name `: unit` overrides is ep-specific syntax. **See "Numbat compatibility status" below for what we're actually doing with `@`.**
 
 A program written in ep that doesn't use `@params` or `@outputs` should round-trip through Numbat without modification. Full feature compatibility is the de-facto outcome of the numbat-js migration; remaining gaps (multi-line blocks, struct decls, module imports) are line-classifier ergonomics, not evaluator gaps.
+
+### Numbat compatibility status (honest)
+
+`@params { … }` and `@outputs { … }` are **not** numbat constructs and never were. We hijack the `@` token.
+
+**What numbat's `@` actually is:** decorators that adorn the *next* declaration. Grammar is `@<name>` or `@<name>(<arg>, …)` — never followed by `{ }`. Known names: `@aliases`, `@name`, `@description`, `@url`, `@metric_prefixes`, `@binary_prefixes`, `@example`. Args are strings (`"..."`) or identifiers (with optional `name: modifier`).
+
+**What ep does:** `classify()` recognizes `@params {`, `@outputs {`, and `}` as structural markers and routes around numbat for those rows. Only the binding RHS *inside* the block is handed to numbat (where it parses as a valid `let`-shaped declaration). Numbat never sees `@params` at all.
+
+**Consequence:** programs using ep directives are not parseable by upstream numbat. Programs without them are.
+
+The trailing `# options: a, b, c` comment annotation on @params bindings is another janky workaround — comments are universally ignored by parsers, but encoding structured data in them is ugly and fragile.
+
+### Path forward: decorator form (v0.2 proposal, not implemented)
+
+The cleaner alternative is to express each input/output/option as a real numbat decorator on the binding it modifies:
+
+```ep
+# Drill core sample
+
+@input
+core_size = NQ_core
+
+@input
+@options(granite, basalt, sandstone)
+rock_type = granite
+
+@input
+length = 5 m
+
+mass = sample_mass(core_size, length, density)
+
+@output(L)
+volume = cylinder_volume(core_size, length)
+
+@output(kg)
+metal = mass
+```
+
+Properties:
+- **Grammatically legitimate numbat.** `@input` and `@output(unit)` and `@options(…)` parse cleanly as numbat decorators (unknown decorator names don't error at parse time; semantic-layer handling decides whether to act on them).
+- **Per-binding metadata is colocated** with its binding, not in a sidecar block.
+- **Round-trips through pure numbat** — decorators get attached to the `let` AST nodes; if numbat doesn't recognize them at load time it can ignore or warn, but the program is still valid.
+- **No more `# options:` hack** — `@options(a, b, c)` uses real decorator-arg grammar.
+- **No more `}` ambiguity** with @params block close vs struct close vs anything else.
+
+Tradeoffs:
+- More vertical space (one decorator line per binding).
+- Loses the "visual grouping" of an `@params { }` block. If grouping matters, an optional `# section: Geometry` comment per row, or a separate panel-ordering decorator (`@section("Geometry")`), can recover it.
+- Multi-line `@outputs { name: unit, … }` becomes N separate `@output(unit)` decorators. That's a real lossy refactor for outputs-heavy programs.
+- Migration: every existing ep program needs a one-time rewrite.
+
+The migration would be a v0.2 syntactic break — old programs continue to work via a compatibility shim in `classify()`, but new examples and the new-file template move to decorator form. Eventually the block form gets removed.
+
+**Not implemented yet.** Capturing here so the next person touching this layer has the context.
 
 ### Originator courtesy
 
