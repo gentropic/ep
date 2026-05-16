@@ -16,7 +16,12 @@
 import { parseEpBody } from './evaluator.js';
 import { tokenize } from '../../ext/numbat/dist/numbat.js';
 
-const TARGET_WIDTH = 70;
+// 40 chars matches the usable width on the narrowest mobile viewport
+// after the floating result gutter steals its share of the editor. Wider
+// viewports get under-utilized space — preferred to a width that breaks
+// readability on phones. Single value (not responsive) so the same source
+// file looks consistent regardless of where it was last formatted.
+const TARGET_WIDTH = 40;
 
 // Public entry. Returns formatted source text. Idempotent: format(format(s)) === format(s).
 // Pure function — no state / DOM access, importable from Node tests.

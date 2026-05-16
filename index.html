@@ -1623,6 +1623,10 @@ body {
       <span class="drawer-action-icon">≡</span>
       <span>examples</span>
     </button>
+    <button class="drawer-action" id="drawerFormatBtn">
+      <span class="drawer-action-icon">⌘</span>
+      <span>format document</span>
+    </button>
     <button class="drawer-action" id="openFileBtn">
       <span class="drawer-action-icon">↑</span>
       <span>open .ep file</span>
@@ -5852,7 +5856,12 @@ function attachLongPress(el, fn) {
 // — callers just dispatch the new text into the editor, which triggers the
 // normal evaluate + render pipeline.
 
-const TARGET_WIDTH = 70;
+// 40 chars matches the usable width on the narrowest mobile viewport
+// after the floating result gutter steals its share of the editor. Wider
+// viewports get under-utilized space — preferred to a width that breaks
+// readability on phones. Single value (not responsive) so the same source
+// file looks consistent regardless of where it was last formatted.
+const TARGET_WIDTH = 40;
 
 // Public entry. Returns formatted source text. Idempotent: format(format(s)) === format(s).
 // Pure function — no state / DOM access, importable from Node tests.
@@ -7614,6 +7623,17 @@ window.addEventListener('ep:storage-changed', renderDrawerList);
 
 newProgBtn.addEventListener('click', () => { newProgram(); closeDrawer(); });
 openFileBtn.addEventListener('click', () => { drawerFileInput.click(); closeDrawer(); });
+
+const drawerFormatBtn = document.getElementById('drawerFormatBtn');
+if (drawerFormatBtn) {
+  drawerFormatBtn.addEventListener('click', () => {
+    // Late import dodges a module init order issue — drawer.js is loaded
+    // before format-cmd.js by the build, but at runtime everything's in
+    // flat scope so the call resolves fine.
+    if (typeof formatCurrentProgram === 'function') formatCurrentProgram();
+    closeDrawer();
+  });
+}
 
 if (drawerSearchEl) {
   drawerSearchEl.addEventListener('input', () => {

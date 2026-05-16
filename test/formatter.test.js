@@ -45,17 +45,20 @@ test('format: one blank line between top-level statements', () => {
 });
 
 test('format: long function call breaks into one-arg-per-line', () => {
-  const src = '@output(kg)\nmass = sample_mass(NQ_core, 5 m, 2.7 g/cm3)\n';
-  const out = formatEpBody(src);
-  // Single-line form is 52 chars — actually fits under 70, so should NOT break.
-  // Make a longer one to force the break:
-  const longSrc = 'mass = sample_mass(NQ_core_diameter_value, length_in_metres, density_g_per_cm3, rock_type)\n';
+  // Width target is 40 chars; this 91-char line forces the break.
+  const longSrc = 'mass = sample_mass(NQ_core_diameter, length_in_m, density_gpcm3, rock_type)\n';
   const longOut = formatEpBody(longSrc);
   assert.ok(longOut.includes('\n  '), 'long call breaks into multi-line form');
-  // Each arg on its own line, trailing comma per arg.
-  assert.match(longOut, /\n {2}NQ_core_diameter_value,\n/);
-  assert.match(longOut, /\n {2}length_in_metres,\n/);
+  assert.match(longOut, /\n {2}NQ_core_diameter,\n/);
+  assert.match(longOut, /\n {2}length_in_m,\n/);
   assert.match(longOut, /\n\)/);
+});
+
+test('format: short call below width stays single-line', () => {
+  const src = '@output(kg)\nmass = sample_mass(a, b, c)\n';
+  // `mass = sample_mass(a, b, c)` is 27 chars — well under 40.
+  const out = formatEpBody(src);
+  assert.ok(out.includes('mass = sample_mass(a, b, c)'));
 });
 
 test('format: short @options stays single-line', () => {
@@ -76,10 +79,16 @@ test('format: trailing newline always present', () => {
   assert.ok(!formatEpBody('x = 5\n').endsWith('\n\n'));
 });
 
-test('format: ignores already-broken multi-line call (idempotent across)', () => {
-  const src = '@output(kg)\nmass = sample_mass(\n  NQ_core,\n  5 m,\n  2.7 g/cm3,\n)\n';
+test('format: already-broken short call collapses to single line', () => {
+  const src = '@output(kg)\nmass = sample_mass(\n  a,\n  b,\n  c,\n)\n';
   const out = formatEpBody(src);
-  // Single-line form fits under 70 → formatter collapses it back. That's
-  // the right behavior (canonical = single line if it fits).
-  assert.ok(out.includes('mass = sample_mass(NQ_core, 5 m, 2.7 g/cm3)'));
+  // 27 chars on one line — fits under 40, formatter collapses.
+  assert.ok(out.includes('mass = sample_mass(a, b, c)'));
+});
+
+test('format: already-broken long call stays broken', () => {
+  const src = '@output(kg)\nmass = sample_mass(\n  NQ_core_diameter,\n  length_in_m,\n  density_gpcm3,\n)\n';
+  const out = formatEpBody(src);
+  // 60-ish chars on one line — exceeds 40, formatter keeps it broken.
+  assert.match(out, /\n {2}NQ_core_diameter,\n/);
 });

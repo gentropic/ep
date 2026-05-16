@@ -44,6 +44,17 @@ window.addEventListener('ep:storage-changed', renderDrawerList);
 newProgBtn.addEventListener('click', () => { newProgram(); closeDrawer(); });
 openFileBtn.addEventListener('click', () => { drawerFileInput.click(); closeDrawer(); });
 
+const drawerFormatBtn = document.getElementById('drawerFormatBtn');
+if (drawerFormatBtn) {
+  drawerFormatBtn.addEventListener('click', () => {
+    // Late import dodges a module init order issue — drawer.js is loaded
+    // before format-cmd.js by the build, but at runtime everything's in
+    // flat scope so the call resolves fine.
+    if (typeof formatCurrentProgram === 'function') formatCurrentProgram();
+    closeDrawer();
+  });
+}
+
 if (drawerSearchEl) {
   drawerSearchEl.addEventListener('input', () => {
     searchFilter = drawerSearchEl.value.trim().toLowerCase();
