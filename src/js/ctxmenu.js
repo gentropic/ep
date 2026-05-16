@@ -5,18 +5,22 @@
 // button all route through openProgramMenu().
 
 import { epConfirm, epPrompt } from './dialogs.js';
-import { readStore, writeStore, currentProgramName, setCurrentProgramName, loadProgramByName, newProgram, isPinned, togglePinned } from './storage.js';
+import { readStore, writeStore, currentProgramName, setCurrentProgramName, loadProgramByName, newProgram, isPinned, togglePinned, takeSnapshot, listSnapshots } from './storage.js';
 import { saveCurrentAsNewScenario } from './scenarios.js';
+import { openSnapshots } from './snapshots.js';
 import { showMenu } from './menu.js';
 // attachLongPress + closeMenu live in menu.js; callers that need them import
 // from there directly. ctxmenu.js focuses on the program-specific context
 // menus.
 
 export function openProgramMenu(name, x, y, opts = {}) {
+  const snapCount = listSnapshots(name).length;
   showMenu([
     { label: isPinned(name) ? 'unpin' : 'pin', action: () => togglePinned(name) },
     { label: 'rename',         action: () => renameProgram(name) },
     { label: 'duplicate',      action: () => duplicateProgram(name) },
+    { label: 'snapshot now…',  action: () => snapshotNow(name) },
+    { label: snapCount ? `history (${snapCount})` : 'history', action: () => openSnapshots(name) },
     { label: 'save scenario…', action: () => {
       if (name !== currentProgramName) loadProgramByName(name);
       window.dispatchEvent(new CustomEvent('ep:close-drawer'));
@@ -30,6 +34,17 @@ export function openProgramMenu(name, x, y, opts = {}) {
     { separator: true },
     { label: 'delete',         action: () => deleteProgram(name), danger: true },
   ], x, y, opts);
+}
+
+async function snapshotNow(name) {
+  const label = await epPrompt({
+    title: 'Take snapshot',
+    label: 'label (optional)',
+    value: '',
+    okLabel: 'Snapshot',
+  });
+  if (label === null) return;   // user cancelled
+  takeSnapshot(name, (label || '').trim() || null);
 }
 
 async function renameProgram(oldName) {

@@ -160,6 +160,23 @@
   <div class="unit-sheet-body" id="unitSheetBody"></div>
 </section>
 
+<!-- Snapshots panel — per-program history list opened from the program
+     ctxmenu ("history"). Title shows the program name; each row is a
+     snapshot with timestamp + optional label + pin / restore / delete
+     actions. -->
+<section class="settings-panel" id="snapshotsPanel" aria-hidden="true">
+  <header class="settings-hdr">
+    <button class="settings-back" id="snapshotsBackBtn" aria-label="back">←</button>
+    <div class="settings-title" id="snapshotsTitle">history</div>
+  </header>
+  <div class="settings-body">
+    <div class="settings-section">
+      <div class="settings-section-hdr" id="snapshotsSubtitle">snapshots</div>
+      <div id="snapshotsList"></div>
+    </div>
+  </div>
+</section>
+
 <!-- Examples panel — fullscreen slide-in opened from the drawer's
      "examples" entry. Lists the built-in starter programs; tap to load. -->
 <section class="settings-panel" id="examplesPanel" aria-hidden="true">
