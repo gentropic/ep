@@ -52,8 +52,10 @@ const sigDigitsControl  = document.getElementById('sigDigitsControl');
 const accessoryControl  = document.getElementById('accessoryControl');
 const autoHideControl   = document.getElementById('autoHideControl');
 const sortControl       = document.getElementById('settingsSortControl');
-const templateInput     = document.getElementById('templateInput');
-const templateResetBtn  = document.getElementById('templateResetBtn');
+const useTemplateControl = document.getElementById('useTemplateControl');
+const templateRow        = document.getElementById('templateRow');
+const templateInput      = document.getElementById('templateInput');
+const templateResetBtn   = document.getElementById('templateResetBtn');
 const replayTutBtn      = document.getElementById('settingsReplayTutBtn');
 const resetBtn          = document.getElementById('settingsResetBtn');
 
@@ -162,9 +164,17 @@ function renderControls() {
     renderControls();
   });
 
+  const useTemplate = getSetting('useTemplate', true);
+  renderPillRow(useTemplateControl, ON_OFF, useTemplate ? 'on' : 'off', v => {
+    setSetting('useTemplate', v === 'on');
+    renderControls();
+  });
+  if (templateRow) templateRow.classList.toggle('disabled', !useTemplate);
   if (templateInput) {
     templateInput.value = getSetting('newFileTemplate', DEFAULT_NEW_FILE_TEMPLATE);
+    templateInput.disabled = !useTemplate;
   }
+  if (templateResetBtn) templateResetBtn.disabled = !useTemplate;
 }
 
 // Renders a row of {key,label} pill buttons; calls onChange(key) when one

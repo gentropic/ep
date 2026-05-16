@@ -1233,6 +1233,11 @@ body {
   display: flex;
   justify-content: flex-end;
 }
+/* Greyed-out look for the template row when "use template" is off — the
+ * textarea + reset button are also DOM-disabled, but the dim makes the
+ * intent visible. */
+.settings-row.disabled { opacity: 0.45; }
+.settings-textarea:disabled { cursor: not-allowed; }
 .settings-row-label {
   flex: 1 1 auto;
   font-family: var(--sw-mono);

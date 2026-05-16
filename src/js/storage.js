@@ -242,8 +242,15 @@ const DEFAULT_NEW_PROGRAM_BODY = [
 
 export function newProgram() {
   const name = uniqueProgramName('untitled');
-  const tmpl = getSetting('newFileTemplate', '');
-  state.body = (tmpl ? tmpl.split('\n') : DEFAULT_NEW_PROGRAM_BODY).map(src => ({src}));
+  const useTemplate = getSetting('useTemplate', true);
+  let lines;
+  if (!useTemplate) {
+    lines = [''];                                 // blank slate
+  } else {
+    const tmpl = getSetting('newFileTemplate', '');
+    lines = tmpl ? tmpl.split('\n') : DEFAULT_NEW_PROGRAM_BODY;
+  }
+  state.body = lines.map(src => ({src}));
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
