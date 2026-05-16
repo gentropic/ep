@@ -84,6 +84,75 @@ export function parseOutputSpecs(text) {
     });
 }
 
+// Walk the body and collapse multi-line expressions into single logical
+// rows. ep classifies one body row at a time, so something like
+//   mass = sample_mass(
+//     a, b, c
+//   )
+// would otherwise see three separate lines: the opener errors as an
+// incomplete expression, the args as a stray expression, the `)` as
+// unmatched. Numbat itself parses multi-line fine — this just stitches
+// continuation rows back together before classify() runs.
+//
+// Returns { owner, effSrc }:
+//   owner[i]  → row index that owns this logical line. owner[i] === i for
+//               primary rows; for continuation rows it points back to the
+//               opener row.
+//   effSrc[i] → the merged source for primary rows, empty string for
+//               continuation rows so they classify as "empty" and skip
+//               cleanly through the rest of evaluate().
+//
+// Only () and [] count toward depth — {} is reserved for the @params /
+// @outputs blocks and would clash with the structural pre-scan.
+// Structural lines (@params { / @outputs { / } on its own) never merge.
+export function buildLogicalLines(body) {
+  const owner  = body.map((_, i) => i);
+  const effSrc = body.map(r => r.src);
+  let i = 0;
+  while (i < body.length) {
+    const t = body[i].src.trim();
+    if (/^@\w+\s*\{\s*$/.test(t) || /^\}\s*$/.test(t)) { i++; continue; }
+    let depth = bracketDepth(body[i].src);
+    if (depth <= 0) { i++; continue; }
+    let merged = body[i].src;
+    let j = i + 1;
+    while (depth > 0 && j < body.length) {
+      const t2 = body[j].src.trim();
+      // Don't suck a block-opening line into an expression — it would
+      // make the rest of the file un-classifiable.
+      if (/^@\w+\s*\{\s*$/.test(t2)) break;
+      merged += '\n' + body[j].src;
+      depth += bracketDepth(body[j].src);
+      j++;
+    }
+    if (depth === 0 && j > i + 1) {
+      effSrc[i] = merged;
+      for (let k = i + 1; k < j; k++) { owner[k] = i; effSrc[k] = ''; }
+    }
+    i = j;
+  }
+  return { owner, effSrc };
+}
+
+function bracketDepth(s) {
+  let depth = 0;
+  let inString = false;
+  for (let k = 0; k < s.length; k++) {
+    const c = s[k];
+    if (inString) {
+      if (c === '\\' && k + 1 < s.length) { k++; continue; }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '#') break;
+    if (c === '-' && s[k + 1] === '-') break;
+    if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+  }
+  return depth;
+}
+
 export function classify(src) {
   const t = src.trim();
   if (t === '') return {kind: 'empty'};
@@ -108,13 +177,51 @@ export function classify(src) {
     return {kind: 'unit-decl', name: m ? m[1] : null, src: t};
   }
 
-  // Binding: `[let] name [: Type] = expr`. The optional `let` keyword is
-  // stripped so chips render the same way whether or not the user uses it.
+  // Binding: `[let] name [: Type] = expr [trailing-comment]`. The optional
+  // `let` keyword is stripped so chips render the same way whether or not
+  // the user uses it. A trailing `# options: a, b, c` (or `-- options: ...`)
+  // is captured and surfaced on the binding as `.options` so render.js can
+  // render the chip as a <select> with that fixed set.
   const body = /^let\s+/.test(t) ? t.slice(4).trim() : t;
   const bm = body.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([A-Z][a-zA-Z0-9_]*(?:\s*[/*]\s*[A-Z][a-zA-Z0-9_]*(?:\s*\^\s*-?\d+)?)*))?\s*=\s*(.+)$/);
-  if (bm) return {kind: 'binding', name: bm[1], anno: bm[2] || null, expr: bm[3]};
+  if (bm) {
+    let expr = bm[3];
+    const options = extractOptionsAnnotation(expr);
+    if (options) expr = stripTrailingComment(expr);
+    return {kind: 'binding', name: bm[1], anno: bm[2] || null, expr, options};
+  }
 
   return {kind: 'expr', expr: t};
+}
+
+// `# options: a, b, c` or `-- options: a, b, c` (with optional whitespace
+// before the marker). Case-insensitive on the keyword. Returns the array
+// of trimmed option strings, or null if no annotation present.
+function extractOptionsAnnotation(text) {
+  const m = text.match(/(?:#|--)\s*options\s*:\s*(.+?)\s*$/i);
+  if (!m) return null;
+  return m[1].split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function stripTrailingComment(text) {
+  // Walk the string respecting "..." so we don't mistake `#` inside a
+  // literal for a comment marker. Mirrors bracketDepth's string-aware
+  // tokenization. Returns the source with the trailing comment removed
+  // (whitespace before the marker also trimmed).
+  let inString = false;
+  for (let k = 0; k < text.length; k++) {
+    const c = text[k];
+    if (inString) {
+      if (c === '\\' && k + 1 < text.length) { k++; continue; }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '#' || (c === '-' && text[k + 1] === '-')) {
+      return text.slice(0, k).replace(/\s+$/, '');
+    }
+  }
+  return text;
 }
 
 // Snapshot of names available for completion. Snapshot, not live binding —
@@ -330,6 +437,11 @@ function freshEnv() {
 // Row shape: {kind, name, result, error, outputs, inParams}.
 
 export function evaluate(body) {
+  // Stitch multi-line expressions back together before any classification.
+  // Structural lines (@params {, @outputs {, } on its own) never merge,
+  // so the block-scan loops below still see them as standalone rows.
+  const { owner: _owner, effSrc } = buildLogicalLines(body);
+
   // Pre-scan: find @params block bounds
   let blockOpen = -1, blockClose = -1;
   for (let i = 0; i < body.length; i++) {
@@ -369,7 +481,7 @@ export function evaluate(body) {
   }
 
   for (let i = 0; i < body.length; i++) {
-    const c = classify(body[i].src);
+    const c = classify(effSrc[i]);
     const row = rows[i];
     row.kind = c.kind;
     row.name = c.name || null;
@@ -385,7 +497,7 @@ export function evaluate(body) {
         // clears the value to retype it). Without this, classify fails on
         // an empty expression, the param drops from state.params, and the
         // chip's input handler can't find its binding on subsequent edits.
-        const recovery = body[i].src.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*(.*)$/);
+        const recovery = effSrc[i].match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*(.*)$/);
         if (recovery) {
           const recName = recovery[1];
           const recAnno = recovery[2] ? recovery[2].trim() : null;
@@ -417,7 +529,7 @@ export function evaluate(body) {
       } catch (e) { q = null; err = e.message; }
       row.result = q;
       row.error  = err;
-      params.push({name, valueSrc: c.expr, anno: c.anno || null, bodyIdx: i, result: q, error: err});
+      params.push({name, valueSrc: c.expr, anno: c.anno || null, options: c.options || null, bodyIdx: i, result: q, error: err});
       continue;
     }
 

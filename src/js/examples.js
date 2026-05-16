@@ -91,9 +91,15 @@ metal    = tonnage * grade
   core_size = NQ_core
   length    = 5 m
   density   = 2.7 g/cm3
+  rock_type = granite   # options: granite, basalt, sandstone, limestone
 }
 
-mass   = sample_mass(core_size, length, density)
+# Multi-line calls are fine — ep stitches unbalanced parens.
+mass = sample_mass(
+  core_size,
+  length,
+  density,
+)
 volume = cylinder_volume(core_size, length)
 
 @outputs {

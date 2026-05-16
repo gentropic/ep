@@ -47,6 +47,7 @@ export function evaluateAll() {
     if (reused) {
       reused.valueSrc = p.valueSrc;
       reused.anno     = p.anno;
+      reused.options  = p.options;
       reused.bodyIdx  = p.bodyIdx;
       reused.result   = p.result;
       reused.error    = p.error;

@@ -49,11 +49,20 @@ test('classify: @outputs { on its own line is a block-open', () => {
 
 test('classify: binding with and without annotation', () => {
   assert.deepEqual(classify('x = 5'),
-    {kind: 'binding', name: 'x', anno: null, expr: '5'});
+    {kind: 'binding', name: 'x', anno: null, expr: '5', options: null});
   assert.deepEqual(classify('density : Density = 2.7 g/cm3'),
-    {kind: 'binding', name: 'density', anno: 'Density', expr: '2.7 g/cm3'});
+    {kind: 'binding', name: 'density', anno: 'Density', expr: '2.7 g/cm3', options: null});
   assert.deepEqual(classify('v : Length / Time = 60 km / 1 h'),
-    {kind: 'binding', name: 'v', anno: 'Length / Time', expr: '60 km / 1 h'});
+    {kind: 'binding', name: 'v', anno: 'Length / Time', expr: '60 km / 1 h', options: null});
+});
+
+test('classify: binding with trailing options annotation', () => {
+  assert.deepEqual(classify('material = steel  # options: steel, aluminum, copper'),
+    {kind: 'binding', name: 'material', anno: null, expr: 'steel',
+     options: ['steel', 'aluminum', 'copper']});
+  assert.deepEqual(classify('core = NQ_core -- options: NQ_core, HQ_core'),
+    {kind: 'binding', name: 'core', anno: null, expr: 'NQ_core',
+     options: ['NQ_core', 'HQ_core']});
 });
 
 test('classify: naked expression', () => {
@@ -256,9 +265,9 @@ test('evaluate: param binding with annotation respected', () => {
 
 test('classify: let keyword is an alias for bare binding', () => {
   assert.deepEqual(classify('let x = 5'),
-    {kind: 'binding', name: 'x', anno: null, expr: '5'});
+    {kind: 'binding', name: 'x', anno: null, expr: '5', options: null});
   assert.deepEqual(classify('let density : Density = 2.7 g/cm3'),
-    {kind: 'binding', name: 'density', anno: 'Density', expr: '2.7 g/cm3'});
+    {kind: 'binding', name: 'density', anno: 'Density', expr: '2.7 g/cm3', options: null});
 });
 
 test('classify: fn declaration', () => {

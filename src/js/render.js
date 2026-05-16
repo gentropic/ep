@@ -359,7 +359,7 @@ function syncChipInputsFromState() {
   // from enum-style ("NQ_core") to freeform ("5 cm") and back.
   for (const p of state.params) {
     if (!p._inputEl) continue;
-    const want = chipWidgetKind(p.valueSrc);
+    const want = chipWidgetKind(p);
     const have = p._inputEl.tagName === 'SELECT' ? 'select' : 'input';
     if (want !== have) { renderChips(); return; }
   }
@@ -379,14 +379,20 @@ function syncChipInputsFromState() {
 const DCDMA_CODES = ['AQ','BQ','NQ','NQ2','NQ3','HQ','HQ3','PQ','PQ3'];
 const SIEVE_MESHES = [635,500,450,400,325,270,230,200,170,150,120,100,80,70,60,50,45,40,35,30,25,20,18,16,14,12,10,8,7,6,5,4];
 
-function chipWidgetKind(valueSrc) {
-  return chipWidgetOptions(valueSrc) ? 'select' : 'input';
+function chipWidgetKind(p) {
+  return chipWidgetOptions(p) ? 'select' : 'input';
 }
 
-// Returns {options: [...]} if valueSrc matches a known enum, else null.
+// Returns {options: [...]} if the param should render as a select, else null.
+// Priority:
+//   1. Explicit `# options: a, b, c` annotation on the source line (p.options).
+//   2. Auto-detected enum (DCDMA drill core, Tyler/ASTM sieve mesh).
 // The options array is the full set so users can pick any peer value.
-function chipWidgetOptions(valueSrc) {
-  const v = (valueSrc || '').trim();
+function chipWidgetOptions(p) {
+  if (p && Array.isArray(p.options) && p.options.length) {
+    return { options: p.options };
+  }
+  const v = (p && p.valueSrc ? p.valueSrc : '').trim();
   // DCDMA drill core / hole — e.g. NQ_core, HQ_hole
   const m = v.match(/^([A-Z]+\d*)_(core|hole)$/);
   if (m && DCDMA_CODES.includes(m[1])) {
@@ -405,7 +411,7 @@ function chipWidgetOptions(valueSrc) {
 // caller can wire its own onChange without caring whether the element is
 // an <input> or a <select>.
 function makeChipControl(p, onChange) {
-  const widget = chipWidgetOptions(p.valueSrc);
+  const widget = chipWidgetOptions(p);
   if (widget) {
     const sel = document.createElement('select');
     sel.className = 'chip-val chip-val-select';
@@ -455,7 +461,29 @@ export function renderChips() {
       const bodyIdx = cur.bodyIdx;
       const line = state.body[bodyIdx];
       const eq = line.src.indexOf('=');
-      line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + newValue;
+      // Preserve any trailing comment (e.g., `# options: …`) — otherwise
+      // editing the chip would erase the user's declared options list.
+      // String-aware match so `# inside literal "..."` isn't treated as
+      // a comment marker.
+      let trailingComment = '';
+      if (eq >= 0) {
+        const rhs = line.src.slice(eq + 1);
+        let inStr = false;
+        for (let k = 0; k < rhs.length; k++) {
+          const c = rhs[k];
+          if (inStr) {
+            if (c === '\\' && k + 1 < rhs.length) { k++; continue; }
+            if (c === '"') inStr = false;
+            continue;
+          }
+          if (c === '"') { inStr = true; continue; }
+          if (c === '#' || (c === '-' && rhs[k + 1] === '-')) {
+            trailingComment = '  ' + rhs.slice(k).replace(/^\s+/, '');
+            break;
+          }
+        }
+      }
+      line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + newValue + trailingComment;
       evaluateAll();
       syncCmFromState();
       renderChipResults();
