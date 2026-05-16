@@ -486,10 +486,20 @@ body {
   margin: 0;
   max-height: 40vh;
   overflow: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   color: var(--sw-text);
   user-select: text;
   flex: 0 0 auto;
+}
+/* Viewer source-shown state: source view replaces form-spacer and grows
+ * to fill the bottom of the viewport instead of capping at 40vh. */
+.app.viewer.source-shown .form-spacer { display: none; }
+.app.viewer.source-shown .source-view {
+  flex: 1 1 auto;
+  max-height: none;
+  overflow: auto;
 }
 .source-view .hl-comment    { color: var(--sw-text-soft); font-style: italic; }
 .source-view .hl-meta       { color: var(--sw-orange);    font-weight: 700; }
@@ -1088,6 +1098,30 @@ body {
   outline: none;
   color: var(--sw-text);
 }
+/* Checkbox-style row in the export dialog — different shape from the
+ * default name/value row (label + free-text input), so override the
+ * label flex constraint and let it span the full width with the
+ * checkbox inline. */
+.dialog-row.dialog-checkbox-row label {
+  flex: 1;
+  text-transform: none;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+  color: var(--sw-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.dialog-row.dialog-checkbox-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  accent-color: var(--sw-orange);
+  cursor: pointer;
+}
+
 .dialog-actions {
   padding: 10px 12px;
   background: var(--sw-bg-raised);

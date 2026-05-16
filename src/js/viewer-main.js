@@ -48,13 +48,20 @@ function firstCommentLine(bodyLines) {
 // "Modify this calculation" link — encode the current program as an
 // @gcu/pointer and point at gentropic.org/ep with it. One click takes a
 // recipient from "I'm reading this calculation" to "I'm editing it in
-// the full ep editor".
+// the full ep editor". Suppressed entirely when the exporter unchecked
+// "include modify link" — the link element AND its separator hide so
+// the footer collapses cleanly to just the attribution.
 const editLink = document.getElementById('viewerEditLink');
-if (editLink) {
+const includeEdit = INITIAL_STATE && INITIAL_STATE.ui && INITIAL_STATE.ui.includeEditLink !== false;
+if (editLink && includeEdit) {
   const text = state.body.map(r => r.src).join('\n');
   encodeInlineI(text).then(pointer => {
     editLink.href = 'https://gentropic.org/ep#' + pointer;
   }).catch(() => { /* leave default href in place */ });
+} else if (editLink) {
+  editLink.style.display = 'none';
+  const sep = editLink.nextElementSibling;
+  if (sep && sep.classList.contains('viewer-footer-sep')) sep.style.display = 'none';
 }
 
 // "Show calculation" toggle — read-only source reveal. The recipient can
@@ -63,6 +70,7 @@ if (editLink) {
 // looks like the editor view (without dragging CM6 into the viewer bundle).
 const showSourceBtn = document.getElementById('showSourceBtn');
 const sourceView    = document.getElementById('sourceView');
+const appEl         = document.getElementById('app');
 if (showSourceBtn && sourceView) {
   let shown = false;
   showSourceBtn.addEventListener('click', () => {
@@ -71,9 +79,11 @@ if (showSourceBtn && sourceView) {
       sourceView.innerHTML = highlightEpScript(state.body.map(r => r.src).join('\n'));
       sourceView.style.display = '';
       showSourceBtn.textContent = 'hide calculation ▴';
+      if (appEl) appEl.classList.add('source-shown');
     } else {
       sourceView.style.display = 'none';
       showSourceBtn.textContent = 'show calculation ▾';
+      if (appEl) appEl.classList.remove('source-shown');
     }
   });
 }

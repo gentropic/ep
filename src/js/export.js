@@ -19,6 +19,7 @@ const shareLenEl    = document.getElementById('shareLen');
 const shareQrEl     = document.getElementById('shareQr');
 const exportSrcEl   = document.getElementById('exportSrc');
 const exportNameEl  = document.getElementById('exportName');
+const exportIncludeEditLinkEl = document.getElementById('exportIncludeEditLink');
 
 export function serializeProgram() {
   return state.body.map(r => r.src).join('\n');
@@ -60,6 +61,7 @@ dlHtmlBtn.addEventListener('click', () => {
       outputsCollapsed: false,
       formView:         true,
       showSource:       false,
+      includeEditLink:  exportIncludeEditLinkEl ? exportIncludeEditLinkEl.checked : true,
       scenarios:        state.ui.scenarios       || {},
       activeScenario:   state.ui.activeScenario  || null,
     },
