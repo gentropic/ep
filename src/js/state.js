@@ -16,6 +16,7 @@ state._lastFocused = null;                       // last focused chip/row input 
 state.ui.collapsedBlocks = state.ui.collapsedBlocks || [];  // array of open bodyIdx (persistable)
 state.ui.scenarios       = state.ui.scenarios || {};        // { scenarioName: { paramName: valueSrc } }
 state.ui.activeScenario  = state.ui.activeScenario || null; // last-applied scenario name, or null
+state.ui.gutterUnits     = state.ui.gutterUnits || {};      // { bindingName: unitName } — per-binding gutter display override (click the gutter to set)
 
 // state._ephemeral: when true, autosave is disabled and the program isn't
 // persisted to localStorage until the user explicitly saves (Cmd+S or the

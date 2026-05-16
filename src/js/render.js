@@ -19,7 +19,7 @@
 
 import { state, evaluateAll } from './state.js';
 import { fmt, fmtNum, dEq, fmtDim } from './units.js';
-import { resolveUnitExpression, getCompletionData } from './evaluator.js';
+import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './evaluator.js';
 import { attachLongPress, showMenu } from './menu.js';
 
 const chipsEl    = document.getElementById('chips');
@@ -60,13 +60,22 @@ function resultMarkerHtml(lineIdx) {
   const isOutput = !!outputSpec;
   const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
 
-  // If this binding is named in @outputs with a unit spec, honor it for
-  // gutter display too — keeps the gutter consistent with the output panel
-  // (no more "10.197 ozt" gutter next to a "0.317 kg" output chip).
-  // Falls through to auto-scale if the unit can't be resolved or doesn't
-  // match the binding's dimension.
+  // Display unit resolution, highest priority first:
+  //   1. Per-line override the user picked from the gutter (state.ui.gutterUnits)
+  //   2. @outputs unit spec for this binding
+  //   3. fmt()'s auto-scale (which itself honors a `.disp` from -> conversion)
   let n, u;
-  if (outputSpec && outputSpec.unit) {
+  const userOverride = r.name && state.ui.gutterUnits ? state.ui.gutterUnits[r.name] : null;
+  if (userOverride) {
+    try {
+      const spec = resolveUnitExpression(userOverride);
+      if (dEq(spec.dim, r.result.dim)) {
+        n = fmtNum(r.result.value / spec.mul);
+        u = spec.displayName;
+      }
+    } catch { /* fall through */ }
+  }
+  if (n === undefined && outputSpec && outputSpec.unit) {
     try {
       const spec = resolveUnitExpression(outputSpec.unit);
       if (dEq(spec.dim, r.result.dim)) {
@@ -159,13 +168,26 @@ function mountCm6() {
   // full text so long errors are readable on hover even though they're
   // truncated in the gutter cell.
   class ResultMarker extends GutterMarker {
-    constructor(html, text, cls) { super(); this.html = html; this.text = text; this.cls = cls; }
-    eq(other) { return other && other.html === this.html && other.cls === this.cls; }
+    constructor(html, text, cls, lineIdx) {
+      super();
+      this.html = html; this.text = text; this.cls = cls;
+      this.lineIdx = lineIdx;
+    }
+    eq(other) {
+      return other && other.html === this.html && other.cls === this.cls
+        && other.lineIdx === this.lineIdx;
+    }
     toDOM() {
       const el = document.createElement('div');
       el.className = 'ep-gutter-result' + (this.cls ? ' ' + this.cls : '');
       el.innerHTML = this.html;
       el.title = this.text;
+      const idx = this.lineIdx;
+      // Click on a result cell opens the per-line unit-override menu.
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openGutterUnitMenu(idx, e.clientX, e.clientY);
+      });
       return el;
     }
   }
@@ -247,7 +269,7 @@ function mountCm6() {
     lineMarker(view, line) {
       const lineNo = view.state.doc.lineAt(line.from).number;  // 1-indexed
       const m = resultMarkerHtml(lineNo - 1);
-      return m ? new ResultMarker(m.html, m.text, m.cls) : null;
+      return m ? new ResultMarker(m.html, m.text, m.cls, lineNo - 1) : null;
     },
     lineMarkerChange() { return true; },
   });
@@ -277,6 +299,10 @@ function mountCm6() {
         _errorsField,
         resultGutter,
         keymap.of([
+          // Tab accepts the open completion. acceptCompletion returns false
+          // when no popup is showing — Tab then falls through to default
+          // browser tab order (so users can still leave the editor).
+          { key: 'Tab', run: acceptCompletion },
           ...(historyKeymap || []),   // Mod-z / Mod-Shift-z / Mod-y
           ...(foldKeymap || []),      // Cmd/Ctrl-Alt-[ / -] fold / unfold
           ...(defaultKeymap || []),   // arrow keys, Home/End, word jumps, etc.
@@ -417,6 +443,44 @@ export function renderResults() {
   renderChipResults();
   renderOutputs();
   applyErrorMarks();
+}
+
+// Per-line gutter unit-override menu. Opens when the user clicks a result
+// cell in the gutter. Lists every unit that matches the binding's dim;
+// pick one to swap the displayed unit (the underlying canonical value is
+// untouched). Stored as state.ui.gutterUnits[bindingName] so it survives
+// reload/scenarios and isn't position-dependent.
+function openGutterUnitMenu(lineIdx, x, y) {
+  const row = state.body[lineIdx];
+  if (!row || !row.result || !row.name) return;
+  const candidates = getCompatibleUnits(row.result.dim);
+  if (!candidates.length) return;
+  state.ui.gutterUnits = state.ui.gutterUnits || {};
+  const current = state.ui.gutterUnits[row.name] || null;
+  const items = candidates.map(c => ({
+    label: c.name + (c.name === current ? '  ✓' : ''),
+    action: () => setGutterUnit(row.name, c.name),
+  }));
+  if (current) {
+    items.push({ separator: true });
+    items.push({ label: 'auto-scale', action: () => setGutterUnit(row.name, null) });
+  }
+  showMenu(items, x, y);
+}
+
+function setGutterUnit(name, unitName) {
+  state.ui.gutterUnits = state.ui.gutterUnits || {};
+  if (unitName === null) delete state.ui.gutterUnits[name];
+  else                   state.ui.gutterUnits[name] = unitName;
+  renderChipResults();
+  // Force a gutter rebuild — lineMarkerChange returns true on any update,
+  // so an empty selection dispatch is enough to trigger re-eval of every
+  // visible cell without churning the doc.
+  if (cmView) {
+    cmView.dispatch({ selection: cmView.state.selection });
+  }
+  // Persist through the existing autosave path.
+  window.dispatchEvent(new CustomEvent('ep:params-changed'));
 }
 
 // §4.2 — push the current set of body-row errors into the CM6 decoration

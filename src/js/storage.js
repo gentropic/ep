@@ -79,6 +79,7 @@ export function writeDraft() {
         scenarios:       state.ui.scenarios       || {},
         activeScenario:  state.ui.activeScenario  || null,
         collapsedBlocks: state.ui.collapsedBlocks || [],
+        gutterUnits:     state.ui.gutterUnits     || {},
       },
       ts: Date.now(),
     }));
@@ -182,6 +183,7 @@ export function saveCurrentProgram(opts = {}) {
     updatedAt: Date.now(),
     scenarios: state.ui.scenarios || {},
     activeScenario: state.ui.activeScenario || null,
+    gutterUnits: state.ui.gutterUnits || {},
   };
   writeStore(store);
   // Keep ep:current in sync — covers the case where an ephemeral example
@@ -213,6 +215,7 @@ export function loadProgramByName(name) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = prog.scenarios || {};
   state.ui.activeScenario  = prog.activeScenario || null;
+  state.ui.gutterUnits     = prog.gutterUnits || {};
   state._ephemeral         = false;
   setCurrentProgramName(name);
   evaluateAll();
@@ -300,6 +303,7 @@ export function bootProgramFromStorage() {
       state.ui.scenarios       = draft.ui.scenarios       || {};
       state.ui.activeScenario  = draft.ui.activeScenario  || null;
       state.ui.collapsedBlocks = draft.ui.collapsedBlocks || [];
+      state.ui.gutterUnits     = draft.ui.gutterUnits     || {};
     }
     state._ephemeral = true;
     setCurrentProgramName(draft.name || 'untitled', false);
@@ -315,6 +319,7 @@ export function bootProgramFromStorage() {
     state.ui.collapsedBlocks = [];
     state.ui.scenarios       = prog.scenarios || {};
     state.ui.activeScenario  = prog.activeScenario || null;
+    state.ui.gutterUnits     = prog.gutterUnits || {};
     state._ephemeral         = false;
     setCurrentProgramName(stored, false);
     return true;

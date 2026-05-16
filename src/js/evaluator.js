@@ -161,6 +161,26 @@ function dimKey(dim) {
   return Object.keys(dim).sort().map(k => `${k}:${dim[k]}`).join(',');
 }
 
+// Resolve every registered unit whose dim matches `targetDim`. Used by the
+// click-the-gutter unit picker to offer a per-line display-unit override.
+// Filters out prefixed duplicates (entries shared between e.g. m / cm / km
+// all point at one base entry); sorts by mul ascending so smaller units
+// come first.
+export function getCompatibleUnits(targetDim) {
+  const h = host();
+  const seen = new Set();
+  const out = [];
+  for (const e of (h.registry._entries || [])) {
+    if (e.inputOnly) continue;
+    if (!dEq(e.dim, targetDim)) continue;
+    if (seen.has(e.displayName)) continue;
+    seen.add(e.displayName);
+    out.push({ name: e.displayName, fullName: e.fullName, mul: e.mul });
+  }
+  out.sort((a, b) => a.mul - b.mul);
+  return out;
+}
+
 // ── dimension-annotation parsing (unchanged) ──────────────────────
 // ep keeps its own dimension table for annotations to avoid coupling the
 // annotation syntax to numbat-js's DimRegistry state.
