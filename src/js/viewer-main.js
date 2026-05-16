@@ -6,6 +6,7 @@
 
 import { evaluateAll } from './state.js';
 import { renderChips, renderResults } from './render.js';
+import { encodeInlineI } from './pointer.js';
 
 import { state } from './state.js';
 
@@ -19,6 +20,41 @@ const hdrFileEl = document.getElementById('hdrFile');
 if (hdrFileEl && typeof INITIAL_STATE !== 'undefined' && INITIAL_STATE.name) {
   hdrFileEl.textContent = INITIAL_STATE.name;
   document.title = `${INITIAL_STATE.name} — ep`;
+}
+
+// Surface the program's first comment line as a subtitle. Authors who
+// open a `# what this calculates` line in their source get free
+// description text in the viewer header.
+const subtitleEl = document.getElementById('viewerSubtitle');
+if (subtitleEl) {
+  const desc = firstCommentLine(state.body.map(r => r.src));
+  if (desc) {
+    subtitleEl.textContent = desc;
+    subtitleEl.style.display = '';
+  }
+}
+
+function firstCommentLine(bodyLines) {
+  for (const line of bodyLines || []) {
+    const t = (line || '').trim();
+    if (!t) continue;
+    if (t.startsWith('#'))  return t.replace(/^#+\s*/, '').trim();
+    if (t.startsWith('--')) return t.replace(/^--+\s*/, '').trim();
+    return null;
+  }
+  return null;
+}
+
+// "Modify this calculation" link — encode the current program as an
+// @gcu/pointer and point at gentropic.org/ep with it. One click takes a
+// recipient from "I'm reading this calculation" to "I'm editing it in
+// the full ep editor".
+const editLink = document.getElementById('viewerEditLink');
+if (editLink) {
+  const text = state.body.map(r => r.src).join('\n');
+  encodeInlineI(text).then(pointer => {
+    editLink.href = 'https://gentropic.org/ep#' + pointer;
+  }).catch(() => { /* leave default href in place */ });
 }
 
 // "Show calculation" toggle — read-only source reveal. The recipient can

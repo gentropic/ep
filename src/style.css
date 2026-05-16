@@ -371,6 +371,65 @@ body {
 .form-spacer             { display: none; }
 .app.form .form-spacer   { display: block; flex: 1 1 auto; background: var(--sw-bg); }
 
+/* ── Viewer-only polish ───────────────────────────────────────────
+ * The exported viewer artifact (`.app.form.viewer`) gets a richer
+ * treatment than the editor's form-view toggle: a subtitle drawn from
+ * the program's first comment, a more prominent outputs panel (it's the
+ * answer, so it should read like the answer), and an attribution
+ * footer with an "open in editor" link constructed via @gcu/pointer. */
+
+.app.viewer .viewer-subtitle {
+  font-family: var(--sw-sans);
+  font-size: 13px;
+  color: var(--sw-text-mid);
+  padding: 10px 14px 14px;
+  border-bottom: 1px solid var(--sw-border-soft);
+  background: var(--sw-bg);
+  line-height: 1.4;
+  flex: 0 0 auto;
+}
+
+/* Outputs panel — promote the answer. Bigger value font, accent border
+ * along the top so the eye lands here first. */
+.app.viewer .panel.outputs {
+  background: var(--sw-bg-bright);
+  border-top: 2px solid var(--sw-orange);
+}
+.app.viewer .panel.outputs .chip-out-val { font-size: 22px; }
+.app.viewer .panel.outputs .chip-out-val .u {
+  font-size: 16px;
+  margin-left: 3px;
+}
+.app.viewer .panel.outputs .chip { background: var(--sw-bg); }
+
+/* Footer: small attribution + "modify this" link. Sits below
+ * form-spacer so it floats at the bottom of the viewport even when
+ * the program is short. */
+.app.viewer .viewer-footer {
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  color: var(--sw-text-soft);
+  text-align: center;
+  letter-spacing: 1px;
+  border-top: 1px solid var(--sw-border-soft);
+  background: var(--sw-bg);
+}
+.app.viewer .viewer-footer a {
+  color: var(--sw-orange);
+  text-decoration: none;
+}
+.app.viewer .viewer-footer a:hover { text-decoration: underline; }
+.app.viewer .viewer-footer-sep { margin: 0 8px; opacity: 0.5; }
+
+/* Single-column chip grid on narrow screens — viewer typically has
+ * fewer chips than the editor and tighter screens, so two-column wastes
+ * label/value space. */
+@media (max-width: 480px) {
+  .app.viewer .chip-grid { grid-template-columns: 1fr; }
+}
+
 /* Settings-driven visibility. Both rules cascade after .app.form ones so
  * the form-view still gets to hide things its own way without conflict.
  *   .no-accessory     → user toggled the bottom palette off

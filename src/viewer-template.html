@@ -23,7 +23,7 @@
 </head>
 <body>
 
-<div class="app form" id="app">
+<div class="app form viewer" id="app">
   <div class="hdr">
     <div class="hdr-left">
       <span class="name" title="ep — eval-print calculator (viewer)">ep</span>
@@ -31,11 +31,20 @@
     </div>
   </div>
 
+  <div class="viewer-subtitle" id="viewerSubtitle" style="display:none"></div>
+
   <div class="panel" id="paramsPanel">
     <div class="panel-hdr">
-      <span><span class="at">@</span>params <span class="meta" id="paramMeta"></span></span>
+      <span>inputs <span class="meta" id="paramMeta"></span></span>
     </div>
     <div class="chip-grid" id="chips"></div>
+  </div>
+
+  <div class="panel outputs" id="outputsPanel">
+    <div class="panel-hdr">
+      <span>outputs <span class="meta" id="outMeta"></span></span>
+    </div>
+    <div class="chip-grid" id="outChips"></div>
   </div>
 
   <div class="show-source">
@@ -43,14 +52,13 @@
   </div>
   <pre class="source-view" id="sourceView" style="display:none"></pre>
 
-  <div class="panel outputs" id="outputsPanel">
-    <div class="panel-hdr">
-      <span><span class="at">@</span>outputs <span class="meta" id="outMeta"></span></span>
-    </div>
-    <div class="chip-grid" id="outChips"></div>
-  </div>
-
   <div class="form-spacer"></div>
+
+  <div class="viewer-footer">
+    <a class="viewer-footer-link" id="viewerEditLink" href="https://gentropic.org/ep" target="_blank" rel="noopener">modify this calculation</a>
+    <span class="viewer-footer-sep">·</span>
+    <span class="viewer-footer-credit">made with <a href="https://gentropic.org/ep" target="_blank" rel="noopener">ep</a></span>
+  </div>
 </div>
 
 <script>

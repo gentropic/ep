@@ -56,6 +56,7 @@ const VIEWER_JS_FILES = [
   'state.js',
   'menu.js',
   'render.js',
+  'pointer.js',
   'viewer-main.js',
 ];
 
