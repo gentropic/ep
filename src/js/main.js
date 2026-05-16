@@ -5,7 +5,7 @@
 import { evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { applyInitialUI } from './view.js';
-import { bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram, applyEphemeralUI } from './storage.js';
+import { bootStorage, bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram, applyEphemeralUI } from './storage.js';
 import { openDrawer, closeDrawer } from './drawer.js';
 import { hasShareParam, consumeShareParam, adoptSharedProgram } from './share.js';
 import { startTutorial, isTutorialDone } from './tutorial.js';
@@ -44,20 +44,21 @@ function maybeStartTutorial() {
   setTimeout(startTutorial, 400);  // let the initial render settle
 }
 
-if (hasShareParam()) {
-  // Async branch: decode the shared program before running the rest of boot.
-  // Defaults to the normal boot if decode fails.
-  consumeShareParam().then(text => {
+// IDB load is async — wait for the cache to fill before any sync read
+// of the programs store (drawer render, defaultBoot, etc.). Share-link
+// adoption stays after the storage boot so the shared program ends up
+// in the same store as everything else.
+bootStorage().then(async () => {
+  if (hasShareParam()) {
+    const text = await consumeShareParam();
     if (text) adoptSharedProgram(text);
     else      defaultBoot();
-    applyInitialUI();
-    maybeStartTutorial();
-  });
-} else {
-  defaultBoot();
+  } else {
+    defaultBoot();
+  }
   applyInitialUI();
   maybeStartTutorial();
-}
+});
 
 // ── Keyboard shortcuts (§2.1) ─────────────────────────────────
 window.addEventListener('keydown', e => {

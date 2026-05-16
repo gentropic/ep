@@ -25,6 +25,7 @@
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { pruneSnapshots } from './snapshot-retention.js';
+import { idbGetAllPrograms, idbPutProgram, idbDeleteProgram, idbReplaceAllPrograms } from './idb.js';
 
 const STORE_KEY    = 'ep:programs';
 const CURRENT_KEY  = 'ep:current';
@@ -57,16 +58,79 @@ if (saveEphemeralBtn) {
 // without pulling in the autosave / drawer / persistence layer.
 window.addEventListener('ep:params-changed', () => scheduleAutosave());
 
-export function readStore() {
+// ── IDB-backed programs store with sync in-memory cache ──────────
+// readStore() / writeStore() stay synchronous (call sites unchanged)
+// by mirroring the IDB programs object store into an in-memory cache.
+// Boot: bootStorage() awaits idbGetAllPrograms() and fills the cache
+// once before anything reads. Writes update the cache synchronously
+// and schedule async IDB persists in the background.
+//
+// Settings, draft, and current-program-pointer all stay in localStorage
+// (small, sync, often-touched). Only the heavy bits (program bodies +
+// snapshots) live in IDB.
+
+const _programCache = new Map();   // name → record
+let _storageReady = false;
+
+// Awaitable for the boot path. main.js calls bootStorage() before its
+// first defaultBoot() so reads have a populated cache.
+export async function bootStorage() {
+  if (_storageReady) return;
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+    // One-shot localStorage→IDB migration. Only runs while ep:programs
+    // is still present in localStorage — once migrated, the LS key is
+    // removed so the next boot skips the migration entirely.
+    const lsRaw = localStorage.getItem(STORE_KEY);
+    if (lsRaw) {
+      try {
+        const lsStore = JSON.parse(lsRaw) || {};
+        const recs = Object.entries(lsStore).map(([name, rec]) => ({ name, ...rec }));
+        if (recs.length) await idbReplaceAllPrograms(recs);
+        localStorage.removeItem(STORE_KEY);
+        console.log('ep: migrated', recs.length, 'programs from localStorage to IDB');
+      } catch (e) {
+        console.warn('ep: localStorage→IDB migration skipped:', e);
+      }
+    }
+    const recs = await idbGetAllPrograms();
+    _programCache.clear();
+    for (const r of recs) _programCache.set(r.name, r);
+  } catch (e) {
+    console.warn('ep: IDB unavailable, programs will not persist:', e);
+  }
+  _storageReady = true;
 }
 
+// Read the entire program store as a plain object {name: record}.
+// Synchronous: reads from the in-memory cache. Returns {} before boot.
+export function readStore() {
+  const out = {};
+  for (const [name, rec] of _programCache) {
+    // Caller code expects records without the .name field (legacy
+    // shape — name was the object key). Strip it before returning.
+    const { name: _n, ...rest } = rec;
+    out[name] = rest;
+  }
+  return out;
+}
+
+// Replace the entire store (legacy API — callers rebuild the whole
+// object and pass it in). Updates the cache + fires-and-forgets the
+// IDB writes (rewriting all programs in one transaction).
 export function writeStore(store) {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); }
-  catch (e) { console.warn('localStorage write failed:', e); }
+  const records = [];
+  for (const [name, rec] of Object.entries(store)) {
+    const withName = { name, ...rec };
+    _programCache.set(name, withName);
+    records.push(withName);
+  }
+  // Drop programs that were in the cache but aren't in the new store
+  // (legacy callers express "delete X" by writing a store without X).
+  for (const name of [..._programCache.keys()]) {
+    if (!(name in store)) _programCache.delete(name);
+  }
+  idbReplaceAllPrograms(records).catch(e =>
+    console.warn('ep: IDB write failed:', e));
 }
 
 // Draft persistence for ephemeral state — the user's in-flight unsaved

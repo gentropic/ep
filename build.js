@@ -68,6 +68,7 @@ const JS_FILES = [
   'evaluator.js',
   'state.js',
   'snapshot-retention.js',
+  'idb.js',
   'storage.js',
   'menu.js',
   'formatter.js',

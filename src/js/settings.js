@@ -13,6 +13,7 @@ import { renderChips, renderResults } from './render.js';
 import { epConfirm } from './dialogs.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
 import { formatCurrentProgram } from './format-cmd.js';
+import { idbReplaceAllPrograms } from './idb.js';
 
 const SIG_OPTIONS  = [3, 4, 5, 6];
 const WIDTH_OPTIONS = [30, 40, 50, 60, 80];
@@ -249,17 +250,20 @@ if (resetBtn) {
   resetBtn.addEventListener('click', async () => {
     const ok = await epConfirm({
       title: 'Reset all data?',
-      message: 'This deletes every saved program, the current draft, your settings, and the tutorial-seen flag. The page will reload. This cannot be undone.',
+      message: 'This deletes every saved program (including snapshots), the current draft, your settings, and the tutorial-seen flag. The page will reload. This cannot be undone.',
       okLabel: 'Reset',
       danger: true,
     });
     if (!ok) return;
     try {
-      // Wipe everything ep wrote, but leave unrelated keys alone.
       for (const k of Object.keys(localStorage)) {
         if (k.startsWith('ep:')) localStorage.removeItem(k);
       }
     } catch {}
+    try {
+      // Programs + snapshots live in IDB now; wipe that too.
+      await idbReplaceAllPrograms([]);
+    } catch (e) { console.warn('ep: IDB reset failed:', e); }
     location.reload();
   });
 }
