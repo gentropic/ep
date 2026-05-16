@@ -53,6 +53,24 @@ export function loadPrelude(registry) {
   registry.define('pound', { dim: {mass: 1}, mul: 453.59237, aliases: ['pounds'], shortAliases: ['lb', 'lbs'], inputOnly: true });
   registry.define('stone', { dim: {mass: 1}, mul: 6350.293,  aliases: ['stones'], shortAliases: ['st'],         inputOnly: true });
 
+  // DCDMA wireline diamond core sizes — source values mirrored from
+  // gcu/units (auditable/ext/units/src/core.js). Registered as length
+  // units so `pi/4 * NQ_core^2 * length` computes the sample volume
+  // correctly. inputOnly so they don't compete with metric for default
+  // display, but they appear in the gutter / sheet pickers.
+  // Naming: {CODE}_core = drilled core diameter, {CODE}_hole = bit-cut
+  // hole diameter. Multipliers in metres.
+  const DCDMA_CORES = [
+    ['AQ',  0.0270, 0.0480], ['BQ',  0.0365, 0.0600],
+    ['NQ',  0.0476, 0.0757], ['NQ2', 0.0506, 0.0757], ['NQ3', 0.0451, 0.0757],
+    ['HQ',  0.0635, 0.0960], ['HQ3', 0.0611, 0.0960],
+    ['PQ',  0.0850, 0.1226], ['PQ3', 0.0830, 0.1226],
+  ];
+  for (const [code, core_m, hole_m] of DCDMA_CORES) {
+    registry.define(code + '_core', { dim: {length: 1}, mul: core_m, displayName: code + '_core', inputOnly: true });
+    registry.define(code + '_hole', { dim: {length: 1}, mul: hole_m, displayName: code + '_hole', inputOnly: true });
+  }
+
   // Common compound units — give the formatter candidates so velocities,
   // accelerations, forces, etc. render as "60 m/s" / "9.81 m/s²" / "5 N"
   // instead of "60 [length·time^-1]". All canonical-multiplier values are

@@ -80,6 +80,30 @@ metal    = tonnage * grade
   },
 
   {
+    slug: 'drillhole_sample',
+    name: 'Drill core sample',
+    desc: 'DCDMA core sizes (NQ / HQ / …) → sample mass',
+    body: `# Drill core sample — DCDMA wireline core diameters
+# pre-registered as length units (e.g. NQ_core = 47.6 mm).
+
+@params {
+  core_size = NQ_core
+  length    = 5 m
+  density   = 2.7 g/cm3
+}
+
+# Cylindrical sample volume: π/4 · d² · length
+volume = pi / 4 * core_size^2 * length
+mass   = volume * density
+
+@outputs {
+  volume: L,
+  mass:   kg,
+}
+`,
+  },
+
+  {
     slug: 'compound_interest',
     name: 'Compound interest',
     desc: 'Demonstrates fn declarations',
