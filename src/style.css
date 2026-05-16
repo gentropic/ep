@@ -472,7 +472,10 @@ body {
   caret-color: var(--sw-orange);
 }
 .body .cm-line {
-  padding: 0 14px;
+  /* Right padding reserves space for the floating result gutter so wrapped
+   * lines break BEFORE going under the overlay. Otherwise long comments
+   * and unwrappable expressions disappear into the masked area. */
+  padding: 0 calc(var(--ep-gutter-w) + 6px) 0 14px;
 }
 .body .cm-selectionBackground,
 .body .cm-content ::selection {
