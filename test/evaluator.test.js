@@ -38,6 +38,37 @@ test('classify: decorator with multiple args (options list)', () => {
     {kind: 'decorator', name: 'options', args: ['a', 'b']});
 });
 
+test('evaluate: multi-line @options decorator (args span lines)', () => {
+  const r = evaluate(bodyOf([
+    '@input',
+    '@options(',
+    '  granite, basalt,',
+    '  sandstone, limestone',
+    ')',
+    'rock_type = granite',
+  ]));
+  assert.equal(r.params.length, 1);
+  assert.equal(r.params[0].name, 'rock_type');
+  assert.deepEqual(r.params[0].options, ['granite', 'basalt', 'sandstone', 'limestone']);
+  assert.equal(r.params[0].error, null);
+});
+
+test('evaluate: multi-line expression body (paren continuation)', () => {
+  const r = evaluate(bodyOf([
+    '@output(kg)',
+    'mass = sample_mass(',
+    '  NQ_core,',
+    '  5 m,',
+    '  2.7 g/cm3,',
+    ')',
+  ]));
+  assert.equal(r.outputs.length, 1);
+  assert.equal(r.outputs[0].name, 'mass');
+  assert.equal(r.outputs[0].unit, 'kg');
+  assert.equal(r.rows[1].error, null);          // owner row is the `mass = ...` line
+  assert.equal(r.scope.mass.dim.mass, 1);       // mass dimension
+});
+
 test('classify: binding with and without annotation', () => {
   assert.deepEqual(classify('x = 5'),
     {kind: 'binding', name: 'x', anno: null, expr: '5', options: null});

@@ -75,75 +75,134 @@ function host() {
 
 // ── line classification ───────────────────────────────────────────
 
-// Walk the body and collapse multi-line expressions into single logical
-// rows. ep classifies one body row at a time, so something like
-//   mass = sample_mass(
-//     a, b, c
-//   )
-// would otherwise see three separate lines: the opener errors as an
-// incomplete expression, the args as a stray expression, the `)` as
-// unmatched. Numbat itself parses multi-line fine — this just stitches
-// continuation rows back together before classify() runs.
+// Token-based statement parser.
 //
-// Returns { owner, effSrc }:
-//   owner[i]  → row index that owns this logical line. owner[i] === i for
-//               primary rows; for continuation rows it points back to the
-//               opener row.
-//   effSrc[i] → the merged source for primary rows, empty string for
-//               continuation rows so they classify as "empty" and skip
-//               cleanly through the rest of evaluate().
+// Replaces the old per-line regex classifier + paren-depth stitcher with a
+// proper scan that uses numbat's tokenizer for boundary detection. The
+// tokenizer already handles strings, comments, decorators, keywords, and
+// operators with span info — we just walk tokens and find where one
+// statement ends and the next begins.
 //
-// Only () and [] count toward depth. ({} would clash with struct literals
-// and any future block syntax we adopt; brackets are not used in the
-// decorator form, so we don't need them.)
-export function buildLogicalLines(body) {
-  const owner  = body.map((_, i) => i);
-  const effSrc = body.map(r => r.src);
+// A statement spans some range of body lines. It may carry zero or more
+// decorators (`@input`, `@output(unit)`, `@options(a, b, c)`, …) whose
+// args themselves may span multiple lines. The statement boundaries are:
+//   - depth-0 token transition where the next token's line > prev token's
+//     line AND the next token starts a new statement (decorator keyword
+//     or a bare-binding pattern)
+//   - end of input
+//
+// Returns Statement[]:
+//   { decorators: [{name, args}], bodyText: string, startLine, bindingLine, endLine }
+//
+// bodyText is the source of the binding/expression itself (without the
+// decorator lines). startLine is the first line of the WHOLE statement
+// (first decorator), bindingLine is where the binding/expr actually
+// starts. All are 1-indexed to match doc lines.
+export function parseEpBody(source) {
+  const tokens = tokenize(source, '<body>');
+  const statements = [];
   let i = 0;
-  while (i < body.length) {
-    const t = body[i].src.trim();
-    // Decorator lines never participate in multi-line merging; they're
-    // their own classification and apply to the next binding.
-    if (/^@[a-zA-Z_]/.test(t)) { i++; continue; }
-    let depth = bracketDepth(body[i].src);
-    if (depth <= 0) { i++; continue; }
-    let merged = body[i].src;
-    let j = i + 1;
-    while (depth > 0 && j < body.length) {
-      const t2 = body[j].src.trim();
-      // Don't suck a decorator into an expression — it adorns its own
-      // binding, not whatever paren-soup precedes it.
-      if (/^@[a-zA-Z_]/.test(t2)) break;
-      merged += '\n' + body[j].src;
-      depth += bracketDepth(body[j].src);
-      j++;
+  while (i < tokens.length) {
+    // Collect leading decorators for this statement.
+    const decorators = [];
+    let startLine = tokens[i].span.line;
+    while (i < tokens.length && tokens[i].type === 'dec') {
+      const dec = readDecorator(tokens, i);
+      decorators.push(dec.value);
+      i = dec.next;
     }
-    if (depth === 0 && j > i + 1) {
-      effSrc[i] = merged;
-      for (let k = i + 1; k < j; k++) { owner[k] = i; effSrc[k] = ''; }
+    if (i >= tokens.length) {
+      // Trailing decorators with no statement to attach to — drop silently.
+      break;
     }
-    i = j;
+    // Statement body starts here. Find where it ends.
+    const bindingStart = i;
+    const bindingLine = tokens[i].span.line;
+    let depth = 0;
+    let end = i;
+    while (end < tokens.length) {
+      const tok = tokens[end];
+      if (tok.type === 'op') {
+        if (tok.op === '(' || tok.op === '[' || tok.op === '{') depth++;
+        else if (tok.op === ')' || tok.op === ']' || tok.op === '}') depth--;
+      }
+      // Look at the next token: if we're at depth 0 and the next token
+      // is on a later line AND starts a new statement, stop here.
+      const next = tokens[end + 1];
+      if (depth <= 0 && next && next.span.line > tok.span.line && startsStatement(tokens, end + 1)) {
+        break;
+      }
+      end++;
+    }
+    // Slice the source for the binding text.
+    const startOff = tokens[bindingStart].span.offset;
+    const endOff = (end < tokens.length ? tokens[end].span.end : source.length);
+    const bodyText = source.slice(startOff, endOff);
+    const endLine = end < tokens.length ? tokens[end].span.line : tokens[tokens.length - 1].span.line;
+    statements.push({
+      decorators,
+      bodyText,
+      startLine,
+      bindingLine,
+      endLine,
+    });
+    i = end + 1;
   }
-  return { owner, effSrc };
+  return statements;
 }
 
-function bracketDepth(s) {
-  let depth = 0;
-  let inString = false;
-  for (let k = 0; k < s.length; k++) {
-    const c = s[k];
-    if (inString) {
-      if (c === '\\' && k + 1 < s.length) { k++; continue; }
-      if (c === '"') inString = false;
-      continue;
+// Decorator: `@<name>` optionally followed by `(<arg>, ...)`. Args are
+// identifiers or strings. Multi-line args are fine — paren balance
+// drives end detection. Returns { value: {name, args}, next: tokenIdx }.
+function readDecorator(tokens, i) {
+  const dec = tokens[i];
+  const name = dec.name;
+  let next = i + 1;
+  const args = [];
+  if (next < tokens.length && tokens[next].type === 'op' && tokens[next].op === '(') {
+    next++;
+    while (next < tokens.length) {
+      const t = tokens[next];
+      if (t.type === 'op' && t.op === ')') { next++; break; }
+      if (t.type === 'op' && t.op === ',') { next++; continue; }
+      // Arg: identifier, keyword (e.g. `let` mis-used as a name), or string
+      if (t.type === 'id' || t.type === 'kw') {
+        args.push(t.name);
+        next++;
+        // Tolerate `name: modifier` numbat syntax — swallow modifier silently
+        if (next < tokens.length && tokens[next].type === 'op' && tokens[next].op === ':') {
+          next++;
+          if (next < tokens.length && tokens[next].type === 'id') next++;
+        }
+        continue;
+      }
+      if (t.type === 'str') {
+        args.push(t.value);
+        next++;
+        continue;
+      }
+      // Unrecognized token inside decorator args — bail out gracefully.
+      next++;
     }
-    if (c === '"') { inString = true; continue; }
-    if (c === '#') break;
-    if (c === '-' && s[k + 1] === '-') break;
-    if (c === '(' || c === '[') depth++;
-    else if (c === ')' || c === ']') depth--;
   }
-  return depth;
+  return { value: { name, args }, next };
+}
+
+// Does the token at index i start a new statement? Used as the boundary
+// test when deciding whether a line break ends the current statement.
+function startsStatement(tokens, i) {
+  const t = tokens[i];
+  if (!t) return false;
+  if (t.type === 'dec') return true;
+  if (t.type === 'kw' && ['let', 'fn', 'dimension', 'unit', 'use', 'struct'].includes(t.name)) {
+    return true;
+  }
+  // Bare-binding pattern: `id` followed by `=` or `:` (annotation start).
+  if (t.type === 'id') {
+    const next = tokens[i + 1];
+    if (next && next.type === 'op' && (next.op === '=' || next.op === ':')) return true;
+  }
+  return false;
 }
 
 export function classify(src) {
@@ -444,66 +503,52 @@ function freshEnv() {
 // Row shape: {kind, name, result, error, outputs, inParams}.
 
 export function evaluate(body) {
-  // Stitch multi-line expressions back together before any classification.
-  // Decorator lines never participate in merging.
-  const { owner: _owner, effSrc } = buildLogicalLines(body);
+  const source = body.map(r => r.src).join('\n');
+  let statements;
+  try {
+    statements = parseEpBody(source);
+  } catch (e) {
+    // Tokenizer error — surface on row 0 and bail. (Rare; the tokenizer
+    // is permissive, but malformed strings or stray `@` could trip it.)
+    const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
+    if (rows.length) { rows[0].error = e.message; rows[0].kind = 'expr'; }
+    return { rows, params: [], outputs: [], scope: {}, blockComplete: false, blocks: [] };
+  }
 
   const env = freshEnv();
   const params = [];
   const outputs = [];
   const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
 
-  // State machine: decorators stack above each binding they modify and are
-  // consumed when the next non-trivial line lands. Empty / comment rows
-  // between a decorator and its binding don't reset the stack.
-  let pending = [];
-
-  function consumePending() {
-    const isInput   = pending.some(d => d.name === 'input');
-    const outDec    = pending.find(d => d.name === 'output');
-    const optDec    = pending.find(d => d.name === 'options');
+  for (const stmt of statements) {
+    const isInput   = stmt.decorators.some(d => d.name === 'input');
+    const outDec    = stmt.decorators.find(d => d.name === 'output');
+    const optDec    = stmt.decorators.find(d => d.name === 'options');
     const isOutput  = !!outDec;
     const outputUnit = isOutput && outDec.args.length ? outDec.args[0] : null;
-    const options    = optDec ? optDec.args : null;
-    // `@options` without `@input` still gives the binding a chip — options
-    // only make sense as a user-editable selection.
-    const wantsChip = isInput || !!options;
-    pending = [];
-    return { wantsChip, isOutput, outputUnit, options };
-  }
+    const decoratorOptions = optDec ? optDec.args : null;
+    const wantsChip = isInput || !!decoratorOptions;
 
-  for (let i = 0; i < body.length; i++) {
-    const c = classify(effSrc[i]);
-    const row = rows[i];
+    const ownerIdx = stmt.bindingLine - 1;
+    const c = classify(stmt.bodyText);
+    const row = rows[ownerIdx] || {kind: null, name: null, result: null, error: null, outputs: null, inParams: false};
     row.kind = c.kind;
     row.name = c.name || null;
-
-    if (c.kind === 'decorator') {
-      pending.push(c);
-      continue;
-    }
-    if (c.kind === 'empty' || c.kind === 'comment') continue;
-
-    // From here on we're at a "real" line that consumes any pending decorators.
-    const { wantsChip, isOutput, outputUnit, options } = consumePending();
     row.inParams = wantsChip;
 
     if (c.kind === 'binding') {
       const name = c.name;
-      const finalOptions = options || c.options || null;   // decorator beats inline comment
+      const finalOptions = decoratorOptions || c.options || null;
 
       // Tag-style binding: when options are present and the value is a
       // bare label (not a numbat-resolvable expression), skip evaluation
-      // entirely — the chip drives selection, no Quantity needed.
+      // entirely — the chip drives selection.
       if (wantsChip && finalOptions && finalOptions.length) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
-          bodyIdx: i, result: null, error: null,
+          bodyIdx: ownerIdx, result: null, error: null,
         });
-        if (isOutput) {
-          outputs.push({ name, unit: outputUnit });
-          row.outputs = [name];
-        }
+        if (isOutput) { outputs.push({ name, unit: outputUnit }); row.outputs = [name]; }
         continue;
       }
 
@@ -523,29 +568,24 @@ export function evaluate(body) {
       if (wantsChip) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
-          bodyIdx: i, result: q, error: err,
+          bodyIdx: ownerIdx, result: q, error: err,
         });
       }
-      if (isOutput) {
-        outputs.push({ name, unit: outputUnit });
-        row.outputs = [name];
-      }
+      if (isOutput) { outputs.push({ name, unit: outputUnit }); row.outputs = [name]; }
       continue;
     }
 
-    // Mid-edit recovery: an @input binding whose RHS isn't parseable yet
-    // (typing in progress). Keep the chip alive so the user's input
-    // handler can find its slot on the next keystroke.
+    // Mid-edit recovery: an @input binding whose RHS isn't parseable yet.
     if (wantsChip) {
-      const recovery = effSrc[i].match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*(.*)$/);
+      const recovery = stmt.bodyText.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([^=]+?))?\s*=\s*([\s\S]*)$/);
       if (recovery) {
         const recName = recovery[1];
         const recAnno = recovery[2] ? recovery[2].trim() : null;
         const recExpr = (recovery[3] || '').trim();
         const err = recExpr ? `couldn't parse: ${recExpr}` : 'empty expression';
         params.push({
-          name: recName, valueSrc: recExpr, anno: recAnno, options: options || null,
-          bodyIdx: i, result: null, error: err,
+          name: recName, valueSrc: recExpr, anno: recAnno, options: decoratorOptions || null,
+          bodyIdx: ownerIdx, result: null, error: err,
         });
         row.kind  = 'binding';
         row.name  = recName;
@@ -560,7 +600,6 @@ export function evaluate(body) {
       continue;
     }
 
-    // Naked expression — evaluate but don't bind. Result shows in gutter.
     if (c.kind === 'expr') {
       try {
         const q = evalExprText(c.expr, env);
