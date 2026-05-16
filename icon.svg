@@ -1,8 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ep">
-  <!-- Switchboard-dark rounded-rect ground.
-       96px corner radius is generous enough that the icon reads as "soft
-       technical" rather than "harsh tile" at small sizes. -->
-  <rect width="512" height="512" rx="96" fill="#15171A"/>
+  <!-- Square Switchboard-dark ground. No inset corner radius: Android
+       adaptive icons + iOS/macOS dock + most OS launchers clip with
+       their own shape (squircle, circle, rounded square, …), so
+       pre-rounding here just leaves a visible gap inside the OS clip.
+       Keep the canvas edge-to-edge filled and let the OS shape it. -->
+  <rect width="512" height="512" fill="#15171A"/>
 
   <!-- Top-edge accent stripe — references the Switchboard equipment-
        marker aesthetic used across the GCU stack. Thin enough that it
