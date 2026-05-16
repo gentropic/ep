@@ -352,11 +352,85 @@ function syncCmFromState() {
 }
 
 function syncChipInputsFromState() {
+  // Detect widget-kind drift first — if any chip is mounted as a <select>
+  // but its current valueSrc isn't in the enum set (or vice versa), the
+  // existing element can't carry the value cleanly and we have to do a
+  // full re-render. This handles source-side edits that switch a chip
+  // from enum-style ("NQ_core") to freeform ("5 cm") and back.
+  for (const p of state.params) {
+    if (!p._inputEl) continue;
+    const want = chipWidgetKind(p.valueSrc);
+    const have = p._inputEl.tagName === 'SELECT' ? 'select' : 'input';
+    if (want !== have) { renderChips(); return; }
+  }
   for (const p of state.params) {
     if (!p._inputEl) continue;
     if (p._inputEl === document.activeElement) continue;
     if (p._inputEl.value !== p.valueSrc) p._inputEl.value = p.valueSrc;
   }
+}
+
+// ── Chip widget dispatch ──────────────────────────────────────────
+// Currently auto-detected from the value text. Easy to extend: any new
+// enum-like prelude registration should add a detector entry here and
+// surface an options list. Future widget kinds (range slider for bounded
+// numbers, date picker, color, etc.) can dispatch from the same place.
+
+const DCDMA_CODES = ['AQ','BQ','NQ','NQ2','NQ3','HQ','HQ3','PQ','PQ3'];
+const SIEVE_MESHES = [635,500,450,400,325,270,230,200,170,150,120,100,80,70,60,50,45,40,35,30,25,20,18,16,14,12,10,8,7,6,5,4];
+
+function chipWidgetKind(valueSrc) {
+  return chipWidgetOptions(valueSrc) ? 'select' : 'input';
+}
+
+// Returns {options: [...]} if valueSrc matches a known enum, else null.
+// The options array is the full set so users can pick any peer value.
+function chipWidgetOptions(valueSrc) {
+  const v = (valueSrc || '').trim();
+  // DCDMA drill core / hole — e.g. NQ_core, HQ_hole
+  const m = v.match(/^([A-Z]+\d*)_(core|hole)$/);
+  if (m && DCDMA_CODES.includes(m[1])) {
+    const suffix = '_' + m[2];
+    return { options: DCDMA_CODES.map(c => c + suffix) };
+  }
+  // Sieve mesh — e.g. mesh200
+  const s = v.match(/^mesh(\d+)$/);
+  if (s && SIEVE_MESHES.includes(parseInt(s[1], 10))) {
+    return { options: SIEVE_MESHES.map(n => 'mesh' + n) };
+  }
+  return null;
+}
+
+// Build the chip's input control. Returns a {el, getValue} pair so the
+// caller can wire its own onChange without caring whether the element is
+// an <input> or a <select>.
+function makeChipControl(p, onChange) {
+  const widget = chipWidgetOptions(p.valueSrc);
+  if (widget) {
+    const sel = document.createElement('select');
+    sel.className = 'chip-val chip-val-select';
+    sel.dataset.paramName = p.name;
+    for (const opt of widget.options) {
+      const o = document.createElement('option');
+      o.value = opt;
+      o.textContent = opt;
+      sel.appendChild(o);
+    }
+    sel.value = p.valueSrc;
+    sel.addEventListener('change', () => onChange(sel.value));
+    sel.addEventListener('focus', () => { state._lastFocused = sel; });
+    return sel;
+  }
+  const inp = document.createElement('input');
+  inp.className = 'chip-val';
+  inp.value = p.valueSrc;
+  inp.spellcheck = false;
+  inp.autocapitalize = 'off';
+  inp.autocomplete = 'off';
+  inp.dataset.paramName = p.name;
+  inp.addEventListener('input', () => onChange(inp.value));
+  inp.addEventListener('focus', () => { state._lastFocused = inp; });
+  return inp;
 }
 
 // ── Chips ─────────────────────────────────────────────────────────
@@ -375,20 +449,13 @@ export function renderChips() {
     const lbl = document.createElement('div');
     lbl.className = 'chip-lbl';
     lbl.textContent = p.anno ? `${name} : ${p.anno}` : name;
-    const inp = document.createElement('input');
-    inp.className = 'chip-val';
-    inp.value = p.valueSrc;
-    inp.spellcheck = false;
-    inp.autocapitalize = 'off';
-    inp.autocomplete = 'off';
-    inp.dataset.paramName = name;
-    inp.addEventListener('input', () => {
+    const inp = makeChipControl(p, (newValue) => {
       const cur = state.params.find(x => x.name === name);
       if (!cur) return;
       const bodyIdx = cur.bodyIdx;
       const line = state.body[bodyIdx];
       const eq = line.src.indexOf('=');
-      line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + inp.value;
+      line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + newValue;
       evaluateAll();
       syncCmFromState();
       renderChipResults();
@@ -399,7 +466,6 @@ export function renderChips() {
       // pulling in the storage layer.
       window.dispatchEvent(new CustomEvent('ep:params-changed'));
     });
-    inp.addEventListener('focus', () => { state._lastFocused = inp; });
     const res = document.createElement('div');
     res.className = 'chip-res';
     chip.append(lbl, inp, res);

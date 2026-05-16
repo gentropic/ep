@@ -275,6 +275,25 @@ body {
   width: 100%;
   min-width: 0;
 }
+/* Select-flavored chip — keep the chip-val look but show a subtle chevron
+ * so users can see it's a picker. Uses appearance:none so the native
+ * heavy chrome doesn't fight the rest of the chip's styling. */
+.chip-val.chip-val-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+  padding-right: 14px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--sw-text-soft) 50%),
+                    linear-gradient(135deg, var(--sw-text-soft) 50%, transparent 50%);
+  background-position: right 4px top 9px, right 1px top 9px;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.chip-val.chip-val-select option {
+  background: var(--sw-bg-raised);
+  color: var(--sw-text);
+}
 .chip-out-val {
   font-family: var(--sw-mono);
   font-size: 15px;
