@@ -596,6 +596,41 @@ body {
   text-underline-offset: 3px;
 }
 
+/* CM6 autocompletion popup — styled to match the switchboard palette.
+ * The icon (cm-completionIcon) gets recolored per completion `type` so
+ * variables / functions / keywords / units are visually distinct. */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: var(--sw-bg-raised) !important;
+  border: 1px solid var(--sw-border) !important;
+  border-radius: var(--sw-radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  color: var(--sw-text);
+}
+.cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--sw-bg-bright) !important;
+  color: var(--sw-orange) !important;
+}
+.cm-tooltip-autocomplete .cm-completionLabel { color: var(--sw-text); }
+.cm-tooltip-autocomplete .cm-completionMatchedText {
+  color: var(--sw-orange);
+  text-decoration: none;
+  font-weight: 700;
+}
+.cm-tooltip-autocomplete .cm-completionDetail {
+  color: var(--sw-text-soft);
+  font-style: normal;
+  font-size: 10px;
+  margin-left: 8px;
+}
+.cm-completionIcon          { padding-right: 6px; opacity: 0.7; }
+.cm-completionIcon-variable::after { content: '◆'; color: var(--sw-teal); }
+.cm-completionIcon-function::after { content: 'ƒ'; color: var(--sw-orange); }
+.cm-completionIcon-keyword::after  { content: '◇'; color: var(--sw-orange); }
+.cm-completionIcon-type::after     { content: 'τ'; color: var(--sw-indigo); }
+.cm-completionIcon-unit::after     { content: 'u'; color: var(--sw-text-soft); }
+
 /* Accessory bar */
 .accessory {
   background: var(--sw-bg-raised);

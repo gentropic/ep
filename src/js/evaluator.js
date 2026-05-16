@@ -101,6 +101,66 @@ export function classify(src) {
   return {kind: 'expr', expr: t};
 }
 
+// Snapshot of names available for completion. Snapshot, not live binding —
+// callers (render.js's CM6 autocomplete source, the unit picker) call this
+// fresh each open. Hits the registry directly; the prelude is already loaded.
+//   - units: every name that resolves (canonical + aliases + prefixed)
+//   - functions: numbat-side fn names (sin/cos/sqrt/etc. from the prelude)
+//   - dimensions: from ep's DIMENSION_OF table (for type annotations)
+//   - keywords: ep-script keywords used by the parser
+export function getCompletionData() {
+  const h = host();
+  const units = h.registry._units
+    ? [...h.registry._units.keys()].sort()
+    : [];
+  const functions = h.fns
+    ? [...h.fns.keys()].sort()
+    : [];
+  const dimensions = Object.keys(DIMENSION_OF).sort();
+  const keywords = [
+    'let', 'fn', 'if', 'then', 'else', 'where', 'dimension', 'unit',
+    'struct', 'use', 'to', 'per', 'and', 'or', 'not', 'true', 'false',
+  ];
+  return { units, functions, dimensions, keywords };
+}
+
+// Unit-picker categorization. Returns array of {category, units:[{name, displayName, dim}]}.
+// Buckets units by matching their dim against entries in DIMENSION_OF; units
+// whose dim doesn't match any named dimension go into "Other".
+export function getUnitsByCategory() {
+  const h = host();
+  const entries = (h.registry._entries || []).filter(e => !e.inputOnly);
+  // Build a reverse lookup of dim signature → category name.
+  const dimToCategory = new Map();
+  for (const [name, dim] of Object.entries(DIMENSION_OF)) {
+    if (name === 'Scalar') continue;
+    dimToCategory.set(dimKey(dim), name);
+  }
+  // Group entries by category. For each unique entry, pick the shortest
+  // resolvable name as the "primary" so the picker doesn't show every
+  // prefixed variant.
+  const byCategory = new Map();
+  for (const entry of entries) {
+    const cat = dimToCategory.get(dimKey(entry.dim)) || 'Other';
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat).push({
+      name: entry.displayName,
+      displayName: entry.displayName,
+      fullName: entry.fullName,
+    });
+  }
+  // Stable category order: well-known dimensions first, then Other.
+  const wellKnown = Object.keys(DIMENSION_OF).filter(n => n !== 'Scalar');
+  const order = [...wellKnown.filter(c => byCategory.has(c)), 'Other'];
+  return order
+    .filter(c => byCategory.has(c))
+    .map(c => ({ category: c, units: byCategory.get(c) }));
+}
+
+function dimKey(dim) {
+  return Object.keys(dim).sort().map(k => `${k}:${dim[k]}`).join(',');
+}
+
 // ── dimension-annotation parsing (unchanged) ──────────────────────
 // ep keeps its own dimension table for annotations to avoid coupling the
 // annotation syntax to numbat-js's DimRegistry state.

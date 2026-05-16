@@ -19,7 +19,7 @@
 
 import { state, evaluateAll } from './state.js';
 import { fmt, fmtNum, dEq, fmtDim } from './units.js';
-import { resolveUnitExpression } from './evaluator.js';
+import { resolveUnitExpression, getCompletionData } from './evaluator.js';
 import { attachLongPress, showMenu } from './menu.js';
 
 const chipsEl    = document.getElementById('chips');
@@ -98,6 +98,7 @@ function mountCm6() {
     foldGutter, foldKeymap, foldService,
     bracketMatching, closeBrackets,
     Decoration, StateField, StateEffect,
+    autocompletion, CompletionContext, acceptCompletion,
   } = CM6;
 
   // ── ep-script tokenizer (StreamLanguage) ────────────────────────
@@ -169,6 +170,39 @@ function mountCm6() {
     }
   }
 
+  // ── Autocompletion (units / functions / dimensions / keywords) ─
+  // Two-phase priority: identifiers in the user's current scope come
+  // first (higher boost), so completing `vol|` in a program that already
+  // has `volume` suggests that before `volumeflowrate`. Dimension names
+  // surface only after a `:` (annotation context). Long unit list is
+  // included unconditionally — it's the most painful thing to type and
+  // remember, so the cost of a longer popup is worth it.
+  const _epCompletions = (context) => {
+    const word = context.matchBefore(/[a-zA-Z_µμπτφ][a-zA-Z0-9_]*/);
+    if (!word || (word.from === word.to && !context.explicit)) return null;
+    const { units, functions, dimensions, keywords } = getCompletionData();
+
+    // Annotation context: just `name :` (one space after colon). Restrict
+    // to dimension names there since unit/fn lookups are pointless.
+    const before = context.state.doc.sliceString(
+      Math.max(0, word.from - 4), word.from);
+    if (/:\s$/.test(before)) {
+      return {
+        from: word.from,
+        options: dimensions.map(d => ({ label: d, type: 'type', boost: 20 })),
+      };
+    }
+
+    const scopeNames = state.params.map(p => p.name)
+      .concat(Object.keys(state._scope || {}));
+    const options = [];
+    for (const n of new Set(scopeNames))     options.push({ label: n, type: 'variable', boost: 30 });
+    for (const k of keywords)                options.push({ label: k, type: 'keyword',  boost: 10 });
+    for (const f of functions)               options.push({ label: f, type: 'function', boost:  5, apply: f + '(' });
+    for (const u of units)                   options.push({ label: u, type: 'unit',     boost:  0 });
+    return { from: word.from, options };
+  };
+
   // ── Error pinpoint (§4.2) ───────────────────────────────────────
   // After each evaluate, dispatch _errorEffect with [{line, col, message}, …].
   // The field translates that into Decoration.mark ranges so CM6 underlines
@@ -229,6 +263,12 @@ function mountCm6() {
         syntaxHighlighting(epHighlight),
         bracketMatching(),
         closeBrackets(),
+        autocompletion({
+          override: [_epCompletions],
+          activateOnTyping: true,
+          closeOnBlur: true,
+          maxRenderedOptions: 60,
+        }),
         foldGutter(),
         epFold,
         EditorView.lineWrapping,
