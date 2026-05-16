@@ -12,6 +12,7 @@ import { setFmtSigDigits } from './units.js';
 import { renderChips, renderResults } from './render.js';
 import { epConfirm } from './dialogs.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
+import { formatCurrentProgram } from './format-cmd.js';
 
 const SIG_OPTIONS  = [3, 4, 5, 6];
 const SORT_OPTIONS = [
@@ -54,6 +55,7 @@ const useTemplateControl = document.getElementById('useTemplateControl');
 const templateRow        = document.getElementById('templateRow');
 const templateInput      = document.getElementById('templateInput');
 const templateResetBtn   = document.getElementById('templateResetBtn');
+const formatBtn         = document.getElementById('settingsFormatBtn');
 const replayTutBtn      = document.getElementById('settingsReplayTutBtn');
 const resetBtn          = document.getElementById('settingsResetBtn');
 
@@ -217,6 +219,13 @@ if (templateResetBtn) {
   templateResetBtn.addEventListener('click', () => {
     if (templateInput) templateInput.value = DEFAULT_NEW_FILE_TEMPLATE;
     setSetting('newFileTemplate', '');
+  });
+}
+
+if (formatBtn) {
+  formatBtn.addEventListener('click', () => {
+    formatCurrentProgram();
+    closeSettings();
   });
 }
 

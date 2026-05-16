@@ -16,6 +16,7 @@ import './io.js';
 import './dialogs.js';
 import './ctxmenu.js';
 import { applySettings } from './settings.js';
+import { formatCurrentProgram } from './format-cmd.js';
 
 function defaultBoot() {
   // Apply user settings BEFORE the first evaluate/render so sig digits
@@ -60,6 +61,13 @@ if (hasShareParam()) {
 
 // ── Keyboard shortcuts (§2.1) ─────────────────────────────────
 window.addEventListener('keydown', e => {
+  // Shift+Alt+F is the Prettier convention — alt instead of mod so it
+  // doesn't fight Cmd/Ctrl-bound editor shortcuts.
+  if (e.altKey && e.shiftKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    formatCurrentProgram();
+    return;
+  }
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
   const k = e.key.toLowerCase();
