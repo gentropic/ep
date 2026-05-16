@@ -118,13 +118,12 @@
     <div class="drawer-list" id="drawerList"></div>
   </div>
 
-  <div class="drawer-section drawer-examples-wrap">
-    <div class="drawer-section-hdr">examples</div>
-    <div class="drawer-list" id="drawerExamples"></div>
-  </div>
-
   <div class="drawer-section">
     <div class="drawer-section-hdr">file</div>
+    <button class="drawer-action" id="openExamplesBtn">
+      <span class="drawer-action-icon">≡</span>
+      <span>examples</span>
+    </button>
     <button class="drawer-action" id="openFileBtn">
       <span class="drawer-action-icon">↑</span>
       <span>open .ep file</span>
@@ -155,6 +154,21 @@
     <button class="unit-sheet-close" id="unitSheetCloseBtn" aria-label="close">✕</button>
   </header>
   <div class="unit-sheet-body" id="unitSheetBody"></div>
+</section>
+
+<!-- Examples panel — fullscreen slide-in opened from the drawer's
+     "examples" entry. Lists the built-in starter programs; tap to load. -->
+<section class="settings-panel" id="examplesPanel" aria-hidden="true">
+  <header class="settings-hdr">
+    <button class="settings-back" id="examplesBackBtn" aria-label="back">←</button>
+    <div class="settings-title">examples</div>
+  </header>
+  <div class="settings-body">
+    <div class="settings-section">
+      <div class="settings-section-hdr">load an example</div>
+      <div id="examplesList"></div>
+    </div>
+  </div>
 </section>
 
 <!-- Settings panel — fullscreen slide-in. Lives outside the drawer so it can

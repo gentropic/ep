@@ -1354,6 +1354,11 @@ body {
   padding: 12px;
 }
 .settings-row + .settings-row { border-top: 1px solid var(--sw-border-soft); }
+/* Examples-panel list rows reuse settings-row visually; add hover affordance
+ * since they're load-actions, not config controls. */
+.settings-row.examples-row:hover {
+  background: var(--sw-bg-bright);
+}
 .settings-row.settings-row-column {
   flex-direction: column;
   align-items: stretch;

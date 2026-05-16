@@ -2169,6 +2169,30 @@ function loadPrelude(registry) {
 
   // Angles.
   registry.define('degree', { dim: {angle: 1}, mul: Math.PI / 180, shortAliases: ['deg'] });
+
+  // Tyler / ASTM sieve mesh apertures — discrete table, mirrored from
+  // gcu/units (auditable/ext/units/src/sieve.js). Each registered as a
+  // length unit so `aperture = mesh200 to um` gives the right answer
+  // and the picker lists them under Length. Names use the underscore
+  // prefix (mesh_NN) to keep them out of plain identifier collisions;
+  // multipliers are aperture in metres. inputOnly so auto-scale ignores.
+  const SIEVE_MESH = [
+    [635,   20e-6], [500,   25e-6], [450,   32e-6], [400,   38e-6],
+    [325,   45e-6], [270,   53e-6], [230,   63e-6], [200,   75e-6],
+    [170,   90e-6], [150,  106e-6], [120,  125e-6], [100,  150e-6],
+    [80,   180e-6], [70,   212e-6], [60,   250e-6], [50,   300e-6],
+    [45,   355e-6], [40,   425e-6], [35,   500e-6], [30,   600e-6],
+    [25,   710e-6], [20,   850e-6], [18,  1000e-6], [16,  1180e-6],
+    [14,  1400e-6], [12,  1700e-6], [10,  2000e-6], [8,   2360e-6],
+    [7,   2800e-6], [6,   3350e-6], [5,   4000e-6], [4,   4750e-6],
+  ];
+  for (const [mesh, m] of SIEVE_MESH) {
+    registry.define('mesh' + mesh, {
+      dim: {length: 1}, mul: m,
+      displayName: 'mesh' + mesh,
+      inputOnly: true,
+    });
+  }
 }
 
 // ─── api.js ────────────────────────────────────────────

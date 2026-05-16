@@ -82,9 +82,10 @@ metal    = tonnage * grade
   {
     slug: 'drillhole_sample',
     name: 'Drill core sample',
-    desc: 'DCDMA core sizes (NQ / HQ / …) → sample mass',
+    desc: 'DCDMA core sizes (NQ / HQ / …) → sample mass via sample_mass()',
     body: `# Drill core sample — DCDMA wireline core diameters
-# pre-registered as length units (e.g. NQ_core = 47.6 mm).
+# pre-registered as length units (NQ_core, HQ_core, PQ_core, …).
+# sample_mass(diameter, length, density) is a prelude fn.
 
 @params {
   core_size = NQ_core
@@ -92,14 +93,34 @@ metal    = tonnage * grade
   density   = 2.7 g/cm3
 }
 
-# Cylindrical sample volume: π/4 · d² · length
-volume = pi / 4 * core_size^2 * length
-mass   = volume * density
+mass   = sample_mass(core_size, length, density)
+volume = cylinder_volume(core_size, length)
 
 @outputs {
   volume: L,
   mass:   kg,
 }
+`,
+  },
+
+  {
+    slug: 'sieve_mesh',
+    name: 'Sieve mesh sizes',
+    desc: 'Tyler / ASTM mesh → aperture in µm',
+    body: `# Sieve mesh — Tyler / ASTM lookup baked into the prelude as
+# length units (mesh200 = 75 µm, mesh100 = 150 µm, …).
+
+@params {
+  coarse = mesh10
+  mid    = mesh100
+  fine   = mesh200
+}
+
+coarse_um = coarse -> um
+mid_um    = mid    -> um
+fine_um   = fine   -> um
+
+@outputs { coarse_um, mid_um, fine_um }
 `,
   },
 

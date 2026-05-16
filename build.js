@@ -74,6 +74,7 @@ const JS_FILES = [
   'ctxmenu.js',
   'scenarios.js',
   'examples.js',
+  'examples-panel.js',
   'drawer.js',
   'tutorial.js',
   'unit-picker.js',

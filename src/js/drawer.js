@@ -5,14 +5,12 @@
 import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting } from './storage.js';
 import { openProgramMenu } from './ctxmenu.js';
 import { attachLongPress, closeMenu } from './menu.js';
-import { getExamples, loadExample } from './examples.js';
 
 const menuBtn        = document.getElementById('menuBtn');
 const drawer         = document.getElementById('drawer');
 const drawerScrim    = document.getElementById('drawerScrim');
 const drawerCloseBtn = document.getElementById('drawerCloseBtn');
 const drawerListEl   = document.getElementById('drawerList');
-const drawerExamplesEl = document.getElementById('drawerExamples');
 const drawerSearchEl = document.getElementById('drawerSearch');
 const drawerSortBtn  = document.getElementById('drawerSortBtn');
 const newProgBtn     = document.getElementById('newProgBtn');
@@ -153,38 +151,9 @@ drawer.addEventListener('touchend',    endDrag);
 drawer.addEventListener('touchcancel', endDrag);
 
 // ── List render ───────────────────────────────────────────────
-function renderDrawerExamples() {
-  if (!drawerExamplesEl) return;
-  drawerExamplesEl.innerHTML = '';
-  for (const ex of getExamples()) {
-    const item = document.createElement('div');
-    item.className = 'drawer-item drawer-item-example';
-
-    const info = document.createElement('div');
-    info.className = 'drawer-item-info';
-    const nameEl = document.createElement('div');
-    nameEl.className = 'drawer-item-name';
-    nameEl.textContent = ex.name;
-    info.appendChild(nameEl);
-    if (ex.desc) {
-      const desc = document.createElement('div');
-      desc.className = 'drawer-item-desc';
-      desc.textContent = ex.desc;
-      info.appendChild(desc);
-    }
-    item.appendChild(info);
-
-    item.addEventListener('click', () => {
-      loadExample(ex);
-      closeDrawer();
-    });
-
-    drawerExamplesEl.appendChild(item);
-  }
-}
-
-// Render once on module load; the list is constant.
-renderDrawerExamples();
+// Examples are no longer rendered inline in the drawer — they moved to
+// the on-demand examples panel (examples-panel.js). The drawer now only
+// renders the saved-programs list below.
 
 export function renderDrawerList() {
   if (!drawerListEl) return;

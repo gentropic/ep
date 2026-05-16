@@ -47,6 +47,22 @@ function host() {
     if (Object.keys(dim).length === 0) _host.dims.defineBase(name);
     else                                _host.dims.defineDerived(name, dim);
   }
+
+  // ep prelude fn library — gcu/units parity for the most common
+  // domain helpers. Loaded via numbat-script source so they're real
+  // numbat functions (composable, type-checked, dimensionally-aware).
+  // Add cautiously: any name here becomes a reserved identifier
+  // visible to autocompletion and unshadowable from user programs.
+  _host.loadSource(`
+    # Cylindrical sample volume — diameter, length → volume.
+    fn cylinder_volume(diameter, length) = pi / 4 * diameter^2 * length
+
+    # Drill-core sample mass — diameter, length, density → mass.
+    # Common pattern: sample_mass(NQ_core, 5 m, 2.7 g/cm3).
+    fn sample_mass(diameter, length, density) =
+      cylinder_volume(diameter, length) * density
+  `, '<ep-prelude>');
+
   return _host;
 }
 
