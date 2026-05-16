@@ -71,6 +71,7 @@ const JS_FILES = [
   'formatter.js',
   'render.js',
   'format-cmd.js',
+  'pointer.js',
   'share.js',
   'dialogs.js',
   'ctxmenu.js',

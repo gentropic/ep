@@ -1,81 +1,46 @@
-// URL-based program sharing. Encodes the current program as ?p=<encoded>
-// so a link/QR fully restores it on the recipient side.
+// URL-based program sharing — adopts the @gcu/pointer Phase-1 grammar.
 //
-// Pipeline: text → UTF-8 bytes → deflate-raw (when CompressionStream is
-// available; falls back to identity) → base64url. The decode side accepts
-// both compressed and uncompressed payloads to keep old links working.
+// Share URL:  <origin>/<path>#i:d<base64url(deflate-raw(text))>
+// QR-bound:   <origin>/<path>#q:d<base45(deflate-raw(text))>
 //
-// We don't vendor lz-string because CompressionStream is now universal in
-// evergreen browsers and our base64url alphabet is URL-safe by construction.
-// QR rendering uses the vendored encoder in ext/qrcode/.
+// Both forms decode to the same bytes; the `q:` form costs ~22% fewer
+// bits in QR alphanumeric mode than the `i:` form in byte mode, which
+// is meaningfully better for printable / scan-from-distance QRs.
+//
+// Legacy `?p=<base64url>` (ep's pre-pointer format) is still recognized
+// on the load side so any old links keep working — see consumePointer
+// in pointer.js for the shim.
 
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { uniqueProgramName, setCurrentProgramName, saveCurrentProgram } from './storage.js';
 import { encodeQR, qrToSvg } from '../../ext/qrcode/dist/qrcode.js';
-
-const PARAM_KEY = 'p';
-
-function bytesToB64Url(bytes) {
-  let s = '';
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function b64UrlToBytes(s) {
-  s = s.replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-export async function compressForUrl(text) {
-  const bytes = new TextEncoder().encode(text);
-  if (typeof CompressionStream === 'undefined') return bytesToB64Url(bytes);
-  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
-  const buf = new Uint8Array(await new Response(stream).arrayBuffer());
-  return bytesToB64Url(buf);
-}
-
-export async function decompressFromUrl(encoded) {
-  const bytes = b64UrlToBytes(encoded);
-  if (typeof DecompressionStream !== 'undefined') {
-    try {
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      const buf = await new Response(stream).arrayBuffer();
-      return new TextDecoder().decode(buf);
-    } catch {
-      // Fall through — payload was likely produced by the no-CompressionStream branch
-    }
-  }
-  return new TextDecoder().decode(bytes);
-}
+import { encodeInlineI, encodeInlineQ, hasPointerFragment, consumePointer } from './pointer.js';
 
 export async function generateShareUrl(text) {
-  const encoded = await compressForUrl(text);
-  return location.origin + location.pathname + '?' + PARAM_KEY + '=' + encoded;
+  const pointer = await encodeInlineI(text);
+  return location.origin + location.pathname + '#' + pointer;
 }
 
-// Boot-side: detect a share payload (synchronously) so the boot path can
-// decide which branch to take without unconditionally awaiting.
-export function hasShareParam() {
-  return new URLSearchParams(location.search).has(PARAM_KEY);
+export async function generateShareUrlForQR(text) {
+  const pointer = await encodeInlineQ(text);
+  return location.origin + location.pathname + '#' + pointer;
 }
 
-// Decode the share payload from the URL and clear it from the address bar
-// so a reload doesn't re-trigger the import. Returns the source text, or
-// null if decoding failed.
-export async function consumeShareParam() {
-  const params = new URLSearchParams(location.search);
-  const enc = params.get(PARAM_KEY);
-  if (!enc) return null;
-  let text = null;
-  try { text = await decompressFromUrl(enc); }
-  catch (e) { console.warn('share-url decode failed:', e); }
-  history.replaceState(null, '', location.pathname);
-  return text;
+// Boot-side compatibility re-exports — main.js still imports these names.
+export function hasShareParam() { return hasPointerFragment(); }
+export async function consumeShareParam() { return consumePointer(); }
+
+// Render a URL (or any text) as an inline SVG QR code. Picks ECC level M
+// for a balance of density and error tolerance. Returns an SVG string.
+export function qrSvgFor(text, opts = {}) {
+  const qr = encodeQR(text, { ecc: opts.ecc || 'M' });
+  return qrToSvg(qr, {
+    moduleSize: opts.moduleSize || 4,
+    margin:     opts.margin     ?? 2,
+    foreground: opts.foreground || 'currentColor',
+    background: opts.background || 'none',
+  });
 }
 
 // Render a URL (or any text) as an inline SVG QR code. Picks ECC level M

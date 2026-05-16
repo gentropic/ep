@@ -4,7 +4,7 @@
 
 import { state } from './state.js';
 import { currentProgramName } from './storage.js';
-import { generateShareUrl, qrSvgFor } from './share.js';
+import { generateShareUrl, generateShareUrlForQR, qrSvgFor } from './share.js';
 
 const scrim         = document.getElementById('scrim');
 const exportBtn     = document.getElementById('exportBtn');
@@ -104,12 +104,17 @@ shareBtn.addEventListener('click', async () => {
   shareBtn.textContent = '…';
   shareBtn.disabled = true;
   try {
-    const url = await generateShareUrl(serializeProgram());
+    const text = serializeProgram();
+    const url = await generateShareUrl(text);
     shareRow.style.display = '';
     shareUrlEl.value = url;
     shareLenEl.textContent = `· ${url.length} chars`;
     try {
-      shareQrEl.innerHTML = qrSvgFor(url, {moduleSize: 4, margin: 2});
+      // QR encodes the q:d (base45) form — same content, ~22% denser in
+      // QR alphanumeric mode than the i:d (base64url) form we show in the
+      // link box. Tap-to-copy uses the link form; scan uses the QR form.
+      const qrUrl = await generateShareUrlForQR(text);
+      shareQrEl.innerHTML = qrSvgFor(qrUrl, {moduleSize: 4, margin: 2});
     } catch (e) {
       // Payload too big for the largest QR version — show a note and continue with the link only.
       shareQrEl.innerHTML = `<span style="font-size:10px;color:var(--sw-text-soft)">QR: ${e.message}</span>`;
