@@ -4,9 +4,9 @@
 
 The language ep-script is **Numbat-shaped** — syntax inspired by [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT) — with deliberate simplifications and three form-builder decorators (`@input`, `@output`, `@options`) original to ep.
 
-**Status:** 0.1-shaped. The Phase 1–3 plan from earlier versions of this doc has landed: source-split build, CodeMirror 6 editor, full numbat-js evaluator co-located under `ext/numbat/`, drawer + multi-program persistence, URL+QR sharing, examples library, scenarios, viewer-only export. What was design substrate is now working artifact. Sections below are annotated with **Shipped** / **Future** where useful.
+**Status:** 0.2 shipped. The full Phase 1–3 plan landed (source-split build, CM6 editor, numbat-js evaluator co-located under `ext/numbat/`, multi-program persistence, sharing, examples, scenarios, viewer-only export), plus the v0.2 syntax migration to decorator form (`@input`/`@output`/`@options`), a token-based parser, an idempotent formatter with width-aware breaking, `@gcu/pointer` adoption for the sharing layer, IndexedDB backend for programs and snapshots, snapshots/history (§7.4), and PWA wiring (manifest + icons + service worker). Sections below are annotated with **Shipped** / **Future** where useful.
 
-**Working artifact:** `index.html` at the repo root is the deployed program (~1.3 MB single file — most of that is the inlined CM6, numbat-js, and the embedded viewer template). Built by `build.js` from `src/` and `ext/`. Read alongside this doc; when it disagrees with the doc, the code wins. The Enhancements roadmap section at the bottom remains the primary source for design rationale on individual features.
+**Working artifact:** `index.html` at the repo root is the deployed program (~1.45 MB single file — most of that is the inlined CM6, numbat-js, and the embedded viewer template). Built by `build.js` from `src/` and `ext/`. Read alongside this doc; when it disagrees with the doc, the code wins. The Enhancements roadmap section at the bottom remains the primary source for design rationale on individual features.
 
 ---
 
@@ -34,7 +34,7 @@ The same program has three presentations:
 
 **Form view.** What a consumer of the program sees inside the designer. Same artifact, but the editor body is hidden behind a "show calculation" toggle. Big chips top and bottom. Accessory bar hidden. Toggled via the `form / editor` button in the header.
 
-**Viewer artifact.** The `.html` export is a separate, slimmer artifact (~280 KB vs ~1.3 MB for the designer) built from `src/viewer-template.html`. It includes only the chip rendering pipeline + numbat-js evaluator — no CM6, no drawer, no share, no editor toggle. The source is locked behind a "show calculation" reveal that's read-only. This is the "purpose-built calculator for one program" delivery format.
+**Viewer artifact.** The `.html` export is a separate, slimmer artifact (~340 KB vs ~1.45 MB for the designer) built from `src/viewer-template.html`. It includes only the chip rendering pipeline + numbat-js evaluator + the `@gcu/pointer` encoder — no CM6, no drawer, no share-link generation, no editor toggle. The viewer scopes its own polish under `.app.viewer`: program description as a header subtitle (drawn from the first comment line), prominent outputs panel (accent border + larger value font), single-column chip grid on narrow screens, and a footer with attribution + a "modify this calculation" link that round-trips the entire program back into the full editor as a `@gcu/pointer`. The source is locked behind a "show calculation" reveal that's read-only and fills the bottom of the viewport when shown. Exporters can opt out of the modify-link via a checkbox in the export dialog.
 
 ---
 
@@ -359,7 +359,7 @@ What's still genuinely undecided. Items answered by the implementation have been
 
 - **Output pin UI.** Currently you toggle a binding into the output panel by adding/removing the `@output` decorator above its definition. A pin icon on each binding row to toggle that decorator visually is the natural gesture but isn't implemented.
 - **Error message quality.** numbat-js produces single-line errors with location info. Numbat upstream sets a higher bar (multi-line traces with both operands' dimensions, span pointers). ep could improve this when token spans get wired into the gutter.
-- **IndexedDB migration.** localStorage works fine for current use cases (~5 MB quota, programs are small). The `readStore` / `writeStore` seam is ready for IDB; the migration trigger is snapshots (§7.4) landing.
+- **Multi-tab consistency.** IDB writes from one tab don't propagate to another tab's in-memory cache. A `BroadcastChannel('ep')` listener that invalidates the cache (or merges deltas) is the natural fix; not implemented because nobody's hit it yet.
 - **Module discovery.** numbat-js has all 62 upstream modules vendored, but ep's line classifier doesn't yet recognize `use module::path` to bring them into scope. Could surface them via a "modules" section in the drawer, or just auto-import the math + physics constants set into every program.
 
 ---
@@ -462,21 +462,30 @@ Open/close paths:
 Every chip edit and every body-row edit calls `scheduleAutosave()` — debounced ~400ms. Save status shown next to the filename in the header: amber `saving` then green `saved` then fades. Storage schema:
 
 ```js
-localStorage["ep:programs"] = {
-  "ore_body": {
+// IDB: object store `programs`, keyed by `name`
+[
+  {
+    name: "ore_body",
     body: ["line 1", "line 2", …],
     updatedAt: 1715792345000,
+    pinned: false,
+    scenarios: { … },
+    activeScenario: null,
+    gutterUnits: { … },
+    snapshots: [ {id, takenAt, label, pinned, body, …}, … ],
   },
-  "untitled": { … },
-}
-localStorage["ep:current"] = "ore_body"
+  …
+]
+
+// localStorage (small / sync / often-touched)
+localStorage["ep:current"]   = "ore_body"
+localStorage["ep:settings"]  = { theme, sigDigits, sort, … }
+localStorage["ep:draft"]     = { … }      // in-flight ephemeral state
 ```
 
-**Migration to a future VFS abstraction** is the only seam: `readStore()` and `writeStore()` are the only two functions to swap. Schema can stay; just back it onto VFS instead of localStorage.
+**Hybrid cache architecture.** `readStore()` and `writeStore()` keep their sync API by mirroring the IDB programs store into an in-memory `Map`. `bootStorage()` (async, called once at boot) loads the cache from IDB and runs the one-shot legacy-`ep:programs` → IDB migration. Reads from the cache are instant; writes update the cache + fire-and-forget the IDB persist.
 
-**Storage backend pivot to IndexedDB** is recommended once snapshots (§7.4) and scenarios (§7.5) land. localStorage's ~5MB per-origin quota is fine for the v0.1 schema (program bodies are small text) but gets cramped quickly once each program carries a history of past versions. IDB is effectively unlimited (browsers typically grant up to ~60% of disk), async, and offers structured indexes for fast "list programs by recency" queries. The same `readStore()` / `writeStore()` seam handles the migration — caller code doesn't need to know the backend.
-
-On boot: read `ep:current`, restore that program's body, evaluate, render. First-run seeds the demo into storage so the drawer isn't empty.
+On boot: `bootStorage()` → read `ep:current` → restore that program's body → evaluate → render. First-run seeds the demo into storage so the drawer isn't empty.
 
 ### 1.3 Per-program context menu
 
@@ -557,27 +566,29 @@ Falls back to the same `document.execCommand('copy')` path as the output-chip co
 
 ---
 
-## 3. URL sharing + QR generation — **Shipped** (§3.1–§3.6); pointer-based addressing (§3.7) is **Future**
+## 3. URL sharing + QR generation — **Shipped**
 
-The killer feature beyond the drawer. Implementation notes below remain useful for tweaking encoding choices or QR sizing.
+The killer feature beyond the drawer. Implementation now uses the `@gcu/pointer` Phase-1 grammar (see `SPEC-pointer.md`) — share URLs are fragment-based pointers (`#i:d<base64url>`) rather than the original `?p=…` query parameter, and QR codes use the QR-optimised form (`#q:d<base45>`) which is ~22% denser in QR alphanumeric mode. Both formats decode to the same bytes; ep's pointer module also accepts the long-form `inline:deflate:` for interop.
 
-A small divergence from the spec: ep uses the browser-native `CompressionStream` (deflate-raw) rather than vendoring lz-string. Saves ~3 KB of bundle and works in every browser ep targets. Decoder accepts both compressed and plain base64url payloads.
+A small divergence from the spec: ep uses the browser-native `CompressionStream` (deflate-raw) rather than vendoring lz-string. Saves ~3 KB of bundle and works in every browser ep targets.
+
+The legacy `?p=…` query format is still recognized on boot as a shim (resolved as if it were `#i:d<payload>`) so any historic URLs continue to work.
 
 ### 3.1 The mechanism
 
 ep's URL is `https://gentropic.org/ep/` (or wherever it ends up hosted). A shareable program URL is:
 
 ```
-https://gentropic.org/ep/?p=<base64url-encoded(lz-compressed(source))>
+https://gentropic.org/ep/#i:d<base64url(deflate-raw(source))>
 ```
 
 On boot, after the normal restore-from-storage path:
-1. Read `location.search` — if it has `?p=...`, decode and decompress
+1. Read `location.hash` (and `location.search` for legacy `?p=`) — if a pointer is present, resolve via the dispatcher in `src/js/pointer.js`
 2. Load the decoded source as a fresh untitled program (don't clobber the current program)
-3. Replace the URL with the clean `https://gentropic.org/ep/` via `history.replaceState` so a refresh doesn't re-trigger
+3. Replace the URL with the clean path via `history.replaceState` so a refresh doesn't re-trigger
 4. If the user keeps editing the loaded program, it autosaves into storage like any other program
 
-**Note about installation:** This works whether or not the PWA is installed. If installed, Android Chrome routes the URL to the standalone PWA window. If not, it opens in a regular browser tab — same code path either way. No special manifest configuration required for this to work.
+**Note about installation:** This works whether or not the PWA is installed. If installed, Android Chrome routes the URL to the standalone PWA window. If not, it opens in a regular browser tab — same code path either way. The pointer being in the fragment (not the query) means resolution is purely client-side: the bytes never travel to the server.
 
 ### 3.2 Why NOT custom protocol handlers (`web+ep://`)
 
@@ -635,19 +646,15 @@ Boot sequence with `?p=` present:
 
 The user can then save-as a more permanent name if desired (the loaded program already autosaves as "shared-N" but renaming is one tap).
 
-### 3.7 Future: pointer-based addressing
+### 3.7 Pointer-based addressing — **Adopted via `@gcu/pointer` Phase 1**
 
-When a GCU-wide pointer registry exists, the URL pattern becomes:
+ep ships a minimal `@gcu/pointer` implementation inline (`src/js/pointer.js`, ~200 lines). It supports the three inline schemes (`inline:`, `i:`, `q:`) with `raw` and `deflate` codecs. Reference schemes (`gh:` / `gist:` / `rentry:` / `url:` / `doi:` / `zenodo:`) intentionally fall through to `EUNKNOWN`; per the spec (§17) that's the conforming graceful-degradation path. Phase 2 lands those loaders when there's a real use case for "load this ep program from a GitHub repo".
 
-```
-https://gentropic.org/ep/?p=sha256:<hash>
-```
-
-ep resolves the pointer through the GCU pointer registry instead of decoding inline. Same URL shape from the user's view; different resolution path. Programs become content-addressable across the GCU stack. Migration is transparent — ep tries pointer-resolution if it sees a `sha256:` prefix, falls back to inline-decoding otherwise. Both URL forms remain valid forever.
+When the implementation graduates to its own package (`@gcu/pointer`), `src/js/pointer.js` becomes the seed — same surface, same behavior. Other GCU shells (auditable, etc.) adopting the same spec will read ep's share URLs natively, and vice versa.
 
 ---
 
-## 4. Editing affordances — §4.1 / §4.3 **Shipped**; §4.2, §4.4 **Future**
+## 4. Editing affordances — §4.1 / §4.2 / §4.3 **Shipped**; §4.4 **Future**
 
 ### 4.1 Syntax highlighting — **Shipped** (M)
 
@@ -665,11 +672,9 @@ Token categories to color:
 
 Numbat's VS Code extension has a tmGrammar file at `vscode-extension/syntaxes/numbat.tmLanguage.json` in the upstream repo. The token regex set there is a good starting point; just port the patterns to CM6's language definition format.
 
-### 4.2 Error pinpoint (S, depends on 4.1)
+### 4.2 Error pinpoint — **Shipped** (S)
 
-When evaluation produces an error with a span (column range in the source), underline the offending token in red within the body row. Hover or tap shows the error message. Errors below the source row (current display) stay as fallback for line-level errors with no specific token.
-
-Parser already tracks token positions; just isn't exposed in the AST yet.
+When evaluation produces an error, the offending row is underlined in red within the editor (CM6 `Decoration.mark` via a small `StateField`/`StateEffect` pair in `render.js`). When the underlying numbat parse error carries a `line:col` position, the underline starts at the offending token (translated from RHS-snippet coordinates to source-line coordinates); otherwise it spans from leading-whitespace end to end-of-line. The full error text remains visible in the gutter result cell + a native `title` tooltip on the marked span.
 
 ### 4.3 Auto-pair brackets/braces — **Shipped** (S)
 
@@ -689,7 +694,7 @@ Already mostly free from natural DOM tab order, but currently broken because som
 
 How results display, and how users get them out of ep.
 
-### 5.1 Copy-as menu on output chips (S)
+### 5.1 Copy-as menu on output chips — **Shipped** (S)
 
 Long-press an output chip → menu with multiple format options:
 
@@ -704,18 +709,9 @@ Reuses the long-press helper from the drawer.
 
 Quick tap still copies the default `216 kt` plain-text format. Menu is for power use.
 
-### 5.2 Significant-digits toggle (S)
+### 5.2 Significant-digits toggle — **Shipped** (S)
 
-Add a settings section in the drawer with a precision selector:
-
-| option | example |
-|---|---|
-| 3 sig figs | `217 kt` |
-| 4 sig figs (default) | `216.0 kt` |
-| 6 sig figs | `216.000 kt` |
-| full | `216000.0 kt` |
-
-Setting lives in `localStorage["ep:settings"]` (separate key from programs so it's per-user, not per-program). Affects all output rendering uniformly. Per-output overrides via format directive (5.4) win when present.
+Settings → display → "significant digits": pills 3 / 4 / 5 / 6, default 4. Numbat-js's `formatNumber` / `formatParts` take an `opts.sig`; ep's `units.js` wraps with `setFmtSigDigits()` and threads the user setting through. Per-output unit overrides via `@output(unit)` still win when present.
 
 ### 5.3 Locale-aware separators (S)
 
@@ -743,15 +739,33 @@ metal = tonnage * grade
 
 This handles the "show this in a specific unit" case (the dominant use case) without introducing a new directive. The precision / pattern aspect of the original `@format` design is still **Future**.
 
-### 5.5 Live preview smoothing (S)
+### 5.5 Live preview smoothing — **Shipped** (S)
 
-Body rows currently flicker their result text on every keystroke during typing. Add a 50ms transition on `.row-res` color and opacity to make this less jarring. Optionally, debounce result rendering by 30ms separately from evaluation, so the result text fades-in shortly after the user stops typing.
+80ms color transition on `.chip-res` and `.ep-gutter-result` so rapid edits don't flash red/grey on every keystroke.
 
-Tiny change, big polish gain.
+### 5.6 Format document — **Shipped** (M)
+
+Three-layer formatter (`src/js/formatter.js`):
+
+  - **v0** — trim trailing whitespace, collapse blank-line runs, ensure single trailing newline
+  - **v1** — decorator stacks sit flush above their binding (no blank lines between them), one blank line between top-level statements
+  - **v2** — function calls and `@options(...)` lists that would exceed the target width break into one-arg-per-line form. Long arithmetic wraps in `(...)` and breaks at the lowest-precedence top-level binary operator (`+`/`-` preferred over `*`/`/`, never `^`). Operator floats to the start of the next line (Prettier convention).
+
+Comments are preserved via a separate line-scan that attaches each comment to a statement as `_leadingComments` / `_intervalComments` / `_trailingComment`.
+
+Width is a user setting (Settings → display → "format width": 30 / 40 / 50 / 60 / 80, default 40 to fit the narrowest mobile viewport after the floating result gutter steals its share).
+
+Triggers: `Shift+Alt+F` keyboard shortcut, "format document" button in the drawer's file section, and "format" button in Settings → tools.
+
+### 5.7 Per-line gutter unit override — **Shipped** (S)
+
+Click any result in the right gutter on a named binding → menu of every unit compatible with the result's dimension. Pick one and the gutter swaps to that unit; an "auto-scale" entry restores the default. The override is keyed by binding name (not row), persisted in `state.ui.gutterUnits`, so it survives reload + scenarios and isn't position-dependent.
+
+Priority for what the gutter shows: per-line override → `@output(unit)` → `fmt()` auto-scale (which honors source-level `to`/`->` via the `.disp` tag).
 
 ---
 
-## 6. Discoverability + onboarding — §6.1 / §6.4 **Shipped**; §6.2, §6.3 **Future**
+## 6. Discoverability + onboarding — **Shipped**
 
 ### 6.1 Examples section in the drawer — **Shipped** (S)
 
@@ -767,21 +781,13 @@ Starter set:
 
 Examples live in `src/js/examples.js` as an EXAMPLES array. Loading an example creates an **ephemeral** in-memory program (no storage write) so browsing the library doesn't pollute the saved-programs list. The first explicit save commits the example to storage under a unique slug.
 
-### 6.2 Drawer sort options (S)
+### 6.2 Drawer sort options — **Shipped** (S)
 
-Small toggle in the drawer header (or in the search row from 2.2):
+Toggle button in the drawer search row + a "drawer sort" row in Settings. Two options: `recent` (default, by `updatedAt` desc) / `alpha`. Stored in `ep:settings.sort`. Pinned programs always sort first regardless of the chosen mode.
 
-- **Recent** (default) — most-recently-edited first
-- **Alphabetical**
-- **Pinned first** — see 6.3
+### 6.3 Pinning programs — **Shipped** (S)
 
-Stored in `ep:settings`.
-
-### 6.3 Pinning programs (S)
-
-Long-press menu gains a `pin` / `unpin` item. Pinned programs sort to the top of the drawer regardless of recency. Visual indicator (small `◆` glyph) next to the program name when pinned. Stored as a flag on each program record: `store[name].pinned = true`.
-
-Useful when one program ("our standard QAQC checklist") is the daily-driver and ten others are one-off scratchpads.
+Per-program ctxmenu gains a `pin` / `unpin` item. Pinned programs sort to the top of the drawer regardless of the active sort mode. Visual indicator: small `◆` glyph next to the program name when pinned. Stored as `store[name].pinned = true`.
 
 ### 6.4 First-launch tutorial — **Shipped** (M)
 
@@ -828,34 +834,24 @@ Pedagogically useful — teaches users the dimension type names without forcing 
 
 Logic: after evaluation, scan unannotated bindings. For each, check if the inferred dimension exactly matches a named dimension in the table. If yes and no annotation present, offer the fixup.
 
-### 7.4 Snapshots / history (M)
+### 7.4 Snapshots / history — **Shipped** (M)
 
-Programs accumulate per-version snapshots so users can recover earlier states. This is the feature that turns ep from "scratch pad" into "trustworthy for serious work" — knowing you can recover a 20-minutes-ago state changes the psychological relationship users have with the tool.
+Per-program version history. The feature that turns ep from "scratch pad" into "trustworthy for serious work."
 
-**Data model** (extends the per-program record):
-
-```js
-store.programs["ore_body"] = {
-  body: [...],                    // current state
-  updatedAt: 1715792345000,
-  snapshots: [
-    {id: "snap_001", takenAt: ..., label: null, body: [...]},
-    {id: "snap_002", takenAt: ..., label: "before tweaking grade", body: [...]},
-    // newest last
-  ],
-}
-```
+**Data model** — `store.programs[name].snapshots` is an array of
+`{id, takenAt, label, pinned, body, scenarios, activeScenario, gutterUnits}`
+sorted newest-last.
 
 **Snapshot triggers:**
-- **Manual.** Long-press menu on a program → `snapshot now` → optional label prompt
-- **Per-session auto.** First load of each program in a given session takes a silent snapshot of the current state before edits begin
-- **Pre-destructive auto.** Before bulk operations (clear all, paste >5 lines, restore from another snapshot), take a silent snapshot. Avoids "undo my undo" lossy states
+- **Manual** — program ctxmenu → "snapshot now…" with optional label prompt (labeled snaps auto-pin)
+- **Session-first-load** — silent snap the first time each program is loaded in the current page session
+- **Pre-restore** — `restoreSnapshot` snapshots current state first so "undo my restore" works
 
-**Retention policy.** Keep all snapshots from the last 24 hours; keep last 20 older than that; user can pin individual snapshots to never auto-purge. Manual snapshots with labels are pinned by default.
+**Retention** (`pruneSnapshots` in `src/js/snapshot-retention.js` — pure function, unit-tested): keep ALL snapshots from the last 24h; keep the most recent 20 unpinned older than that; pinned snapshots never auto-purge.
 
-**UI.** Drawer item gets a `▾ history` chevron below the program name (only shown when snapshots exist). Tap to expand inline — list of snapshots with timestamps and optional labels. Tap a snapshot to view it in a read-only modal; restore button there. Restoring creates a new snapshot of the current state first, then replaces the body with the snapshot's body.
+**UI** — slide-in panel (modeled on settings), opened from the ctxmenu "history" entry. Each row shows label or "auto" + timestamp + restore / pin / delete actions. Restore confirms; the auto pre-restore snap lands at the top of the list right after.
 
-**Why IDB.** Snapshots are where storage stops being cheap. A program with 20 snapshots at ~500 chars each is 10KB per program; 50 programs gives 500KB; user with 200 programs could exceed localStorage's ~5MB quota. IDB (effectively unlimited) is the right backend once this lands. The `readStore` / `writeStore` seam absorbs the change.
+**Backend** — IDB. Programs and their snapshots live in the `programs` object store keyed by name. `bootStorage()` loads everything into an in-memory cache on page load (sync reads from cache, async writes to IDB) so `readStore()` / `writeStore()` keep their sync API. One-shot localStorage → IDB migration runs on first boot after the upgrade and removes the legacy LS key. Settings, drafts, and the current-program pointer all stay in localStorage (small, sync, often-touched).
 
 **Why this matters specifically for geologists.** Resource estimation workflows iterate dozens of times on the same calculation — different cutoffs, different assumptions, different bulk densities. The current "always overwrites" model is hostile to that workflow. Snapshots let users explore branches and come back without losing state.
 

@@ -126,16 +126,24 @@ See `ext/numbat/src/prelude.js` for the full list.
 
 ## The single-file artifact
 
-ep is built as one self-contained `index.html` (~1.4 MB). Everything is inlined: the CodeMirror 6 editor (~600 KB), the numbat-js evaluator + 62 vendored stdlib modules, the QR-code encoder, ep's own JS, the CSS, the HTML. It loads from disk with no network requests.
+ep is built as one self-contained `index.html` (~1.45 MB). Everything is inlined: the CodeMirror 6 editor (~600 KB), the numbat-js evaluator + 62 vendored stdlib modules, the QR-code encoder, ep's own JS, the CSS, the HTML. It loads from disk with no network requests.
 
 When you export a program:
 
 - **`.ep` file** — plain text of your source. Reopens cleanly in any ep instance.
-- **Viewer HTML** — a slimmer purpose-built single-file form (~330 KB, no editor, no drawer) with your program baked in. Open it in any browser, fill in different inputs, read the outputs. Has its own copy of the evaluator.
-- **Share link** — base64-deflate-encoded source in the URL. Long but copyable.
-- **QR code** — generated client-side from the share link.
+- **Viewer HTML** — a slimmer purpose-built single-file form (~340 KB, no editor, no drawer) with your program baked in. Open it in any browser, fill in different inputs, read the outputs. Has its own copy of the evaluator + a "modify this calculation" link back to the full editor (optional — opt out at export time).
+- **Share link** — `@gcu/pointer` fragment-based pointer (`#i:d<base64url>`). Long but copyable; resolution is client-side so the URL is never sent to a server.
+- **QR code** — generated client-side. Uses the QR-optimised `q:d<base45>` pointer form (~22% denser in QR alphanumeric mode than the link form).
 
 The exported viewer is meant to be the recipient's whole interaction: no install, no install instructions, no "this requires…" — just a URL or an attached file.
+
+## Install as an app
+
+ep ships as a PWA. On Chrome/Edge/Android, the address bar offers "install ep" once the page has loaded — it lands in your app drawer / home screen and launches in a standalone window without browser chrome. On iOS Safari, use "Add to Home Screen" from the share sheet.
+
+The PWA isn't doing anything magical beyond installability — the single-file artifact already runs offline by virtue of having no network dependencies. The manifest + minimal service worker are there to let the OS recognize ep as installable and surface the right icon, theme color, and app name.
+
+Your saved programs (including snapshot history) live in your browser's local storage and IndexedDB; they're not synced anywhere. Export to a file or share via the pointer URL to move them between devices.
 
 ---
 
@@ -147,23 +155,25 @@ Honest take, written 2026-05-16:
 
 - Full numbat-script evaluator (functions, generics, dimension/unit declarations, the standard math library, `if`/`then`/`else`).
 - Token-based parser with multi-line expressions and decorators (paren / bracket continuation just works).
-- Three-layer formatter: whitespace normalization, decorator stacking, line-width-aware breaking. `Shift+Alt+F` or the drawer "format document" entry.
+- Three-layer formatter: whitespace normalization, decorator stacking, line-width-aware breaking (function calls, `@options(...)` lists, and long arithmetic expressions wrapped in parens). Idempotent. `Shift+Alt+F` or the drawer "format document" entry.
 - DCDMA + Tyler/ASTM helpers, drill / sieve fns, ~25 derived unit names beyond the SI base.
-- Single-file export in four shapes (file, viewer, link, QR).
+- Single-file export in four shapes (file, viewer, link, QR). Share URLs use the `@gcu/pointer` Phase-1 grammar (fragment-based, `#i:d…` for links / `#q:d…` for QR).
+- IndexedDB-backed program storage with per-program snapshot history (§7.4): manual or auto-on-session-first-load, retention pruning, pin / restore / delete from a slide-in history panel.
+- Installable PWA — manifest, icons, minimal service worker. Install from Chrome/Edge or "Add to Home Screen" on iOS.
 - Hamburger drawer with saved programs, search, sort, pinning, examples panel, settings panel.
 - Light/dark theme toggle, configurable sig digits + format width, configurable bottom palette + new-file template, auto-hide of empty input/output panels.
 - Mobile-friendly: floating result gutter (doesn't push body width), unit-picker bottom sheet, touch-friendly tap targets.
-- 378 tests for the pure layers (units / parser / evaluator / formatter); the DOM layers are exercised by manual browser testing only.
+- Viewer artifact polish: program subtitle from first comment, accent-highlighted outputs panel, single-column on narrow screens, "modify this calculation" footer link that round-trips back to the editor via pointer.
+- 391 tests for the pure layers (units / parser / evaluator / formatter / pointer / snapshot retention); the DOM layers are exercised by manual browser testing only.
 
 **What's not yet:**
 
-- The form view is minimal — it presents inputs and outputs but doesn't have the polish of a final-form artifact.
 - The "scenarios" feature (named presets of input values) ships but its UX is rough.
 - No incremental DAG evaluation. Every keystroke re-evaluates the whole program. Fast enough for typical programs (sub-millisecond on the demo).
 - No automated UI tests. JSDOM or Playwright would be nice when there's specific behavior worth pinning.
-- No README for `ext/numbat/` or `ext/qrcode/` (they're our forks/builds; documenting them is a TODO).
-- Pointer-based shortcut share URLs (§3.7) aren't there — share links are long.
-- Snapshots / IndexedDB checkpoint history (§7.4) isn't there — autosave is the only persistence layer.
+- `ext/numbat/` and `ext/qrcode/` don't have their own READMEs (they're our forks/builds; documenting them is a TODO).
+- `@gcu/pointer` Phase 2 reference loaders (`gh:` / `gist:` / `rentry:` / `url:`) aren't implemented — pointers using those schemes fall through to `EUNKNOWN`, which is the conforming graceful-degradation path per the spec.
+- Multi-tab consistency — IDB writes from one tab don't propagate to another tab's in-memory cache. `BroadcastChannel` install is the natural fix when it bites.
 
 **Recent syntax change (v0.1 → v0.2):**
 
@@ -185,7 +195,7 @@ cd ep
 
 ```sh
 node build.js            # rebuild index.html + dist/viewer.html from src/
-node --test              # run the test suite (378 tests, no deps)
+node --test              # run the test suite (391 tests, no deps)
 ```
 
 Zero npm dependencies for the main build. `ext/cm6/` does use npm + rollup to produce the CodeMirror bundle, but the resulting `cm6.min.js` is committed so you don't need to rebuild it unless you're upgrading CM6 itself.
