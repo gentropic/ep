@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ep">
+  <!-- Switchboard-dark rounded-rect ground.
+       96px corner radius is generous enough that the icon reads as "soft
+       technical" rather than "harsh tile" at small sizes. -->
+  <rect width="512" height="512" rx="96" fill="#15171A"/>
+
+  <!-- Top-edge accent stripe — references the Switchboard equipment-
+       marker aesthetic used across the GCU stack. Thin enough that it
+       doesn't dominate; orange-on-dark stays legible from across a room. -->
+  <rect x="0" y="0" width="512" height="14" fill="#D4672E"/>
+
+  <!-- "ep" wordmark in monospace, Switchboard orange.
+       Size 320 with central baseline sits the visual midline exactly on
+       the canvas center. Falls through a stack so the icon renders
+       consistently in any browser's font resolution. -->
+  <text x="256" y="262" text-anchor="middle" dominant-baseline="central"
+        font-family="ui-monospace, 'Space Mono', 'JetBrains Mono', Menlo, Consolas, monospace"
+        font-weight="700" font-size="320" fill="#D4672E"
+        letter-spacing="-12">ep</text>
+</svg>

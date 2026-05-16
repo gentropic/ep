@@ -44,6 +44,16 @@ function maybeStartTutorial() {
   setTimeout(startTutorial, 400);  // let the initial render settle
 }
 
+// Service worker registration — minimal stub, see sw.js for rationale.
+// Registers from the page's path so a deploy at /ep/ uses /ep/sw.js. The
+// .catch swallows the failure when ep is opened via file:// (no SW
+// support) or from a host that doesn't serve sw.js.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
 // IDB load is async — wait for the cache to fill before any sync read
 // of the programs store (drawer render, defaultBoot, etc.). Share-link
 // adoption stays after the storage boot so the shared program ends up

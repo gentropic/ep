@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ep">
+  <!-- Maskable variant: the OS clips this with whatever shape its design
+       language prefers (circle, squircle, rounded square, etc.), so the
+       background extends edge-to-edge (no inset rounding) and the content
+       lives well within the 80% "safe zone" (centered 410px box). -->
+  <rect width="512" height="512" fill="#15171A"/>
+
+  <!-- Smaller wordmark so the clip doesn't bite into it. -->
+  <text x="256" y="262" text-anchor="middle" dominant-baseline="central"
+        font-family="ui-monospace, 'Space Mono', 'JetBrains Mono', Menlo, Consolas, monospace"
+        font-weight="700" font-size="240" fill="#D4672E"
+        letter-spacing="-10">ep</text>
+</svg>

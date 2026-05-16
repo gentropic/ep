@@ -6,6 +6,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ep — notepad</title>
+
+<!-- PWA wiring. manifest.webmanifest + icons live next to index.html
+     so a deploy on GitHub Pages (or any static host) picks them up
+     automatically. When opening this HTML file directly via file://
+     these links 404 silently and ep still works — the manifest is
+     a hosting concern, not a runtime concern. -->
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="./icon.svg">
+<link rel="apple-touch-icon" href="./icon.svg">
+<meta name="theme-color" content="#D4672E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ep">
+<meta name="description" content="Unit-aware notepad calculator with shareable single-file form export.">
+
 <script>
 // First-paint theme application — runs before stylesheet parses so the
 // CSS variables resolve to the right palette on the very first frame

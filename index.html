@@ -6,6 +6,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ep — notepad</title>
+
+<!-- PWA wiring. manifest.webmanifest + icons live next to index.html
+     so a deploy on GitHub Pages (or any static host) picks them up
+     automatically. When opening this HTML file directly via file://
+     these links 404 silently and ep still works — the manifest is
+     a hosting concern, not a runtime concern. -->
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="./icon.svg">
+<link rel="apple-touch-icon" href="./icon.svg">
+<meta name="theme-color" content="#D4672E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ep">
+<meta name="description" content="Unit-aware notepad calculator with shareable single-file form export.">
+
 <script>
 // First-paint theme application — runs before stylesheet parses so the
 // CSS variables resolve to the right palette on the very first frame
@@ -9713,6 +9728,16 @@ function maybeStartTutorial() {
   if (hasShareParam()) return;
   if (isTutorialDone()) return;
   setTimeout(startTutorial, 400);  // let the initial render settle
+}
+
+// Service worker registration — minimal stub, see sw.js for rationale.
+// Registers from the page's path so a deploy at /ep/ uses /ep/sw.js. The
+// .catch swallows the failure when ep is opened via file:// (no SW
+// support) or from a host that doesn't serve sw.js.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
 }
 
 // IDB load is async — wait for the cache to fill before any sync read
