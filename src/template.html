@@ -145,6 +145,18 @@
   </div>
 </aside>
 
+<!-- Unit picker bottom sheet — opened from the accessory bar's "⋯ units"
+     button. Categorised grid of every resolvable unit; tap to insert at
+     cursor. Mobile-first thumb-reachable position. -->
+<div class="unit-sheet-scrim" id="unitSheetScrim"></div>
+<section class="unit-sheet" id="unitSheet" aria-hidden="true">
+  <header class="unit-sheet-hdr">
+    <input class="unit-sheet-search" id="unitSheetSearch" placeholder="search units…" spellcheck="false" autocapitalize="off" autocomplete="off">
+    <button class="unit-sheet-close" id="unitSheetCloseBtn" aria-label="close">✕</button>
+  </header>
+  <div class="unit-sheet-body" id="unitSheetBody"></div>
+</section>
+
 <!-- Settings panel — fullscreen slide-in. Lives outside the drawer so it can
      cover the entire app surface, similar to an in-app sub-page. -->
 <section class="settings-panel" id="settingsPanel" aria-hidden="true">

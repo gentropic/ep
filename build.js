@@ -76,6 +76,7 @@ const JS_FILES = [
   'examples.js',
   'drawer.js',
   'tutorial.js',
+  'unit-picker.js',
   'accessory.js',
   'view.js',
   'export.js',
