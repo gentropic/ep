@@ -183,7 +183,9 @@ export function classify(src) {
   // is captured and surfaced on the binding as `.options` so render.js can
   // render the chip as a <select> with that fixed set.
   const body = /^let\s+/.test(t) ? t.slice(4).trim() : t;
-  const bm = body.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([A-Z][a-zA-Z0-9_]*(?:\s*[/*]\s*[A-Z][a-zA-Z0-9_]*(?:\s*\^\s*-?\d+)?)*))?\s*=\s*(.+)$/);
+  // [\s\S]+ instead of .+ so the expr captures newlines — necessary for
+  // multi-line calls stitched together by buildLogicalLines().
+  const bm = body.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*:\s*([A-Z][a-zA-Z0-9_]*(?:\s*[/*]\s*[A-Z][a-zA-Z0-9_]*(?:\s*\^\s*-?\d+)?)*))?\s*=\s*([\s\S]+)$/);
   if (bm) {
     let expr = bm[3];
     const options = extractOptionsAnnotation(expr);
@@ -516,6 +518,18 @@ export function evaluate(body) {
         continue;
       }
       const name = c.name;
+      // Tag-style binding: when an `# options:` annotation is present,
+      // the value is a label the user picks via the chip — not a Quantity
+      // to evaluate. Skip evaluation entirely (no error noise, no scope
+      // pollution). Downstream uses would still error if the user tries
+      // to multiply a tag by a length, which is the right behavior.
+      if (c.options && c.options.length) {
+        params.push({
+          name, valueSrc: c.expr, anno: c.anno || null, options: c.options,
+          bodyIdx: i, result: null, error: null,
+        });
+        continue;
+      }
       let q = null, err = null;
       try {
         q = evalExprText(c.expr, env);
