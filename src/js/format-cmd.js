@@ -8,10 +8,12 @@
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { formatEpBody } from './formatter.js';
+import { getSetting } from './storage.js';
 
 export function formatCurrentProgram() {
   const current = state.body.map(r => r.src).join('\n');
-  const formatted = formatEpBody(current);
+  const width = getSetting('formatWidth', 40);
+  const formatted = formatEpBody(current, { width });
   if (formatted === current || formatted === current + '\n') return;
   const lines = formatted.replace(/\n$/, '').split('\n');
   state.body = lines.map(src => ({src}));

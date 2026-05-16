@@ -15,6 +15,7 @@ import { startTutorial, resetTutorial } from './tutorial.js';
 import { formatCurrentProgram } from './format-cmd.js';
 
 const SIG_OPTIONS  = [3, 4, 5, 6];
+const WIDTH_OPTIONS = [30, 40, 50, 60, 80];
 const SORT_OPTIONS = [
   { key: 'recent', label: 'recent' },
   { key: 'alpha',  label: 'a → z'  },
@@ -48,6 +49,7 @@ const openBtn           = document.getElementById('openSettingsBtn');
 const backBtn           = document.getElementById('settingsBackBtn');
 const themeControl      = document.getElementById('themeControl');
 const sigDigitsControl  = document.getElementById('sigDigitsControl');
+const formatWidthControl = document.getElementById('formatWidthControl');
 const accessoryControl  = document.getElementById('accessoryControl');
 const autoHideControl   = document.getElementById('autoHideControl');
 const sortControl       = document.getElementById('settingsSortControl');
@@ -135,6 +137,12 @@ function renderControls() {
     // Format-only change — no re-evaluate needed, just redraw chips + results.
     renderChips();
     renderResults();
+    renderControls();
+  });
+
+  const widthOpts = WIDTH_OPTIONS.map(n => ({ key: n, label: String(n) }));
+  renderPillRow(formatWidthControl, widthOpts, getSetting('formatWidth', 40), v => {
+    setSetting('formatWidth', v);
     renderControls();
   });
 
