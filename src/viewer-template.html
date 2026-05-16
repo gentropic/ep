@@ -7,6 +7,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ep — viewer</title>
+<script>
+// First-paint theme — viewers always follow the recipient's OS preference
+// (the sender's theme choice doesn't travel with the export).
+(function(){
+  try {
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+})();
+</script>
 <style>
 /* MARKER:STYLE */
 </style>

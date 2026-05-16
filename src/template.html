@@ -6,6 +6,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>ep — notepad</title>
+<script>
+// First-paint theme application — runs before stylesheet parses so the
+// CSS variables resolve to the right palette on the very first frame
+// (avoids a light→dark flash on dark-mode systems). Reads the user
+// preference from localStorage["ep:settings"].theme; 'auto' (or absent)
+// follows prefers-color-scheme. settings.js can later re-apply at
+// runtime when the user picks a different theme.
+(function(){
+  try {
+    var settings = JSON.parse(localStorage.getItem('ep:settings') || '{}');
+    var pref = settings.theme || 'auto';
+    var dark = pref === 'dark' || (pref === 'auto' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+</script>
 <style>
 /* MARKER:STYLE */
 </style>
@@ -138,10 +157,45 @@
       <div class="settings-section-hdr">display</div>
       <div class="settings-row">
         <div class="settings-row-label">
+          <div>theme</div>
+          <div class="settings-row-hint">auto follows your system preference</div>
+        </div>
+        <div class="settings-row-control" id="themeControl"></div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-label">
           <div>significant digits</div>
           <div class="settings-row-hint">how many digits of precision to show in result chips</div>
         </div>
         <div class="settings-row-control" id="sigDigitsControl"></div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>bottom palette</div>
+          <div class="settings-row-hint">the operator/symbol bar at the bottom. off gives more vertical space</div>
+        </div>
+        <div class="settings-row-control" id="accessoryControl"></div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>auto-hide empty panels</div>
+          <div class="settings-row-hint">hide @params / @outputs when the program doesn't define any</div>
+        </div>
+        <div class="settings-row-control" id="autoHideControl"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-hdr">new program</div>
+      <div class="settings-row settings-row-column">
+        <div class="settings-row-label">
+          <div>template</div>
+          <div class="settings-row-hint">contents used when you create a new program (Cmd+N or the drawer "+ new program" button)</div>
+        </div>
+        <textarea class="settings-textarea" id="templateInput" spellcheck="false" autocapitalize="off" autocomplete="off" rows="9"></textarea>
+        <div class="settings-row-actions">
+          <button class="settings-btn" id="templateResetBtn">reset to default</button>
+        </div>
       </div>
     </div>
 

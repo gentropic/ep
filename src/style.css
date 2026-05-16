@@ -18,23 +18,25 @@
   --sw-sans:        'Barlow', system-ui, sans-serif;
   --sw-radius:      3px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --sw-bg-deep:     #0E1012;
-    --sw-bg:          #15171A;
-    --sw-bg-raised:   #1D2024;
-    --sw-bg-bright:   #25282D;
-    --sw-text:        #DDDCDA;
-    --sw-text-mid:    #9E9C98;
-    --sw-text-soft:   #6E6C68;
-    --sw-border:      #2F3338;
-    --sw-border-soft: #24272B;
-    --sw-orange:      #D4672E;
-    --sw-teal:        #3A9BA3;
-    --sw-amber:       #C49540;
-    --sw-red:         #D05048;
-    --sw-indigo:      #7E86B8;
-  }
+/* Dark theme overrides. Selected via [data-theme="dark"] on <html>, set
+ * either by the user via Settings or by the boot-time matchMedia probe
+ * (settings.js) when the stored preference is "auto". Mirrors the same
+ * pattern used by auditable. */
+[data-theme="dark"] {
+  --sw-bg-deep:     #0E1012;
+  --sw-bg:          #15171A;
+  --sw-bg-raised:   #1D2024;
+  --sw-bg-bright:   #25282D;
+  --sw-text:        #DDDCDA;
+  --sw-text-mid:    #9E9C98;
+  --sw-text-soft:   #6E6C68;
+  --sw-border:      #2F3338;
+  --sw-border-soft: #24272B;
+  --sw-orange:      #D4672E;
+  --sw-teal:        #3A9BA3;
+  --sw-amber:       #C49540;
+  --sw-red:         #D05048;
+  --sw-indigo:      #7E86B8;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -349,6 +351,13 @@ body {
 .app.form .panel.outputs { background: var(--sw-bg-bright); }
 .form-spacer             { display: none; }
 .app.form .form-spacer   { display: block; flex: 1 1 auto; background: var(--sw-bg); }
+
+/* Settings-driven visibility. Both rules cascade after .app.form ones so
+ * the form-view still gets to hide things its own way without conflict.
+ *   .no-accessory     → user toggled the bottom palette off
+ *   .auto-hide-empty  → hide @params / @outputs panels when empty */
+.app.no-accessory .accessory { display: none; }
+.app.auto-hide-empty .panel.empty { display: none; }
 
 .show-source {
   display: none;
@@ -1200,6 +1209,30 @@ body {
   padding: 12px;
 }
 .settings-row + .settings-row { border-top: 1px solid var(--sw-border-soft); }
+.settings-row.settings-row-column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.settings-textarea {
+  width: 100%;
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 8px 10px;
+  color: var(--sw-text);
+  resize: vertical;
+  min-height: 120px;
+  outline: none;
+  line-height: 1.5;
+}
+.settings-textarea:focus { border-color: var(--sw-orange); }
+.settings-row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
 .settings-row-label {
   flex: 1 1 auto;
   font-family: var(--sw-mono);

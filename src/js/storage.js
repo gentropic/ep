@@ -224,19 +224,26 @@ export function loadProgramByName(name) {
   return true;
 }
 
+// Default body used when no user-customised newFileTemplate is stored.
+// Mirrored in settings.js (DEFAULT_NEW_FILE_TEMPLATE) — change one, change
+// the other. Kept here as an array so we don't import settings.js (which
+// would create a cycle: settings → storage → render → … → settings).
+const DEFAULT_NEW_PROGRAM_BODY = [
+  '# new program',
+  '',
+  '@params {',
+  '  x = 1',
+  '}',
+  '',
+  'y = x * 2',
+  '',
+  '@outputs { y }',
+];
+
 export function newProgram() {
   const name = uniqueProgramName('untitled');
-  state.body = [
-    {src: '# new program'},
-    {src: ''},
-    {src: '@params {'},
-    {src: '  x = 1'},
-    {src: '}'},
-    {src: ''},
-    {src: 'y = x * 2'},
-    {src: ''},
-    {src: '@outputs { y }'},
-  ];
+  const tmpl = getSetting('newFileTemplate', '');
+  state.body = (tmpl ? tmpl.split('\n') : DEFAULT_NEW_PROGRAM_BODY).map(src => ({src}));
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;

@@ -297,6 +297,10 @@ function syncChipInputsFromState() {
 
 export function renderChips() {
   chipsEl.innerHTML = '';
+  // Auto-hide empty params panel — the .empty class triggers CSS that
+  // hides the whole panel when .app.auto-hide-empty is also set.
+  const paramsPanel = document.getElementById('paramsPanel');
+  if (paramsPanel) paramsPanel.classList.toggle('empty', state.params.length === 0);
   state.params.forEach(p => {
     const name = p.name;
     const chip = document.createElement('div');
@@ -412,11 +416,12 @@ export function renderOutputs() {
   const panel = document.getElementById('outputsPanel');
   const specs = state.outputs;
   outMetaEl.textContent = `· ${specs.length} result${specs.length === 1 ? '' : 's'}`;
-  if (!specs.length) {
-    panel.style.display = 'none';
-    return;
-  }
+  // Match the params-panel pattern: the .empty class plus app's
+  // .auto-hide-empty drives visibility. When the setting is off, the
+  // panel stays visible with its 0-results header.
+  panel.classList.toggle('empty', specs.length === 0);
   panel.style.display = '';
+  if (!specs.length) return;
   for (const spec of specs) {
     const { name, unit } = spec;
     const chip = document.createElement('div');
