@@ -129,7 +129,9 @@ export function getCompletionData() {
 // whose dim doesn't match any named dimension go into "Other".
 export function getUnitsByCategory() {
   const h = host();
-  const entries = (h.registry._entries || []).filter(e => !e.inputOnly);
+  // Include inputOnly units — the unit-picker is an explicit user choice,
+  // unlike auto-scale where inputOnly is the right filter.
+  const entries = (h.registry._entries || []);
   // Build a reverse lookup of dim signature → category name.
   const dimToCategory = new Map();
   for (const [name, dim] of Object.entries(DIMENSION_OF)) {
@@ -163,19 +165,18 @@ function dimKey(dim) {
 
 // Resolve every registered unit whose dim matches `targetDim`. Used by the
 // click-the-gutter unit picker to offer a per-line display-unit override.
-// Filters out prefixed duplicates (entries shared between e.g. m / cm / km
-// all point at one base entry); sorts by mul ascending so smaller units
-// come first.
+// Includes inputOnly units (imperial / customary) — they're excluded from
+// auto-scale but the picker is an explicit user choice and Canadian /
+// US-imperial datasets are real, so ft³ / lb / mi need to be reachable.
 export function getCompatibleUnits(targetDim) {
   const h = host();
   const seen = new Set();
   const out = [];
   for (const e of (h.registry._entries || [])) {
-    if (e.inputOnly) continue;
     if (!dEq(e.dim, targetDim)) continue;
     if (seen.has(e.displayName)) continue;
     seen.add(e.displayName);
-    out.push({ name: e.displayName, fullName: e.fullName, mul: e.mul });
+    out.push({ name: e.displayName, fullName: e.fullName, mul: e.mul, inputOnly: !!e.inputOnly });
   }
   out.sort((a, b) => a.mul - b.mul);
   return out;

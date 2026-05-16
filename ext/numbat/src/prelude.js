@@ -96,6 +96,12 @@ export function loadPrelude(registry) {
   registry.define('cm3',   { dim: {length: 3}, mul: 1e-6, displayName: 'cm³' });
   registry.define('km3',   { dim: {length: 3}, mul: 1e9,  displayName: 'km³' });
   registry.define('liter', { dim: {length: 3}, mul: 1e-3, displayName: 'L', shortAliases: ['L'] });
+  // Imperial volume — inputOnly so auto-scale still prefers metric, but
+  // they show up in the gutter unit-picker for Canadian / US datasets.
+  // 1 ft³ = (0.3048)³ m³ = 0.028316846592 m³
+  // 1 in³ = (0.0254)³ m³ = 0.000016387064 m³
+  registry.define('ft3', { dim: {length: 3}, mul: 0.028316846592, displayName: 'ft³', aliases: ['ft^3'], inputOnly: true });
+  registry.define('in3', { dim: {length: 3}, mul: 0.000016387064, displayName: 'in³', aliases: ['in^3'], inputOnly: true });
 
   // Density.
   registry.define('g/cm3', { dim: {mass: 1, length: -3}, mul: 1e6, displayName: 'g/cm³' });
