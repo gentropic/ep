@@ -730,8 +730,14 @@ export function evaluate(body) {
               const blame = traceBlame(expr, spec.dim, env);
               if (blame) {
                 blameSuffix = ` — '${blame.name}' has [${fmtDim(blame.actual)}] but the chain needs [${fmtDim(blame.expected)}]`;
+              } else if (typeof console !== 'undefined') {
+                console.warn('[ep blame] no blame for', name, '— expr:', c.expr, 'expected:', spec.dim, 'actual:', q.dim);
               }
-            } catch { /* fall through without blame */ }
+            } catch (blameErr) {
+              if (typeof console !== 'undefined') {
+                console.warn('[ep blame] threw for', name, blameErr);
+              }
+            }
             err = `<row>:1:1: @output(${outputUnit}) wants [${fmtDim(spec.dim)}] but value is [${fmtDim(q.dim)}]${blameSuffix}`;
           }
         } catch (e) {
