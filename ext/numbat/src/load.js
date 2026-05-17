@@ -148,6 +148,28 @@ const BUILTIN_PROCS = {
   print(args) {
     return new Quantity(0, {});
   },
+  // type(value): return a human-readable description of the value's
+  // dimension. Matches numbat's `type` builtin used as a REPL aid
+  // (`type(2 m/s)` → "Length / Time"). Returns a string; for non-
+  // Quantity args, returns the JS type name.
+  type(args) {
+    if (args.length !== 1) throw new Error(`type: expected 1 arg, got ${args.length}`);
+    const v = args[0];
+    if (v instanceof Quantity) {
+      if (dimEmpty(v.dim)) return 'Scalar';
+      // Reuse dimFormat for a readable signature like "Length·Time^-1".
+      const sig = Object.keys(v.dim).sort().map(k => {
+        const e = v.dim[k];
+        const cap = k.charAt(0).toUpperCase() + k.slice(1);
+        return e === 1 ? cap : cap + '^' + e;
+      }).join(' · ');
+      return sig;
+    }
+    if (typeof v === 'boolean') return 'Bool';
+    if (typeof v === 'string') return 'String';
+    if (Array.isArray(v)) return 'List';
+    return typeof v;
+  },
 
   // Datetime / locale stubs — return Quantities (seconds since Unix epoch
   // with dim {time:1}) so that arithmetic on them in upstream code works.
@@ -242,7 +264,14 @@ const BUILTIN_PROCS = {
       throw new Error(`assert_eq: dim mismatch [${JSON.stringify(a.dim)}] vs [${JSON.stringify(b.dim)}]`);
     }
     if (eps === undefined) {
-      if (a.value !== b.value) {
+      // Default tolerance: a tiny relative+absolute epsilon so trivial
+      // floating-point noise (e.g. `12 in == 1 ft` → 0.30479999… vs
+      // 0.3048) passes. Exact equality is too strict for unit-converted
+      // operands. Tolerance scales with the larger operand's magnitude;
+      // floor of 1e-12 catches near-zero cases.
+      const scale = Math.max(Math.abs(a.value), Math.abs(b.value), 1);
+      const defaultEps = scale * 1e-9 + 1e-12;
+      if (Math.abs(a.value - b.value) > defaultEps) {
         throw new Error(`assert_eq failed: ${a.value} ≠ ${b.value}`);
       }
     } else {
@@ -783,10 +812,18 @@ function loadUnitDecl(decl, env) {
 
   if (decl.expr === null) {
     if (decl.dim === null) {
-      throw new Error(`base unit '${decl.name}' requires a dimension annotation`);
+      // `unit thing` with no annotation — upstream numbat auto-creates
+      // a fresh base dimension named after the unit, capitalized
+      // (`unit thing` → dimension `Thing`). Lets users prototype new
+      // domains without two-line boilerplate.
+      const dimName = decl.name.charAt(0).toUpperCase() + decl.name.slice(1);
+      if (!env.dims.has(dimName)) env.dims.defineBase(dimName);
+      dim = env.dims.resolve(dimName);
+      mul = 1;
+    } else {
+      dim = evalDimExpr(decl.dim, env);
+      mul = 1;
     }
-    dim = evalDimExpr(decl.dim, env);
-    mul = 1;
   } else {
     const q = evalValueExpr(decl.expr, env);
     mul = q.value;

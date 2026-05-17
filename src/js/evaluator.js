@@ -153,10 +153,16 @@ export function parseEpBody(source) {
         break;
       }
       // Look at the next token: if we're at depth 0 and the next token
-      // is on a later line AND starts a new statement, stop here. The
-      // `where`/`and` continuation case is handled by startsStatement
-      // returning false for those keywords — they keep extending.
-      if (depth <= 0 && next && next.span.line > tok.span.line && startsStatement(tokens, end + 1)) {
+      // is on a later line AND starts a new statement, stop here.
+      // EXCEPT when the current statement's last token is "awaiting" an
+      // operand (a binary operator, `=`, `if`/`then`/`else`/`where`/`and`
+      // keyword, etc.). That tells us the previous expression isn't
+      // syntactically complete yet, so the next line — whatever it looks
+      // like — must be its continuation. Catches the multi-line
+      // `fn bump(x) =\n  if x >= 0\n    then 1\n    else 0` shape.
+      if (depth <= 0 && next && next.span.line > tok.span.line
+          && startsStatement(tokens, end + 1)
+          && !awaitingOperand(tok)) {
         break;
       }
       end++;
@@ -230,8 +236,30 @@ function readDecorator(tokens, i) {
 function startsStatement(tokens, i) {
   const t = tokens[i];
   if (!t) return false;
-  if (t.type === 'kw' && (t.name === 'where' || t.name === 'and')) return false;
+  // Continuation keywords — a line starting with one of these is always
+  // a continuation of the previous statement, never a fresh one.
+  // (`if` is NOT here: at top level it begins a new expression
+  // statement. The multi-line if-in-fn-body case continues via the `=`
+  // awaiting-operand path, not via `if` itself.)
+  if (t.type === 'kw' && ['where','and','then','else'].includes(t.name)) return false;
   return true;
+}
+
+// Does this token leave the expression hanging — i.e., does the parser
+// need MORE input after it to form a complete expression? Used to keep
+// a multi-line construct (`fn f(x) =\n  if ...\n    then ...\n    else ...`)
+// from being split at the wrong line break.
+function awaitingOperand(tok) {
+  if (!tok) return false;
+  if (tok.type === 'op') {
+    const ops = ['=','+','-','*','/','^','%','<','>','<=','>=','==','!=',
+                 '&&','||','|>','->','→','×','÷','−',',','(','[','{',':',';'];
+    return ops.includes(tok.op);
+  }
+  if (tok.type === 'kw') {
+    return ['if','then','else','where','and','to','per'].includes(tok.name);
+  }
+  return false;
 }
 
 export function classify(src) {
@@ -452,9 +480,18 @@ export function parseAnno(s) {
   function termD() {
     const t = peek();
     if (!t || t.t !== 'id') throw new Error('expected dimension name');
-    if (!(t.v in DIMENSION_OF)) throw new Error(`unknown dimension: ${t.v}`);
+    let base;
+    if (t.v in DIMENSION_OF) base = DIMENSION_OF[t.v];
+    else {
+      // Fall back to the host's dim registry — this picks up any
+      // user-defined dims (`dimension Foo = …`, or the auto-base-dim
+      // created by `unit thing`).
+      try { base = host().dims.resolve(t.v); }
+      catch { base = null; }
+      if (!base) throw new Error(`unknown dimension: ${t.v}`);
+    }
     p++;
-    let d = {...DIMENSION_OF[t.v]};
+    let d = {...base};
     if (peek() && peek().t === 'op' && peek().v === '^') {
       p++;
       const n = peek();

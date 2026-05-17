@@ -359,6 +359,52 @@ test('evaluate: unit declaration registers a callable unit', () => {
   assert.deepEqual(r.scope.f.dim, {time: -1});
 });
 
+test('evaluate: `unit thing` auto-generates a Thing dimension', () => {
+  const r = evaluate(bodyOf([
+    'unit thing',
+    'let x: Thing = 3 thing',
+    'x',
+  ]));
+  for (const row of r.rows) assert.equal(row.error, null);
+  assert.equal(r.rows[2].result.value, 3);
+});
+
+test('evaluate: multi-line if/then/else in fn body', () => {
+  const r = evaluate(bodyOf([
+    'fn bump(x: Scalar) -> Scalar =',
+    '  if x >= 0',
+    '    then 1',
+    '    else 0',
+    'bump(5)',
+    'bump(-3)',
+  ]));
+  for (const row of r.rows) assert.equal(row.error, null);
+  assert.equal(r.rows[4].result.value, 1);
+  assert.equal(r.rows[5].result.value, 0);
+});
+
+test('evaluate: assert_eq tolerates float noise from unit conversion', () => {
+  const r = evaluate(bodyOf(['assert_eq(12 in, 1 ft)']));
+  assert.equal(r.rows[0].error, null);
+});
+
+test('evaluate: assert_eq still fails on a real difference', () => {
+  const r = evaluate(bodyOf(['assert_eq(1 m, 2 m)']));
+  assert.match(r.rows[0].error, /assert_eq failed/);
+});
+
+test('evaluate: type() builtin returns dimension name', () => {
+  const r = evaluate(bodyOf([
+    'type(2 m/s)',
+    'type(5 kg)',
+    'type(42)',
+  ]));
+  for (const row of r.rows) assert.equal(row.error, null);
+  assert.match(r.rows[0].result, /Length.*Time\^-1/);
+  assert.equal(r.rows[1].result, 'Mass');
+  assert.equal(r.rows[2].result, 'Scalar');
+});
+
 test('evaluate: @input followed by fn decl — decorator is consumed but fn still loads', () => {
   // @input on a non-binding line is essentially ignored (no chip is made
   // for an fn decl); the fn itself still loads normally.
