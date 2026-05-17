@@ -50,7 +50,12 @@ function resultMarkerHtml(lineIdx) {
   const r = state.body[lineIdx];
   if (!r) return null;
   if (r.error) {
-    return { html: escapeHtml(r.error), text: r.error, cls: 'error' };
+    // Don't echo the full error in the gutter — the inline-error block
+    // widget below the line already shows the message in full. The
+    // gutter just gets a small red dot as a row-level flag, with the
+    // raw message on hover for accessibility.
+    return { html: '<span class="ep-gutter-err-dot" aria-label="error"></span>',
+             text: r.error, cls: 'error' };
   }
   if (!r.result) return null;
 

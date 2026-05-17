@@ -650,6 +650,21 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Error rows: just a small red dot in the gutter. The full message
+ * lives in the cm-ep-error-block below the line — no need to echo it
+ * here as a truncated string. */
+.body .ep-result-gutter .ep-gutter-err-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sw-red);
+  vertical-align: middle;
+  margin-right: 2px;
+}
+[data-theme="dark"] .body .ep-result-gutter .ep-gutter-err-dot {
+  background: #ff8a82;
+}
 /* Narrow screens — slightly narrower gutter so it overlays less of the body. */
 @media (max-width: 720px) {
   .body { --ep-gutter-w: 100px; }
