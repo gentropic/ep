@@ -19,6 +19,11 @@ const SRC_FILES = [
   'format.js',
   'tokenize.js',
   'parse.js',
+  // Typechecker (HM-style, dim-aware). Independent of load.js — operates
+  // on AST + types only. Available to load.js if it chooses to opt-in.
+  'typecheck/rat.js',
+  'typecheck/types.js',
+  'typecheck/env.js',
   'load.js',
   'vendored.js',   // generated; safe to concat (only declares VENDORED_MODULES)
   'prelude.js',

@@ -1124,6 +1124,333 @@ function parse(tokens, sourceName = '<input>') {
   }
 }
 
+// ─── typecheck/rat.js ──────────────────────────────────
+// Rational arithmetic for typechecker exponents.
+//
+// Why rationals: the typechecker needs to express dim exponents like 1/2
+// (for sqrt) and 1/3 (for cbrt) during inference, even though the runtime
+// stays integer-only. A program like `sqrt(area)` typechecks as
+// `(Length^2)^(1/2) = Length^1` — the 1/2 has to be representable
+// somewhere or the typechecker can't close the loop.
+//
+// Shape: { n, d } where d > 0 and gcd(|n|, d) === 1. Always normalized at
+// construction. JS numbers (not BigInt) — exponents stay small in practice
+// (max we've seen in any prelude is 6) and the perf cost of BigInt isn't
+// worth it for the typecheck domain.
+
+function gcd(a, b) {
+  a = Math.abs(a); b = Math.abs(b);
+  while (b) { const t = b; b = a % b; a = t; }
+  return a;
+}
+
+function normalize(n, d) {
+  if (d === 0) throw new Error('rational: zero denominator');
+  if (d < 0) { n = -n; d = -d; }
+  if (n === 0) return { n: 0, d: 1 };
+  const g = gcd(n, d);
+  return { n: n / g, d: d / g };
+}
+
+function ratOf(n, d = 1) { return Object.freeze(normalize(n, d)); }
+
+const RAT_ZERO = ratOf(0);
+const RAT_ONE  = ratOf(1);
+
+function ratIsZero(r) { return r.n === 0; }
+function ratIsInt(r)  { return r.d === 1; }
+function ratIsOne(r)  { return r.n === 1 && r.d === 1; }
+
+function ratEq(a, b)  { return a.n === b.n && a.d === b.d; }
+
+function ratAdd(a, b) { return ratOf(a.n * b.d + b.n * a.d, a.d * b.d); }
+function ratSub(a, b) { return ratOf(a.n * b.d - b.n * a.d, a.d * b.d); }
+function ratMul(a, b) { return ratOf(a.n * b.n, a.d * b.d); }
+function ratDiv(a, b) {
+  if (b.n === 0) throw new Error('rational: division by zero');
+  return ratOf(a.n * b.d, a.d * b.n);
+}
+function ratNeg(a)    { return ratOf(-a.n, a.d); }
+
+function ratFormat(r) {
+  if (r.d === 1) return String(r.n);
+  return `${r.n}/${r.d}`;
+}
+
+// ─── typecheck/types.js ────────────────────────────────
+// Type representation for the typechecker.
+//
+// Tag-discriminated frozen objects, no classes — so structural equality
+// works via deep-compare and JSON.stringify gives a usable debug print.
+//
+// Two var spaces:
+//   TVar    — ordinary type variables (Bool/String/Fn/Struct/List polymorphism)
+//   TDimVar — dim-level variables (participate in multiplicative dim arithmetic)
+// Mixing them in one space makes the dim solver harder. Upstream splits the
+// same way (Type::TVar vs DType::TypeVariable).
+
+let _nextTVar    = 0;
+let _nextTDimVar = 0;
+
+function freshTVar()    { return { kind: 'TVar',    id: _nextTVar++ }; }
+function freshTDimVar() { return { kind: 'TDimVar', id: _nextTDimVar++ }; }
+
+// Test-only — reset id counters so test runs are reproducible.
+function resetTypeIds() { _nextTVar = 0; _nextTDimVar = 0; }
+
+// ── DimExpr ───────────────────────────────────────────────────────
+//
+// A dim expression at typecheck time: a product of base-dim powers and
+// dim-var powers. Stored as two sparse maps with rational exponents.
+//
+//   { base: { length: Rat, mass: Rat, ... },
+//     vars: { 0: Rat, 1: Rat, ... } }       // keys are TDimVar ids
+//
+// Identity (dimensionless / scalar) is `{ base: {}, vars: {} }`.
+// Concrete runtime dims (from dimensions.js) lift in via dimExprFromMap —
+// all integer denominators, no vars.
+
+function freezeDimExpr(base, vars) {
+  return Object.freeze({ base: Object.freeze(base), vars: Object.freeze(vars) });
+}
+
+function dimExprEmpty() { return freezeDimExpr({}, {}); }
+
+function dimExprFromMap(dimMap) {
+  const base = {};
+  for (const k in dimMap) {
+    if (dimMap[k] !== 0) base[k] = ratOf(dimMap[k]);
+  }
+  return freezeDimExpr(base, {});
+}
+
+function dimExprFromVar(tdvar) {
+  return freezeDimExpr({}, { [tdvar.id]: ratOf(1) });
+}
+
+function ratMapEq(a, b) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    const ra = a[k]; const rb = b[k];
+    if (!ra) { if (!ratIsZero(rb)) return false; continue; }
+    if (!rb) { if (!ratIsZero(ra)) return false; continue; }
+    if (!ratEq(ra, rb)) return false;
+  }
+  return true;
+}
+
+function dimExprEq(a, b) {
+  return ratMapEq(a.base, b.base) && ratMapEq(a.vars, b.vars);
+}
+
+function dimExprIsConcrete(d) { return Object.keys(d.vars).length === 0; }
+function dimExprIsScalar(d) {
+  if (!dimExprIsConcrete(d)) return false;
+  for (const k in d.base) if (!ratIsZero(d.base[k])) return false;
+  return true;
+}
+
+function dimExprFormat(d) {
+  const parts = [];
+  for (const k in d.base) {
+    const r = d.base[k];
+    if (ratIsZero(r)) continue;
+    parts.push(r.n === 1 && r.d === 1 ? k : `${k}^${ratFormat(r)}`);
+  }
+  for (const k in d.vars) {
+    const r = d.vars[k];
+    if (ratIsZero(r)) continue;
+    const name = `$${k}`;
+    parts.push(r.n === 1 && r.d === 1 ? name : `${name}^${ratFormat(r)}`);
+  }
+  return parts.join('·') || '-';
+}
+
+// ── Type constructors ─────────────────────────────────────────────
+
+function tVar(id)                   { return Object.freeze({ kind: 'TVar', id }); }
+function tDimVar(id)                { return Object.freeze({ kind: 'TDimVar', id }); }
+function tDim(dimExpr)              { return Object.freeze({ kind: 'TDim', dim: dimExpr }); }
+function tBool()                    { return T_BOOL; }
+function tString()                  { return T_STRING; }
+function tNever()                   { return T_NEVER; }
+function tFn(params, result)        { return Object.freeze({ kind: 'TFn', params: Object.freeze([...params]), result }); }
+function tList(elem)                { return Object.freeze({ kind: 'TList', elem }); }
+function tStruct(name, fields)      { return Object.freeze({ kind: 'TStruct', name, fields: Object.freeze({ ...fields }) }); }
+function tTuple(elems)              { return Object.freeze({ kind: 'TTuple', elems: Object.freeze([...elems]) }); }
+
+// A type scheme is ∀(tvars, dimVars). body — used for generic fn signatures.
+//
+//   fn id<D>(x: D) -> D
+// becomes
+//   tScheme([], [d0], tFn([tDim(dimExprFromVar(d0))], tDim(dimExprFromVar(d0))))
+function tScheme(tvars, dimVars, body) {
+  return Object.freeze({ kind: 'TScheme', tvars: Object.freeze([...tvars]), dimVars: Object.freeze([...dimVars]), body });
+}
+
+const T_BOOL   = Object.freeze({ kind: 'TBool' });
+const T_STRING = Object.freeze({ kind: 'TString' });
+const T_NEVER  = Object.freeze({ kind: 'TNever' });
+
+const T_SCALAR = tDim(dimExprEmpty());
+
+// ── Closed-type equality + formatting ─────────────────────────────
+//
+// Structural eq for types with NO free vars. Open types (containing TVar
+// or TDimVar without substitution) are unifier territory — use unify().
+
+function typeEq(a, b) {
+  if (a === b) return true;
+  if (a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case 'TBool':
+    case 'TString':
+    case 'TNever':
+      return true;
+    case 'TVar':
+    case 'TDimVar':
+      return a.id === b.id;
+    case 'TDim':
+      return dimExprEq(a.dim, b.dim);
+    case 'TFn':
+      if (a.params.length !== b.params.length) return false;
+      for (let i = 0; i < a.params.length; i++) if (!typeEq(a.params[i], b.params[i])) return false;
+      return typeEq(a.result, b.result);
+    case 'TList':
+      return typeEq(a.elem, b.elem);
+    case 'TTuple':
+      if (a.elems.length !== b.elems.length) return false;
+      for (let i = 0; i < a.elems.length; i++) if (!typeEq(a.elems[i], b.elems[i])) return false;
+      return true;
+    case 'TStruct': {
+      if (a.name !== b.name) return false;
+      const ak = Object.keys(a.fields).sort();
+      const bk = Object.keys(b.fields).sort();
+      if (ak.length !== bk.length) return false;
+      for (let i = 0; i < ak.length; i++) {
+        if (ak[i] !== bk[i]) return false;
+        if (!typeEq(a.fields[ak[i]], b.fields[bk[i]])) return false;
+      }
+      return true;
+    }
+    case 'TScheme':
+      if (a.tvars.length !== b.tvars.length) return false;
+      if (a.dimVars.length !== b.dimVars.length) return false;
+      return typeEq(a.body, b.body);
+    default:
+      throw new Error(`typeEq: unknown kind ${a.kind}`);
+  }
+}
+
+function formatType(t) {
+  switch (t.kind) {
+    case 'TBool':   return 'Bool';
+    case 'TString': return 'String';
+    case 'TNever':  return '!';
+    case 'TVar':    return `'a${t.id}`;
+    case 'TDimVar': return `$${t.id}`;
+    case 'TDim':    return dimExprIsScalar(t.dim) ? 'Scalar' : dimExprFormat(t.dim);
+    case 'TFn':     return `(${t.params.map(formatType).join(', ')}) -> ${formatType(t.result)}`;
+    case 'TList':   return `List<${formatType(t.elem)}>`;
+    case 'TTuple':  return `(${t.elems.map(formatType).join(', ')})`;
+    case 'TStruct': return t.name;
+    case 'TScheme': {
+      const binders = [
+        ...t.tvars.map(v => `'a${v.id ?? v}`),
+        ...t.dimVars.map(v => `$${v.id ?? v}`),
+      ].join(', ');
+      return binders.length ? `∀(${binders}). ${formatType(t.body)}` : formatType(t.body);
+    }
+    default: return `<unknown ${t.kind}>`;
+  }
+}
+
+// Walk a type and collect free TVar ids and free TDimVar ids. "Free" here
+// means "appears anywhere" — TScheme binders are NOT subtracted; callers
+// that need scheme-aware freevars handle it themselves.
+function freeVars(t, acc = { tvars: new Set(), dimVars: new Set() }) {
+  switch (t.kind) {
+    case 'TVar':    acc.tvars.add(t.id); break;
+    case 'TDimVar': acc.dimVars.add(t.id); break;
+    case 'TDim':    for (const k in t.dim.vars) acc.dimVars.add(Number(k)); break;
+    case 'TFn':     for (const p of t.params) freeVars(p, acc); freeVars(t.result, acc); break;
+    case 'TList':   freeVars(t.elem, acc); break;
+    case 'TTuple':  for (const e of t.elems) freeVars(e, acc); break;
+    case 'TStruct': for (const k in t.fields) freeVars(t.fields[k], acc); break;
+    case 'TScheme': freeVars(t.body, acc); break;
+    case 'TBool': case 'TString': case 'TNever': break;
+  }
+  return acc;
+}
+
+// ─── typecheck/env.js ──────────────────────────────────
+// Typed environment for the typechecker.
+//
+// Parallel to load.js's value env. Walks a parent chain on lookup; new
+// scopes are child envs that shadow the parent. Immutable from the
+// caller's view — operations return new envs rather than mutating.
+//
+// Four slots, mirroring the runtime env shape so the two stay in sync:
+//   values   — identifier → Type    (let-bindings, fn params in scope)
+//   fns      — fn-name    → TScheme (always a scheme; monomorphic fns
+//                                    are just schemes with no binders)
+//   dims     — dim-name   → DimMap  (`Length` → {length:1}, etc.)
+//   structs  — name       → TStruct
+
+function makeTypeEnv() {
+  return {
+    parent:  null,
+    values:  new Map(),
+    fns:     new Map(),
+    dims:    new Map(),
+    structs: new Map(),
+  };
+}
+
+function typeEnvExtend(parent) {
+  return {
+    parent,
+    values:  new Map(),
+    fns:     new Map(),
+    dims:    new Map(),
+    structs: new Map(),
+  };
+}
+
+function lookupIn(env, slot, name) {
+  let e = env;
+  while (e) {
+    const v = e[slot].get(name);
+    if (v !== undefined) return v;
+    e = e.parent;
+  }
+  return undefined;
+}
+
+function typeEnvLookupValue(env, name)  { return lookupIn(env, 'values',  name); }
+function typeEnvLookupFn(env, name)     { return lookupIn(env, 'fns',     name); }
+function typeEnvLookupDim(env, name)    { return lookupIn(env, 'dims',    name); }
+function typeEnvLookupStruct(env, name) { return lookupIn(env, 'structs', name); }
+
+function typeEnvBindValue(env, name, type)    { env.values.set(name,  type);   return env; }
+function typeEnvBindFn(env, name, scheme)     { env.fns.set(name,     scheme); return env; }
+function typeEnvBindDim(env, name, dim)       { env.dims.set(name,    dim);    return env; }
+function typeEnvBindStruct(env, name, struct) { env.structs.set(name, struct); return env; }
+
+// Collect free TVar/TDimVar ids that appear in any binding in this env
+// (and its parents). Used by generalize() to know which vars are
+// "captured" by the outer scope and therefore must NOT be generalized at
+// the current fn boundary. Implementation comes in scheme.js; this is the
+// hook so callers don't need to know the env shape.
+function envFreeVars(env, collect) {
+  let e = env;
+  while (e) {
+    for (const t of e.values.values()) collect(t);
+    for (const s of e.fns.values())    collect(s);
+    e = e.parent;
+  }
+}
+
 // ─── load.js ───────────────────────────────────────────
 // Loader for parsed Numbat-script modules.
 //
