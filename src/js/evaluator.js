@@ -26,6 +26,7 @@
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
 import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
+import { traceBlame } from './blame.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
 // Uses the v0.1 prelude: ep's existing ore-body-shaped unit table. The
@@ -719,7 +720,19 @@ export function evaluate(body) {
         try {
           const spec = resolveUnitExpression(outputUnit);
           if (!dEq(spec.dim, q.dim)) {
-            err = `<row>:1:1: @output(${outputUnit}) wants [${fmtDim(spec.dim)}] but value is [${fmtDim(q.dim)}]`;
+            // Try to identify the offending sub-term via bidirectional
+            // blame. Parse the expression ONCE for the walker (cheap;
+            // already tokenized for evalExprText so the AST is small).
+            let blameSuffix = '';
+            try {
+              const ast = parse(tokenize(`let __ep__ = ${c.expr}`, '<line>'), '<line>');
+              const expr = ast.decls[0].expr;
+              const blame = traceBlame(expr, spec.dim, env);
+              if (blame) {
+                blameSuffix = ` — '${blame.name}' has [${fmtDim(blame.actual)}] but the chain needs [${fmtDim(blame.expected)}]`;
+              }
+            } catch { /* fall through without blame */ }
+            err = `<row>:1:1: @output(${outputUnit}) wants [${fmtDim(spec.dim)}] but value is [${fmtDim(q.dim)}]${blameSuffix}`;
           }
         } catch (e) {
           err = `@output(${outputUnit}): ${e.message}`;
