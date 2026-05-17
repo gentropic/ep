@@ -106,9 +106,33 @@ function mountCm6() {
     StreamLanguage, syntaxHighlighting, HighlightStyle, tags,
     foldGutter, foldKeymap, foldService,
     bracketMatching, closeBrackets,
-    Decoration, StateField, StateEffect,
+    Decoration, WidgetType, StateField, StateEffect,
     autocompletion, CompletionContext, acceptCompletion,
   } = CM6;
+
+  // Inline-error block widget — renders BELOW the offending line so the
+  // full message has room to breathe. The gutter is too narrow for
+  // dim-mismatch + did-you-mean style messages.
+  class EpErrorWidget extends WidgetType {
+    constructor(message, col) { super(); this.message = message; this.col = col; }
+    eq(other) { return other.message === this.message && other.col === this.col; }
+    toDOM() {
+      const el = document.createElement('div');
+      el.className = 'cm-ep-error-block';
+      const pad = document.createElement('span');
+      pad.className = 'cm-ep-error-block-pad';
+      // Approximate column alignment via a CSS variable — the editor's
+      // ch unit matches the monospace cell width. Leading bar drops down
+      // from the caret position.
+      pad.style.setProperty('--ep-err-col', String(Math.max(0, this.col - 1)));
+      const msg = document.createElement('span');
+      msg.className = 'cm-ep-error-block-msg';
+      msg.textContent = this.message;
+      el.append(pad, msg);
+      return el;
+    }
+    ignoreEvent() { return false; }
+  }
   void foldService;  // no @params fold in decorator form; service still imported for future use
 
   // ── ep-script tokenizer (StreamLanguage) ────────────────────────
@@ -241,7 +265,7 @@ function mountCm6() {
       value = value.map(tr.changes);
       for (const e of tr.effects) {
         if (!e.is(_errorEffect)) continue;
-        const marks = [];
+        const decos = [];
         for (const it of e.value) {
           if (!it || it.line < 1 || it.line > tr.state.doc.lines) continue;
           const line = tr.state.doc.line(it.line);
@@ -253,12 +277,24 @@ function mountCm6() {
           const from = line.from + fromCol;
           const to   = line.to;
           if (from >= to) continue;
-          marks.push(Decoration.mark({
+          // Inline mark for the underline (also keeps the title attribute
+          // as a fallback for screen readers / quick hover).
+          decos.push(Decoration.mark({
             class: 'cm-ep-error',
             attributes: { title: it.message || '' },
           }).range(from, to));
+          // Block widget on the line AFTER, with the full message.
+          // Strip the upstream `<src>:line:col:` prefix when present —
+          // the caret already positions it, the user doesn't need to
+          // re-read the coordinates.
+          const cleanMsg = (it.message || '').replace(/^[^:]*:\d+:\d+:\s*/, '');
+          decos.push(Decoration.widget({
+            widget: new EpErrorWidget(cleanMsg, fromCol + 1),
+            block: true,
+            side: 1,
+          }).range(line.to));
         }
-        value = Decoration.set(marks, true);
+        value = Decoration.set(decos, true);
       }
       return value;
     },

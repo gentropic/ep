@@ -697,6 +697,38 @@ body {
   text-underline-offset: 3px;
 }
 
+/* Inline-error block: lives BELOW the offending line so the full
+ * dim-mismatch / did-you-mean / etc. message has room to read at a
+ * glance. The leading pad approximates the column of the caret so the
+ * message reads like an annotation pointing at the right operand. */
+.body .cm-content .cm-ep-error-block {
+  display: block;
+  padding: 1px 0 3px 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--sw-red);
+  background: rgba(168, 49, 42, 0.06);     /* sw-red @ 6% */
+  border-left: 2px solid var(--sw-red);
+  margin-left: 1px;
+}
+.body .cm-content .cm-ep-error-block-pad {
+  display: inline-block;
+  /* ch units match the editor's monospace cell width — gives a rough
+   * caret-position offset without measuring DOM. */
+  width: calc(var(--ep-err-col, 0) * 1ch);
+}
+.body .cm-content .cm-ep-error-block-msg {
+  white-space: normal;
+  padding-right: 4px;
+}
+/* Dark theme tweak — the pale red background washes out in dark mode;
+ * use a slightly stronger tint and lighter text. */
+[data-theme="dark"] .body .cm-content .cm-ep-error-block {
+  color: #ff8a82;
+  background: rgba(255, 138, 130, 0.08);
+  border-left-color: #ff8a82;
+}
+
 /* ─── Unit picker bottom sheet ─────────────────────────────────────
  * Slides up from the bottom; mobile-friendly thumb reach. Scrim above
  * dims the rest of the app. The sheet is below the settings panel
