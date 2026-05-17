@@ -1978,14 +1978,16 @@ function inferBinary(node, env, ctx) {
     const r = inferExpr(node.right, env, ctx);
     cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
     cAdd(ctx.cs, cIsDType(r, spanOf(node.right)));
-    if (l.kind === 'TDim' && r.kind === 'TDim') {
-      return tDim(op === '*' ? dimExprMul(l.dim, r.dim) : dimExprDiv(l.dim, r.dim));
-    }
-    // At least one side is a TVar that needs to resolve to a TDim. Phase 3
-    // solver handles this; for now we return a fresh dim-var-flavoured TDim
-    // so the rest of inference proceeds.
-    const tdv = freshTDimVar();
-    return tDim(dimExprFromVar(tdv));
+    // Pull a dim-expr out of each operand. When the operand is already a
+    // TDim, use its dim directly. When it's a TVar (will be promoted to
+    // TDim by the IsDType handler), allocate a fresh dim-var and emit an
+    // Equal constraint that ties the TVar to TDim<$thatDimVar> so the
+    // result expression stays connected to the operand's dim.
+    const lDim = l.kind === 'TDim' ? l.dim : dimExprFromVar(freshTDimVar());
+    const rDim = r.kind === 'TDim' ? r.dim : dimExprFromVar(freshTDimVar());
+    if (l.kind !== 'TDim') cAdd(ctx.cs, cEqual(l, tDim(lDim), spanOf(node.left)));
+    if (r.kind !== 'TDim') cAdd(ctx.cs, cEqual(r, tDim(rDim), spanOf(node.right)));
+    return tDim(op === '*' ? dimExprMul(lDim, rDim) : dimExprDiv(lDim, rDim));
   }
 
   if (op === '^') {
@@ -1993,11 +1995,14 @@ function inferBinary(node, env, ctx) {
     const exp = tryFoldConst(node.right);
     if (exp) {
       if (l.kind === 'TDim') return tDim(dimExprPow(l.dim, exp));
-      // Unresolved base — emit a constraint that it must be a dim, return
-      // a fresh dim-var TDim so the surrounding pass can keep walking.
+      // Unresolved base: emit IsDType + allocate a dim-var, tie l to
+      // TDim<$dv>, and return TDim<$dv ^ exp> so the surrounding pass
+      // sees the right dim shape downstream.
       cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
-      const tdv = freshTDimVar();
-      return tDim(dimExprFromVar(tdv));
+      const dv = freshTDimVar();
+      const dvDim = dimExprFromVar(dv);
+      cAdd(ctx.cs, cEqual(l, tDim(dvDim), spanOf(node.left)));
+      return tDim(dimExprPow(dvDim, exp));
     }
     // Non-const exponent — both base and exp must be Scalar (the only
     // case dimensionally well-defined without static eval).
@@ -2537,7 +2542,15 @@ function solve(constraintSet) {
         } else if (c.kind === 'IsDType') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
-          if (r.kind === 'TVar') { next.push(c); continue; }  // defer
+          if (r.kind === 'TVar') {
+            // Promote: this TVar must be a dimension type. Bind it to a
+            // fresh TDim wrapping a fresh dim-var. Subsequent uses of the
+            // TVar resolve to that TDim; the dim-var stays free until
+            // either further constraints pin it or the post-pass
+            // generalizes it.
+            subst = extendTVar(subst, r.id, tDim(dimExprFromVar(freshTDimVar())));
+            continue;
+          }
           throw new UnifyError(`expected dimension type, got ${formatTypePretty(r)}`, c.span);
         } else if (c.kind === 'HasField') {
           const r = applyType(c.t, subst);
@@ -2757,17 +2770,67 @@ function structRecordToScheme(rec, tcEnv) {
   return generalize(tStruct(rec.name, fields), [], dimVars);
 }
 
-// One-shot: parse + check + solve, return diagnostics. Hosts that want
-// to opt into typechecking call this before loadModule.
+// One-shot: parse + check + solve + generalize, return diagnostics.
+// Hosts that want to opt into typechecking call this before loadModule.
+//
+// Solves PER-DECL so each later decl sees earlier fns as fully-
+// generalized schemes (proper HM let-generalization). Without this,
+// `fn f(x) = x` would infer (α) -> α with α unbound — and the first
+// call site would pin α to a concrete type, breaking polymorphic use.
 function typecheckModule(ast, runtimeEnv) {
   const env = buildTypeEnv(runtimeEnv);
-  const { constraints, errors: checkErrors } = checkModule(ast, env);
-  const { subst, errors: solveErrors } = solve(constraints);
-  return {
-    env,
-    subst,
-    errors: [...checkErrors, ...solveErrors],
-  };
+  const errors = [];
+  const allSubst = makeSubst();
+  for (const decl of ast.decls) {
+    const ctx = { cs: makeConstraintSet(), errors: [], generics: new Map() };
+    try {
+      checkDecl(decl, env, ctx);
+    } catch (e) {
+      errors.push({ message: e.message, span: e.span || null });
+      continue;
+    }
+    if (ctx.errors.length) {
+      errors.push(...ctx.errors);
+      continue;
+    }
+    const { subst, errors: solveErrs } = solve(ctx.cs);
+    errors.push(...solveErrs);
+    if (solveErrs.length) continue;
+    // Merge into the running subst — useful for hosts that want to
+    // inspect resolved types after the whole module.
+    for (const [k, v] of subst.tvars)   allSubst.tvars.set(k, v);
+    for (const [k, v] of subst.dimVars) allSubst.dimVars.set(k, v);
+    finalizeDecl(decl, env, subst);
+  }
+  return { env, subst: allSubst, errors };
+}
+
+// After per-decl solve, apply the substitution to anything this decl
+// added to the env and generalize fn schemes.
+function finalizeDecl(decl, env, subst) {
+  if (decl.type === 'FnDecl') {
+    const scheme = env.fns.get(decl.name);
+    if (!scheme || scheme.kind !== 'TScheme') return;
+    const resolvedBody = applyType(scheme.body, subst);
+    const fv = freeVars(resolvedBody);
+    const haveT = new Set(scheme.tvars.map(v => v.id));
+    const haveD = new Set(scheme.dimVars.map(v => v.id));
+    const newT = [...fv.tvars].filter(id => !haveT.has(id)).map(id => tVar(id));
+    const newD = [...fv.dimVars].filter(id => !haveD.has(id)).map(id => tDimVar(id));
+    env.fns.set(decl.name, tScheme(
+      [...scheme.tvars, ...newT],
+      [...scheme.dimVars, ...newD],
+      resolvedBody,
+    ));
+  } else if (decl.type === 'LetDecl' || decl.type === 'UnitDecl') {
+    const t = env.values.get(decl.name);
+    if (t) env.values.set(decl.name, applyType(t, subst));
+  } else if (decl.type === 'StructDecl') {
+    const s = env.structs.get(decl.name);
+    if (s && s.kind === 'TScheme') {
+      env.structs.set(decl.name, tScheme(s.tvars, s.dimVars, applyType(s.body, subst)));
+    }
+  }
 }
 
 // ─── load.js ───────────────────────────────────────────

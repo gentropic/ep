@@ -8,8 +8,9 @@
 // pass produces no changes and constraints remain, they're unresolvable
 // and we surface as errors.
 
-import { applyType, makeSubst, UnifyError } from './subst.js';
+import { applyType, makeSubst, UnifyError, extendTVar } from './subst.js';
 import { unify } from './unify.js';
+import { tDim, freshTDimVar, dimExprFromVar } from './types.js';
 import { formatTypePretty } from './errors.js';
 
 export function solve(constraintSet) {
@@ -35,7 +36,15 @@ export function solve(constraintSet) {
         } else if (c.kind === 'IsDType') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
-          if (r.kind === 'TVar') { next.push(c); continue; }  // defer
+          if (r.kind === 'TVar') {
+            // Promote: this TVar must be a dimension type. Bind it to a
+            // fresh TDim wrapping a fresh dim-var. Subsequent uses of the
+            // TVar resolve to that TDim; the dim-var stays free until
+            // either further constraints pin it or the post-pass
+            // generalizes it.
+            subst = extendTVar(subst, r.id, tDim(dimExprFromVar(freshTDimVar())));
+            continue;
+          }
           throw new UnifyError(`expected dimension type, got ${formatTypePretty(r)}`, c.span);
         } else if (c.kind === 'HasField') {
           const r = applyType(c.t, subst);

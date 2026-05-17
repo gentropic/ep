@@ -456,5 +456,364 @@ test('upstream: list_head_tail', { skip: 'core::lists schemes not lifted yet (#9
   assertErr('let x = head([2 a, 3 b])', DIM_MISMATCH);
 });
 
-// ── no-op test to keep file structure when more land later ──────
+// ── boolean_values ───────────────────────────────────────────────
+
+test('upstream: boolean_values — unary minus on bool errors', () => {
+  assertErr(wrap('-true'));
+});
+
+// ── arity_checks_in_procedure_calls ─────────────────────────────
+//
+// upstream tests `assert_eq(1)` etc. against the assert_eq procedure
+// (overloaded 2-or-3 args). We have BUILTIN_PROCS but no schemes for
+// them in the typed env. SKIP.
+
+test('upstream: arity_checks_in_procedure_calls', { skip: 'BUILTIN_PROCS schemes not lifted into typed env yet' }, () => {
+  assertErr('assert_eq(1)', /arity/);
+  assertOk('assert_eq(1, 2)');
+});
+
+// ── foreign_function / unknown_foreign_function ─────────────────
+//
+// Upstream distinguishes "fn declared without body" + "function not
+// known to host" as separate errors. Our checker accepts body-less
+// fns as extern (matching upstream behavior) but doesn't validate
+// against a host fn registry. SKIP both.
+
+test('upstream: foreign_function_with_missing_return_type', { skip: 'extern fn must have annotated return — we currently allow inferred' }, () => {
+  assertErr('fn sin(x: Scalar)');
+});
+
+// ── structs ──────────────────────────────────────────────────────
+
+test('upstream: structs — basic decl + use + field access', () => {
+  assertOk(`
+    struct Foo { foo: A, bar: C }
+    let s = Foo { foo: 1 a, bar: 2 c }
+    let foo: A = s.foo
+    let bar: C = s.bar
+  `.trim());
+});
+
+test('upstream: structs — wrong field type', () => {
+  assertErr(wrap('SomeStruct { a: 1, b: 1 b }'));   // a should be A, given Scalar
+});
+
+test('upstream: structs — unknown struct name', () => {
+  assertErr(wrap('NotAStruct {}'), /unknown struct/);
+});
+
+test('upstream: structs — unknown field on instantiation', () => {
+  assertErr(wrap('SomeStruct { not_a_field: 1 }'), /no field/);
+});
+
+test('upstream: structs — missing fields', () => {
+  assertErr(wrap('SomeStruct {}'), /missing field/);
+});
+
+test('upstream: structs — field access on non-struct', () => {
+  // (1).foo — 1 is a Scalar, not a struct.
+  assertErr(wrap('(1).foo'));
+});
+
+test('upstream: structs — unknown field access', () => {
+  assertErr(wrap('(SomeStruct { a: 1 a, b: 1 b }).foo'), /no field/);
+});
+
+test('upstream: structs — concrete dim error on field result', () => {
+  // (SomeStruct {a, b}).a returns A; adding 2b should fail dim check.
+  assertErr(wrap('(SomeStruct { a: 1 a, b: 1 b }).a + 2 b'), DIM_MISMATCH);
+});
+
+test('upstream: structs — id<T>(struct) preserves struct type', { skip: 'needs unrestricted-default <T> generics (#102)' }, () => {
+  // Regression test from upstream issue #459. Requires `id<T>` to be
+  // unrestricted (any type), not Dim-restricted. Our default is Dim.
+  assertOk(wrap('id(SomeStruct { a: 1 a, b: 1 b }).a'));
+});
+
+// ── generic_structs ─────────────────────────────────────────────
+
+test('upstream: generic_structs — single type param', () => {
+  assertOk(`
+    struct Wrapper<X> { inner: X }
+    let w = Wrapper { inner: 1 a }
+    let x: A = w.inner
+    let w2: Wrapper<A> = Wrapper { inner: 1 a }
+  `.trim());
+});
+
+test('upstream: generic_structs — two type params', () => {
+  assertOk(`
+    struct Tuple<X, Y> { x: X, y: Y }
+    let t = Tuple { x: 1 a, y: 1 b }
+    let x: A = t.x
+    let y: B = t.y
+    let t2: Tuple<A, B> = Tuple { x: 1 a, y: 1 b }
+  `.trim());
+});
+
+test('upstream: generic_structs — type args mismatch annotation', () => {
+  assertErr(`
+    struct Wrapper<X> { inner: X }
+    let w: Wrapper<A> = Wrapper { inner: 1 b }
+  `.trim());
+});
+
+test('upstream: generic_structs — proper unification (Rate<B>)', () => {
+  assertOk(`
+    struct Rate<D: Dim> { inner: D / A }
+    let r: Rate<B> = Rate { inner: b / a }
+  `.trim());
+});
+
+test('upstream: generic_structs — nested generics', { skip: 'needs unrestricted-default <T> generics so Wrapper<X> can take a struct in X (#102)' }, () => {
+  assertOk(`
+    struct Wrapper<X> { inner: X }
+    let w: Wrapper<Wrapper<A>> = Wrapper { inner: Wrapper { inner: 1 a } }
+    let x: A = w.inner.inner
+  `.trim());
+});
+
+test('upstream: generic_structs — wrong number of type args', { skip: 'arity check on generic-struct application not implemented yet' }, () => {
+  assertErr(`
+    struct Wrapper<D: Dim> { inner: D }
+    let x: Wrapper = Wrapper { inner: 1 a }
+  `.trim());
+});
+
+// ── lists ────────────────────────────────────────────────────────
+
+test('upstream: lists — empty + scalar + dim', () => {
+  assertOk(wrap('[]'));
+  assertOk(wrap('[1]'));
+  assertOk(wrap('[1, 2]'));
+  assertOk(wrap('[1 a]'));
+  assertOk(wrap('[1 a, 2 a]'));
+  assertOk(wrap('[[1 a, 2 a], [3 a]]'));
+  assertOk(wrap('[true]'));
+});
+
+test('upstream: lists — mixed Scalar/Dim is rejected', () => {
+  assertErr(wrap('[1, a]'));
+  assertErr(wrap('[[1 a], 2 a]'));
+  assertErr(wrap('[[1 a], [1 b]]'), DIM_MISMATCH);
+});
+
+// ── instantiation (Dim-restricted generic with non-Dim arg) ─────
+
+test('upstream: instantiation — id with Dim arg works', () => {
+  assertOk(wrap('id(1)'));
+  assertOk(wrap('id(1 a) / id(1 b)'));
+});
+
+test('upstream: instantiation — id_for_dim rejects non-Dim', () => {
+  // id_for_dim is <T: Dim>; passing Bool should fail.
+  assertErr(wrap('id_for_dim(true)'));
+});
+
+// ── name_resolution ──────────────────────────────────────────────
+//
+// Upstream rejects `dimension Foo` + `struct Foo` (clash). Ours just
+// shadows / overrides. Not currently enforced.
+
+test('upstream: name_resolution — dim/struct clash', { skip: 'name-clash detection not implemented (#93 family)' }, () => {
+  assertErr('dimension Foo\nstruct Foo {}');
+});
+
+// ═══ type_inference.rs ════════════════════════════════════════════
+//
+// Upstream uses `assert_eq!(get_inferred_fn_type(...), expected_scheme)`
+// for exact type-scheme matching. We don't have a scheme equality
+// helper — instead we use a structural check via `inferredFnScheme`
+// that returns the scheme for a fn-decl, and assert on
+// {tvarsLen, dimVarsLen, paramsLen, paramKinds, resultKind, ...}.
+//
+// Less precise than upstream (we don't verify exact dim shapes
+// everywhere) but catches the same class of regressions.
+
+function inferredFnScheme(input, fnName) {
+  const host = buildPreludedHost();
+  const combined = TEST_PRELUDE + '\n' + input;
+  const ast = numbat.parse(numbat.tokenize(combined, '<input>'), '<input>');
+  const r = typecheckModule(ast, host);
+  assert.deepEqual(r.errors, [], `expected to typecheck:\n  ${input}`);
+  return r.env.fns.get(fnName);
+}
+
+function shape(scheme) {
+  // Compact descriptor: "∀ tvarsLen TVars, dimVarsLen DimVars. (paramKinds...) -> resultKind"
+  const params = scheme.body.params.map(p => p.kind === 'TDim' ? 'Dim' : p.kind === 'TBool' ? 'Bool' : p.kind === 'TString' ? 'String' : p.kind === 'TVar' ? 'TVar' : p.kind === 'TList' ? 'List' : p.kind);
+  const result = scheme.body.result.kind === 'TDim' ? 'Dim' : scheme.body.result.kind === 'TBool' ? 'Bool' : scheme.body.result.kind === 'TString' ? 'String' : scheme.body.result.kind === 'TVar' ? 'TVar' : scheme.body.result.kind === 'TList' ? 'List' : scheme.body.result.kind;
+  return `∀${scheme.tvars.length}+${scheme.dimVars.length}.(${params.join(',')})→${result}`;
+}
+
+// ── inference: if/then/else ──────────────────────────────────────
+
+test('upstream-infer: if_then_else — x constrained by other branch', () => {
+  // `fn f(x) = if true then x else a` — x must be A.
+  const s = inferredFnScheme('fn f(x) = if true then x else a', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');
+});
+
+test('upstream-infer: if_then_else — x as bool from cond position', () => {
+  const s = inferredFnScheme('fn f(x) = if x then a else a', 'f');
+  assert.equal(shape(s), '∀0+0.(Bool)→Dim');
+});
+
+// ── inference: equality ──────────────────────────────────────────
+
+test('upstream-infer: equality — x constrained by ==', () => {
+  const s = inferredFnScheme('fn f(x) = x == a', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Bool');
+});
+
+test('upstream-infer: equality with String', () => {
+  const s = inferredFnScheme('fn f(x) = x == "foo"', 'f');
+  assert.equal(shape(s), '∀0+0.(String)→Bool');
+});
+
+test('upstream-infer: equality unconstrained — both args generalize', () => {
+  // `fn f(x, y) = x == y` — both unconstrained → ∀α. (α, α) → Bool
+  const s = inferredFnScheme('fn f(x, y) = x == y', 'f');
+  // Free-TVar generalize produces one binder (both params unify to it)
+  assert.equal(s.tvars.length, 1);
+  assert.equal(s.body.params.length, 2);
+  assert.equal(s.body.result.kind, 'TBool');
+});
+
+// ── inference: unary minus ───────────────────────────────────────
+
+test('upstream-infer: unary minus — x is a Dim', () => {
+  // `fn f(x) = -x` — x must be a Dim. Generalizes to <D>(D) -> D.
+  const s = inferredFnScheme('fn f(x) = -x', 'f');
+  // Unary minus emits IsDType(x). Solver enforces x = TDim. Should be
+  // generalized over a dim-var.
+  assert.equal(s.dimVars.length + s.tvars.length, 1, 'expected one generalized binder');
+});
+
+// ── inference: logical operators ─────────────────────────────────
+
+test('upstream-infer: logical && — x is Bool', () => {
+  const s = inferredFnScheme('fn f(x) = x && true', 'f');
+  assert.equal(shape(s), '∀0+0.(Bool)→Bool');
+});
+
+// ── inference: structs ──────────────────────────────────────────
+
+test('upstream-infer: structs — x constrained by struct field', () => {
+  // `fn f(x) = (SomeStruct { a: x, b: b }).a` — x must be A.
+  const s = inferredFnScheme('fn f(x) = (SomeStruct { a: x, b: b }).a', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');
+});
+
+// ── inference: factorial ────────────────────────────────────────
+
+test('upstream-infer: factorial — x is Scalar', () => {
+  const s = inferredFnScheme('fn f(x) = x!', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');   // both Scalar; Scalar is TDim with empty dim
+});
+
+// ── inference: basic_polymorphic ────────────────────────────────
+
+test('upstream-infer: identity fn generalizes', () => {
+  const s = inferredFnScheme('fn f(x) = x', 'f');
+  // <T>(T) -> T
+  assert.equal(s.tvars.length + s.dimVars.length, 1);
+  assert.equal(s.body.params.length, 1);
+});
+
+test('upstream-infer: constant fn generalizes two TVars', () => {
+  const s = inferredFnScheme('fn f(x, y) = x', 'f');
+  // <T, S>(S, T) -> S  OR  <T, S>(T, S) -> T — two binders, one used
+  assert.equal(s.tvars.length + s.dimVars.length, 2);
+  assert.equal(s.body.params.length, 2);
+});
+
+// ── inference: dimension_types_addition_subtraction ─────────────
+
+test('upstream-infer: x + a — x must be A', () => {
+  const s = inferredFnScheme('fn f(x) = x + a', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');
+});
+
+test('upstream-infer: x + x — generalizes over dim', () => {
+  const s = inferredFnScheme('fn f(x) = x + x', 'f');
+  // <D>(D) -> D
+  assert.equal(s.dimVars.length, 1);
+});
+
+test('upstream-infer: x + y — both must be same dim', () => {
+  const s = inferredFnScheme('fn f(x, y) = x + y', 'f');
+  // <D>(D, D) -> D
+  assert.equal(s.dimVars.length, 1);
+  assert.equal(s.body.params.length, 2);
+});
+
+test('upstream-infer: bool+dim rejected', () => {
+  assertErr('fn f(x) = x + true');
+});
+
+// ── inference: dimension_types_multiplication ───────────────────
+
+test('upstream-infer: 2 * x — generalize x over dim', () => {
+  const s = inferredFnScheme('fn f(x) = 2 * x', 'f');
+  assert.equal(s.dimVars.length, 1);
+});
+
+test('upstream-infer: x * y — two independent dim binders', () => {
+  const s = inferredFnScheme('fn f(x, y) = x * y', 'f');
+  assert.equal(s.dimVars.length, 2);
+});
+
+// ── inference: dimension_types_exponentiation ───────────────────
+
+test('upstream-infer: x^2 — generalize x', () => {
+  const s = inferredFnScheme('fn f(x) = x^2', 'f');
+  assert.equal(s.dimVars.length, 1);
+});
+
+test('upstream-infer: 2^x — x is Scalar', () => {
+  const s = inferredFnScheme('fn f(x) = 2^x', 'f');
+  // Both base and exp Scalar
+  assert.equal(s.tvars.length + s.dimVars.length, 0);
+});
+
+test('upstream-infer: x^y unannotated — needs annotation', { skip: 'needs ExponentiationNeedsTypeAnnotation diagnostic' }, () => {
+  assertErr('fn f(x, y) = x^y');
+});
+
+// ── inference: dimension_types_combinations ────────────────────
+
+test('upstream-infer: (x + a) / a * b — x must be A, returns B', () => {
+  const s = inferredFnScheme('fn f(x) = (x + a) / a * b', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');
+});
+
+test('upstream-infer: x^2 + a^2 — x must be A, returns A²', () => {
+  const s = inferredFnScheme('fn f(x) = x^2 + a^2', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');
+});
+
+test('upstream-infer: (x+a) * (x+b) — should fail (A*B incompatible)', () => {
+  // Upstream rejects because x can't be both A (from x+a) and B (from x+b).
+  assertErr('fn f(x) = (x + a) * (x + b)');
+});
+
+// ── inference: recursive functions ──────────────────────────────
+
+test('upstream-infer: factorial-style recursion', () => {
+  // `fn fac(n) = if n == 0 then 1 else n * fac(n - 1)` — n must be Scalar
+  const s = inferredFnScheme('fn fac(n) = if n == 0 then 1 else n * fac(n - 1)', 'fac');
+  assert.equal(shape(s), '∀0+0.(Dim)→Dim');   // Scalar in, Scalar out
+});
+
+test('upstream-infer: bottomless absurd() = absurd()', () => {
+  // Upstream infers `<T>() -> T`. We may or may not get full generalization
+  // on the return; check at minimum it typechecks.
+  const s = inferredFnScheme('fn absurd() = absurd()', 'absurd');
+  assert.equal(s.body.params.length, 0);
+});
+
+// ── no-op placeholder ───────────────────────────────────────────
+
 test('upstream: corpus port placeholder', () => { assert.ok(true); });

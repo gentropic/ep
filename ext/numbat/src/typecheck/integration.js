@@ -11,12 +11,14 @@
 // the typechecker already proved — and surfaces dim mismatches at
 // parse/check time instead of at first-execution-of-the-bad-branch.
 
-import { tDim, tBool, tString, tFn, tList, tStruct, freshTVar, freshTDimVar, dimExprFromMap, dimExprFromVar, dimExprPow, T_SCALAR } from './types.js';
+import { tDim, tBool, tString, tFn, tList, tStruct, tVar, tDimVar, tScheme, freshTVar, freshTDimVar, freeVars, dimExprFromMap, dimExprFromVar, dimExprPow, T_SCALAR } from './types.js';
 import { ratOf } from './rat.js';
 import { generalize } from './scheme.js';
 import { makeTypeEnv, typeEnvBindValue, typeEnvBindDim, typeEnvBindFn, typeEnvBindStruct } from './env.js';
-import { checkModule, evalTypeAnno } from './check.js';
+import { checkModule, checkDecl, evalTypeAnno } from './check.js';
 import { solve } from './solve.js';
+import { applyType, makeSubst } from './subst.js';
+import { makeConstraintSet } from './constraints.js';
 
 // ── Hand-rolled schemes for BUILTIN_FNS ───────────────────────────
 //
@@ -193,15 +195,65 @@ function structRecordToScheme(rec, tcEnv) {
   return generalize(tStruct(rec.name, fields), [], dimVars);
 }
 
-// One-shot: parse + check + solve, return diagnostics. Hosts that want
-// to opt into typechecking call this before loadModule.
+// One-shot: parse + check + solve + generalize, return diagnostics.
+// Hosts that want to opt into typechecking call this before loadModule.
+//
+// Solves PER-DECL so each later decl sees earlier fns as fully-
+// generalized schemes (proper HM let-generalization). Without this,
+// `fn f(x) = x` would infer (α) -> α with α unbound — and the first
+// call site would pin α to a concrete type, breaking polymorphic use.
 export function typecheckModule(ast, runtimeEnv) {
   const env = buildTypeEnv(runtimeEnv);
-  const { constraints, errors: checkErrors } = checkModule(ast, env);
-  const { subst, errors: solveErrors } = solve(constraints);
-  return {
-    env,
-    subst,
-    errors: [...checkErrors, ...solveErrors],
-  };
+  const errors = [];
+  const allSubst = makeSubst();
+  for (const decl of ast.decls) {
+    const ctx = { cs: makeConstraintSet(), errors: [], generics: new Map() };
+    try {
+      checkDecl(decl, env, ctx);
+    } catch (e) {
+      errors.push({ message: e.message, span: e.span || null });
+      continue;
+    }
+    if (ctx.errors.length) {
+      errors.push(...ctx.errors);
+      continue;
+    }
+    const { subst, errors: solveErrs } = solve(ctx.cs);
+    errors.push(...solveErrs);
+    if (solveErrs.length) continue;
+    // Merge into the running subst — useful for hosts that want to
+    // inspect resolved types after the whole module.
+    for (const [k, v] of subst.tvars)   allSubst.tvars.set(k, v);
+    for (const [k, v] of subst.dimVars) allSubst.dimVars.set(k, v);
+    finalizeDecl(decl, env, subst);
+  }
+  return { env, subst: allSubst, errors };
+}
+
+// After per-decl solve, apply the substitution to anything this decl
+// added to the env and generalize fn schemes.
+function finalizeDecl(decl, env, subst) {
+  if (decl.type === 'FnDecl') {
+    const scheme = env.fns.get(decl.name);
+    if (!scheme || scheme.kind !== 'TScheme') return;
+    const resolvedBody = applyType(scheme.body, subst);
+    const fv = freeVars(resolvedBody);
+    const haveT = new Set(scheme.tvars.map(v => v.id));
+    const haveD = new Set(scheme.dimVars.map(v => v.id));
+    const newT = [...fv.tvars].filter(id => !haveT.has(id)).map(id => tVar(id));
+    const newD = [...fv.dimVars].filter(id => !haveD.has(id)).map(id => tDimVar(id));
+    env.fns.set(decl.name, tScheme(
+      [...scheme.tvars, ...newT],
+      [...scheme.dimVars, ...newD],
+      resolvedBody,
+    ));
+  } else if (decl.type === 'LetDecl' || decl.type === 'UnitDecl') {
+    const t = env.values.get(decl.name);
+    if (t) env.values.set(decl.name, applyType(t, subst));
+  } else if (decl.type === 'StructDecl') {
+    const s = env.structs.get(decl.name);
+    if (s && s.kind === 'TScheme') {
+      env.structs.set(decl.name, tScheme(s.tvars, s.dimVars, applyType(s.body, subst)));
+    }
+  }
 }

@@ -194,7 +194,7 @@ function evalTypeApp(node, env, ctx) {
 
 // ── Decl-level checks ─────────────────────────────────────────────
 
-function checkDecl(decl, env, ctx) {
+export function checkDecl(decl, env, ctx) {
   switch (decl.type) {
     case 'LetDecl':       return checkLetDecl(decl, env, ctx);
     case 'FnDecl':        return checkFnDecl(decl, env, ctx);
@@ -448,14 +448,16 @@ function inferBinary(node, env, ctx) {
     const r = inferExpr(node.right, env, ctx);
     cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
     cAdd(ctx.cs, cIsDType(r, spanOf(node.right)));
-    if (l.kind === 'TDim' && r.kind === 'TDim') {
-      return tDim(op === '*' ? dimExprMul(l.dim, r.dim) : dimExprDiv(l.dim, r.dim));
-    }
-    // At least one side is a TVar that needs to resolve to a TDim. Phase 3
-    // solver handles this; for now we return a fresh dim-var-flavoured TDim
-    // so the rest of inference proceeds.
-    const tdv = freshTDimVar();
-    return tDim(dimExprFromVar(tdv));
+    // Pull a dim-expr out of each operand. When the operand is already a
+    // TDim, use its dim directly. When it's a TVar (will be promoted to
+    // TDim by the IsDType handler), allocate a fresh dim-var and emit an
+    // Equal constraint that ties the TVar to TDim<$thatDimVar> so the
+    // result expression stays connected to the operand's dim.
+    const lDim = l.kind === 'TDim' ? l.dim : dimExprFromVar(freshTDimVar());
+    const rDim = r.kind === 'TDim' ? r.dim : dimExprFromVar(freshTDimVar());
+    if (l.kind !== 'TDim') cAdd(ctx.cs, cEqual(l, tDim(lDim), spanOf(node.left)));
+    if (r.kind !== 'TDim') cAdd(ctx.cs, cEqual(r, tDim(rDim), spanOf(node.right)));
+    return tDim(op === '*' ? dimExprMul(lDim, rDim) : dimExprDiv(lDim, rDim));
   }
 
   if (op === '^') {
@@ -463,11 +465,14 @@ function inferBinary(node, env, ctx) {
     const exp = tryFoldConst(node.right);
     if (exp) {
       if (l.kind === 'TDim') return tDim(dimExprPow(l.dim, exp));
-      // Unresolved base — emit a constraint that it must be a dim, return
-      // a fresh dim-var TDim so the surrounding pass can keep walking.
+      // Unresolved base: emit IsDType + allocate a dim-var, tie l to
+      // TDim<$dv>, and return TDim<$dv ^ exp> so the surrounding pass
+      // sees the right dim shape downstream.
       cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
-      const tdv = freshTDimVar();
-      return tDim(dimExprFromVar(tdv));
+      const dv = freshTDimVar();
+      const dvDim = dimExprFromVar(dv);
+      cAdd(ctx.cs, cEqual(l, tDim(dvDim), spanOf(node.left)));
+      return tDim(dimExprPow(dvDim, exp));
     }
     // Non-const exponent — both base and exp must be Scalar (the only
     // case dimensionally well-defined without static eval).
