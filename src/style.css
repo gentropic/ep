@@ -717,13 +717,20 @@ body {
 }
 .ep-gutter-result .u    { color: var(--sw-teal); }
 .ep-gutter-result.error { color: var(--sw-red); font-size: 11px; }
+/* Shape vocabulary in the gutter:
+ *   ▲ input  (data flowing INTO the computation)
+ *   ▼ output (result coming OUT)
+ *   ▪ suspect (rendered separately via ::after, see below)
+ *   ✕ error
+ * Triangles via CSS borders so they render crisply at small sizes. */
 .ep-gutter-result.binding::before {
   content: '';
   display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--sw-orange);
+  width: 0;
+  height: 0;
+  border-left:   3.5px solid transparent;
+  border-right:  3.5px solid transparent;
+  border-bottom: 6px   solid var(--sw-orange);
   margin-right: 6px;
   vertical-align: middle;
   opacity: 0.85;
@@ -731,10 +738,11 @@ body {
 .ep-gutter-result.output::before {
   content: '';
   display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--sw-teal);
+  width: 0;
+  height: 0;
+  border-left:  3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top:   6px   solid var(--sw-teal);
   margin-right: 6px;
   vertical-align: middle;
 }
