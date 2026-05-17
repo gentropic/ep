@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -31,7 +31,9 @@ if (!existsSync(WASM_PATH) || !existsSync(HARNESS_PATH)) {
   let upstream = null;
   try {
     const mod = await import('file://' + HARNESS_PATH.replace(/\\/g, '/'));
-    if (typeof mod.default === 'function') await mod.default(WASM_PATH);
+    // __wbg_init wants a URL/Request/bytes — pass bytes since Node's fetch
+    // doesn't handle bare file paths.
+    if (typeof mod.default === 'function') await mod.default({ module_or_path: readFileSync(WASM_PATH) });
     upstream = mod;
   } catch (e) {
     test('numbat-wasm cross-validation: load failed', () => {
