@@ -57,6 +57,7 @@ const VENDORS = [
 // ep:params-changed via event (not a storage.js function call).
 const VIEWER_JS_FILES = [
   'units.js',
+  'blame.js',
   'evaluator.js',
   'state.js',
   'menu.js',
@@ -70,6 +71,7 @@ const VIEWER_JS_FILES = [
 // order is mostly cosmetic — but it makes reading the built file saner.)
 const JS_FILES = [
   'units.js',
+  'blame.js',
   'evaluator.js',
   'state.js',
   'snapshot-retention.js',
