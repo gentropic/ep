@@ -48,7 +48,7 @@ const TEST_PRELUDE = `
   struct SomeStruct { a: A, b: B }
 
   fn atan2<T: Dim>(x: T, y: T) -> Scalar
-  fn id<T: Dim>(x: T) -> T = x
+  fn id<T>(x: T) -> T = x
   fn id_for_dim<T: Dim>(x: T) -> T = x
 
   let callable = takes_a_returns_b
@@ -525,9 +525,9 @@ test('upstream: structs — concrete dim error on field result', () => {
   assertErr(wrap('(SomeStruct { a: 1 a, b: 1 b }).a + 2 b'), DIM_MISMATCH);
 });
 
-test('upstream: structs — id<T>(struct) preserves struct type', { skip: 'needs unrestricted-default <T> generics (#102)' }, () => {
-  // Regression test from upstream issue #459. Requires `id<T>` to be
-  // unrestricted (any type), not Dim-restricted. Our default is Dim.
+test('upstream: structs — id<T>(struct) preserves struct type', () => {
+  // Regression test from upstream issue #459. id<T> in TEST_PRELUDE
+  // is the unrestricted variant — accepts any type including structs.
   assertOk(wrap('id(SomeStruct { a: 1 a, b: 1 b }).a'));
 });
 
@@ -566,7 +566,7 @@ test('upstream: generic_structs — proper unification (Rate<B>)', () => {
   `.trim());
 });
 
-test('upstream: generic_structs — nested generics', { skip: 'needs unrestricted-default <T> generics so Wrapper<X> can take a struct in X (#102)' }, () => {
+test('upstream: generic_structs — nested generics', () => {
   assertOk(`
     struct Wrapper<X> { inner: X }
     let w: Wrapper<Wrapper<A>> = Wrapper { inner: Wrapper { inner: 1 a } }

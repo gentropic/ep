@@ -153,11 +153,29 @@ export function tTuple(elems)              { return Object.freeze({ kind: 'TTupl
 
 // A type scheme is ∀(tvars, dimVars). body — used for generic fn signatures.
 //
-//   fn id<D>(x: D) -> D
+//   fn id<D: Dim>(x: D) -> D
 // becomes
 //   tScheme([], [d0], tFn([tDim(dimExprFromVar(d0))], tDim(dimExprFromVar(d0))))
-export function tScheme(tvars, dimVars, body) {
-  return Object.freeze({ kind: 'TScheme', tvars: Object.freeze([...tvars]), dimVars: Object.freeze([...dimVars]), body });
+//
+// `binderOrder` (optional) lists kinds in declaration order: ['T','D'].
+// Used by evalTypeApp to bind positional type args correctly when binders
+// mix tvars and dimVars. Defaults to "all dimVars first, then all tvars".
+export function tScheme(tvars, dimVars, body, opts) {
+  const order = opts?.binderOrder ?? [
+    ...dimVars.map(() => 'D'),
+    ...tvars.map(() => 'T'),
+  ];
+  let ti = 0, di = 0;
+  const binders = order.map(k => k === 'T'
+    ? { kind: 'T', var: tvars[ti++] }
+    : { kind: 'D', var: dimVars[di++] });
+  return Object.freeze({
+    kind: 'TScheme',
+    tvars:   Object.freeze([...tvars]),
+    dimVars: Object.freeze([...dimVars]),
+    binders: Object.freeze(binders.map(Object.freeze)),
+    body,
+  });
 }
 
 const T_BOOL   = Object.freeze({ kind: 'TBool' });

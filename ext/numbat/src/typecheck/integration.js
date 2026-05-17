@@ -159,40 +159,52 @@ export function buildTypeEnv(runtimeEnv) {
 
 // ── Lifting helpers ───────────────────────────────────────────────
 
-function fnRecordToScheme(rec, tcEnv) {
+function liftGenerics(declGenerics) {
+  // Returns { generics: Map<name, {kind,var}>, binders: [{kind,var,name}] }.
+  // Used by fn and struct record lifters in declaration order.
   const generics = new Map();
-  const dimVars  = [];
-  for (const g of rec.generics || []) {
-    if (g.kind && g.kind !== 'Dim') continue;   // skip non-Dim generics for now
-    const tdv = freshTDimVar();
-    generics.set(g.name, tdv);
-    dimVars.push(tdv);
+  const binders  = [];
+  for (const g of declGenerics || []) {
+    if (g.kind === 'Dim') {
+      const tdv = freshTDimVar();
+      generics.set(g.name, { kind: 'D', var: tdv });
+      binders.push({ kind: 'D', var: tdv, name: g.name });
+    } else {
+      // 'Type' (default) or anything else → unrestricted TVar.
+      const tv = freshTVar();
+      generics.set(g.name, { kind: 'T', var: tv });
+      binders.push({ kind: 'T', var: tv, name: g.name });
+    }
   }
-  const ctx = { generics };
+  return { generics, binders };
+}
+
+function fnRecordToScheme(rec, tcEnv) {
+  const { generics, binders } = liftGenerics(rec.generics);
+  const ctx = { cs: makeConstraintSet(), generics };
   const paramTypes = (rec.params || []).map(p =>
     p.typeExpr ? evalTypeAnno(p.typeExpr, tcEnv, ctx) : freshTVar(),
   );
   const returnType = rec.returnType
     ? evalTypeAnno(rec.returnType, tcEnv, ctx)
     : freshTVar();
-  return generalize(tFn(paramTypes, returnType), [], dimVars);
+  const tvars   = binders.filter(b => b.kind === 'T').map(b => b.var);
+  const dimVars = binders.filter(b => b.kind === 'D').map(b => b.var);
+  const order   = binders.map(b => b.kind);
+  return tScheme(tvars, dimVars, tFn(paramTypes, returnType), { binderOrder: order });
 }
 
 function structRecordToScheme(rec, tcEnv) {
-  const generics = new Map();
-  const dimVars  = [];
-  for (const g of rec.generics || []) {
-    if (g.kind && g.kind !== 'Dim') continue;
-    const tdv = freshTDimVar();
-    generics.set(g.name, tdv);
-    dimVars.push(tdv);
-  }
-  const ctx = { generics };
+  const { generics, binders } = liftGenerics(rec.generics);
+  const ctx = { cs: makeConstraintSet(), generics };
   const fields = {};
   for (const f of rec.fields || []) {
     fields[f.name] = evalTypeAnno(f.type, tcEnv, ctx);
   }
-  return generalize(tStruct(rec.name, fields), [], dimVars);
+  const tvars   = binders.filter(b => b.kind === 'T').map(b => b.var);
+  const dimVars = binders.filter(b => b.kind === 'D').map(b => b.var);
+  const order   = binders.map(b => b.kind);
+  return tScheme(tvars, dimVars, tStruct(rec.name, fields), { binderOrder: order });
 }
 
 // One-shot: parse + check + solve + generalize, return diagnostics.
@@ -237,23 +249,39 @@ function finalizeDecl(decl, env, subst) {
     const scheme = env.fns.get(decl.name);
     if (!scheme || scheme.kind !== 'TScheme') return;
     const resolvedBody = applyType(scheme.body, subst);
+    // Re-derive binders purely from free vars in the resolved body —
+    // this is the textbook HM "generalize" step. Original binders that
+    // got constrained to concrete types drop out (their vars no longer
+    // appear free). Original binders that stayed free are preserved.
+    // Type-kinded generics that got promoted to TDim<$d> via dim-
+    // arithmetic constraints get their $d in the body as a free dim-var,
+    // so the scheme correctly reflects the inferred Dim restriction.
     const fv = freeVars(resolvedBody);
-    const haveT = new Set(scheme.tvars.map(v => v.id));
-    const haveD = new Set(scheme.dimVars.map(v => v.id));
-    const newT = [...fv.tvars].filter(id => !haveT.has(id)).map(id => tVar(id));
-    const newD = [...fv.dimVars].filter(id => !haveD.has(id)).map(id => tDimVar(id));
-    env.fns.set(decl.name, tScheme(
-      [...scheme.tvars, ...newT],
-      [...scheme.dimVars, ...newD],
-      resolvedBody,
-    ));
+    const newT = [...fv.tvars].map(id => tVar(id));
+    const newD = [...fv.dimVars].map(id => tDimVar(id));
+    env.fns.set(decl.name, tScheme(newT, newD, resolvedBody));
   } else if (decl.type === 'LetDecl' || decl.type === 'UnitDecl') {
     const t = env.values.get(decl.name);
     if (t) env.values.set(decl.name, applyType(t, subst));
   } else if (decl.type === 'StructDecl') {
     const s = env.structs.get(decl.name);
     if (s && s.kind === 'TScheme') {
-      env.structs.set(decl.name, tScheme(s.tvars, s.dimVars, applyType(s.body, subst)));
+      // Same re-derivation for structs: free vars in the resolved body
+      // are the binders. Preserves binder ORDER via binderOrder so
+      // application sites (Wrapper<A>) bind positionally.
+      const resolvedBody = applyType(s.body, subst);
+      // We need to preserve the declaration order of the original
+      // binders that survived (haven't been resolved to something
+      // concrete). Walk s.binders, keep those whose var is still free
+      // in resolved body.
+      const fv = freeVars(resolvedBody);
+      const survivingBinders = s.binders.filter(b =>
+        b.kind === 'T' ? fv.tvars.has(b.var.id) : fv.dimVars.has(b.var.id),
+      );
+      const survT = survivingBinders.filter(b => b.kind === 'T').map(b => b.var);
+      const survD = survivingBinders.filter(b => b.kind === 'D').map(b => b.var);
+      const order = survivingBinders.map(b => b.kind);
+      env.structs.set(decl.name, tScheme(survT, survD, resolvedBody, { binderOrder: order }));
     }
   }
 }

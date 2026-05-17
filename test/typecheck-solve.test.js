@@ -208,14 +208,44 @@ test('solve e2e: generic id<D>(D) -> D resolves at call site', () => {
   assert.equal(fmt(applyType(r.env.values.get('b'), r.subst)), 'time');
 });
 
-test('solve e2e: multi-var compound divide<A,B>(a,b) -> A/B', () => {
-  const r = runCheck(`
+test('solve e2e: multi-var compound divide<A,B>(a,b) -> A/B', async () => {
+  // Cross-decl polymorphic compound (A/B return type uses params A and B
+  // independently) requires per-decl solve+generalize so the fn's scheme
+  // is finalized BEFORE the call site instantiates it. The raw
+  // checkModule + one-shot solve flow used by runCheck() can't do this
+  // (cross-decl TVars from the divide body don't get renamed at call
+  // site). Drive per-decl finalize directly here.
+  const { checkDecl } = await import('../ext/numbat/src/typecheck/check.js');
+  const { makeConstraintSet } = await import('../ext/numbat/src/typecheck/constraints.js');
+  const { tScheme, tVar, tDimVar, freeVars } = await import('../ext/numbat/src/typecheck/types.js');
+  resetTypeIds();
+  const env = freshEnv();
+  const ast = parseModule(`
     fn divide<A, B>(a: A, b: B) -> A / B = a / b
     let speed = divide(60 m, 1 s)
   `);
-  assert.deepEqual(r.checkErrors, []);
-  assert.deepEqual(r.solveErrors, []);
-  assert.equal(fmt(applyType(r.env.values.get('speed'), r.subst)), 'length·time^-1');
+  let lastSubst = makeSubst();
+  for (const decl of ast.decls) {
+    const ctx = { cs: makeConstraintSet(), errors: [], generics: new Map() };
+    checkDecl(decl, env, ctx);
+    const { subst, errors } = solve(ctx.cs);
+    assert.deepEqual(errors, [], `solve errors for ${decl.type}`);
+    for (const [k, v] of subst.tvars)   lastSubst.tvars.set(k, v);
+    for (const [k, v] of subst.dimVars) lastSubst.dimVars.set(k, v);
+    // Inline finalize
+    if (decl.type === 'FnDecl') {
+      const scheme = env.fns.get(decl.name);
+      const body = applyType(scheme.body, subst);
+      const fv = freeVars(body);
+      const newT = [...fv.tvars].map(id => tVar(id));
+      const newD = [...fv.dimVars].map(id => tDimVar(id));
+      env.fns.set(decl.name, tScheme(newT, newD, body));
+    } else if (decl.type === 'LetDecl') {
+      const t = env.values.get(decl.name);
+      if (t) env.values.set(decl.name, applyType(t, subst));
+    }
+  }
+  assert.equal(fmt(env.values.get('speed')), 'length·time^-1');
 });
 
 test('solve e2e: arity mismatch at call surfaces', () => {

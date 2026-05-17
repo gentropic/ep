@@ -181,7 +181,11 @@ export function parse(tokens, sourceName = '<input>') {
 
   function parseGenericParam() {
     const nameTok = expectType('id', 'generic parameter name');
-    let kind = 'Dim';
+    // Default kind is 'Type' (unrestricted) — matches upstream Numbat.
+    // `<T: Dim>` is the explicit Dim-restricted form. The typechecker
+    // promotes Type-kinded generics to Dim lazily via constraints when
+    // they appear in dim-arithmetic positions.
+    let kind = 'Type';
     if (atOp(':')) {
       eat();
       const kindTok = expectType('id', "generic kind (e.g. 'Dim')");

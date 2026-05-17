@@ -300,10 +300,11 @@ test('checkModule: FnDecl stores TScheme', () => {
   assert.equal(typeFormat(scheme.body.result), 'length^2');
 });
 
-test('checkModule: generic FnDecl uses TDimVars', () => {
+test('checkModule: explicit-Dim generic uses TDimVars', () => {
   resetTypeIds();
   const env = freshEnv();
-  const ast = parseModule('fn id<D>(x: D) -> D = x');
+  // Explicit `: Dim` keeps the binder as TDimVar — required by the test.
+  const ast = parseModule('fn id<D: Dim>(x: D) -> D = x');
   const r = checkModule(ast, env);
   assert.equal(r.errors.length, 0);
   const scheme = env.fns.get('id');
@@ -311,21 +312,42 @@ test('checkModule: generic FnDecl uses TDimVars', () => {
   // Body should be (TDim<$D>) -> TDim<$D>
   assert.equal(scheme.body.params[0].kind, 'TDim');
   assert.equal(scheme.body.result.kind,    'TDim');
-  // Same dim-var on both sides
   const lvar = Object.keys(scheme.body.params[0].dim.vars)[0];
   const rvar = Object.keys(scheme.body.result.dim.vars)[0];
   assert.equal(lvar, rvar);
 });
 
-test('checkModule: multi-var compound generic (divide<A,B>)', () => {
+test('checkModule: unannotated generic stays as TVar binder pre-solve', () => {
+  // Default `<D>` is now Type-kinded. checkModule generates constraints
+  // but doesn't solve — so the scheme keeps TVar binders. typecheckModule
+  // (in integration.js) is what solves + generalizes to dim-vars when
+  // the generic gets promoted via dim arithmetic.
+  resetTypeIds();
+  const env = freshEnv();
+  const ast = parseModule('fn id<D>(x: D) -> D = x');
+  const r = checkModule(ast, env);
+  assert.equal(r.errors.length, 0);
+  const scheme = env.fns.get('id');
+  assert.equal(scheme.tvars.length, 1);
+  assert.equal(scheme.body.params[0].kind, 'TVar');
+  assert.equal(scheme.body.result.kind,    'TVar');
+});
+
+test('checkModule: multi-var compound generic (divide<A,B>) emits dim constraints', () => {
+  // checkModule generates constraints; the dim-vars appear inside the
+  // body's TDim expressions (return type's dim has two vars with
+  // exponents +1, -1) and the constraints tie param TVars to those
+  // dims. Post-solve generalization (in integration.typecheckModule)
+  // converts those to scheme dim binders.
   resetTypeIds();
   const env = freshEnv();
   const ast = parseModule('fn divide<A, B>(a: A, b: B) -> A / B = a / b');
   const r = checkModule(ast, env);
   assert.equal(r.errors.length, 0);
   const scheme = env.fns.get('divide');
-  assert.equal(scheme.dimVars.length, 2);
-  // Return type is A/B → dim-vars with exponents +1 (A) and -1 (B).
+  // Original binders are TVars (A, B were Type-kinded by default).
+  assert.equal(scheme.tvars.length, 2);
+  // Return type IS the A/B dim expression with two dim-vars +1, -1.
   const ret = scheme.body.result;
   assert.equal(ret.kind, 'TDim');
   const exps = Object.values(ret.dim.vars).map(r => r.n);

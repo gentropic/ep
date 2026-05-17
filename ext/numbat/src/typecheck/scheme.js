@@ -25,11 +25,18 @@ export function generalize(body, tvars, dimVars) {
 // the entry might not be a scheme yet during partial construction).
 export function instantiate(scheme) {
   if (scheme.kind !== 'TScheme') return scheme;
-  if (scheme.tvars.length === 0 && scheme.dimVars.length === 0) return scheme.body;
+  // Prefer scheme.binders for ordered walks; fall back to tvars+dimVars
+  // for legacy callers that construct schemes by hand (older tests).
+  const binders = scheme.binders ?? [
+    ...scheme.dimVars.map(v => ({ kind: 'D', var: v })),
+    ...scheme.tvars.map(v   => ({ kind: 'T', var: v })),
+  ];
+  if (binders.length === 0) return scheme.body;
 
   const sub = makeSubst();
-  for (const v of scheme.tvars)   sub.tvars.set(v.id,   freshTVar());
-  for (const v of scheme.dimVars) sub.dimVars.set(v.id, dimExprFromVar(freshTDimVar()));
-
+  for (const b of binders) {
+    if (b.kind === 'T') sub.tvars.set(b.var.id, freshTVar());
+    else                sub.dimVars.set(b.var.id, dimExprFromVar(freshTDimVar()));
+  }
   return applyType(scheme.body, sub);
 }

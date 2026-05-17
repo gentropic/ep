@@ -83,7 +83,14 @@ function evalTypeAnno(node, env, ctx) {
     case 'TypeApp': return evalTypeApp(node, env, ctx);
     case 'Ident': {
       const name = node.name;
-      if (ctx.generics.has(name)) return tDim(dimExprFromVar(ctx.generics.get(name)));
+      if (ctx.generics.has(name)) {
+        const entry = ctx.generics.get(name);
+        // Dim-kinded generics (explicit `<T: Dim>`) wrap directly as
+        // TDim. Type-kinded generics (default `<T>`) return the bare
+        // TVar; promotion to TDim happens lazily in dim-arithmetic
+        // positions below via Equal constraints.
+        return entry.kind === 'D' ? tDim(dimExprFromVar(entry.var)) : entry.var;
+      }
       if (name === 'Scalar')   return T_SCALAR;
       if (name === 'Bool')     return tBool();
       if (name === 'String')   return tString();
@@ -100,19 +107,31 @@ function evalTypeAnno(node, env, ctx) {
     }
     case 'Binary': {
       const l = evalTypeAnno(node.left, env, ctx);
+      // Helper: turn a Type-kinded TVar operand into a TDim by allocating
+      // a fresh dim-var and emitting a constraint that ties them. Returns
+      // the operand's dim expression to use in arithmetic.
+      const asDim = (t, side) => {
+        if (t.kind === 'TDim') return t.dim;
+        if (t.kind === 'TVar') {
+          const dv = freshTDimVar();
+          const dvDim = dimExprFromVar(dv);
+          cAdd(ctx.cs, cEqual(t, tDim(dvDim), spanOf(side)));
+          return dvDim;
+        }
+        throw withSpan(new Error(`type-level '${node.op}' needs dimension operand, got ${formatType(t)}`), node.span);
+      };
       if (node.op === '^') {
         const exp = tryFoldConst(node.right);
         if (!exp) throw withSpan(new Error('exponent in type position must be a constant'), node.span);
-        if (l.kind !== 'TDim') throw withSpan(new Error(`'^' base must be a dimension type, got ${formatType(l)}`), node.span);
-        return tDim(dimExprPow(l.dim, exp));
+        const lDim = asDim(l, node.left);
+        return tDim(dimExprPow(lDim, exp));
       }
       const r = evalTypeAnno(node.right, env, ctx);
-      if (l.kind !== 'TDim' || r.kind !== 'TDim') {
-        throw withSpan(new Error(`type-level '${node.op}' needs dimension operands`), node.span);
-      }
+      const lDim = asDim(l, node.left);
+      const rDim = asDim(r, node.right);
       switch (node.op) {
-        case '*': return tDim(dimExprMul(l.dim, r.dim));
-        case '/': return tDim(dimExprDiv(l.dim, r.dim));
+        case '*': return tDim(dimExprMul(lDim, rDim));
+        case '/': return tDim(dimExprDiv(lDim, rDim));
         default:  throw withSpan(new Error(`unsupported operator in type position: ${node.op}`), node.span);
       }
     }
@@ -175,16 +194,24 @@ function evalTypeApp(node, env, ctx) {
 
   const scheme = typeEnvLookupStruct(env, name);
   if (scheme && scheme.kind === 'TScheme') {
-    if (node.args.length !== scheme.dimVars.length) {
-      throw withSpan(new Error(`${name} expects ${scheme.dimVars.length} type args, got ${node.args.length}`), node.span);
+    const arity = scheme.binders.length;
+    if (node.args.length !== arity) {
+      throw withSpan(new Error(`${name} expects ${arity} type args, got ${node.args.length}`), node.span);
     }
     const sub = makeSubst();
-    for (let i = 0; i < scheme.dimVars.length; i++) {
+    for (let i = 0; i < arity; i++) {
+      const b = scheme.binders[i];
       const argT = evalTypeAnno(node.args[i], env, ctx);
-      if (argT.kind !== 'TDim') {
-        throw withSpan(new Error(`${name} type arg ${i} must be a dimension type, got ${formatType(argT)}`), node.span);
+      if (b.kind === 'T') {
+        // Type-kinded binder: accept any type.
+        sub.tvars.set(b.var.id, argT);
+      } else {
+        // Dim-kinded binder: require TDim and substitute its dim expr.
+        if (argT.kind !== 'TDim') {
+          throw withSpan(new Error(`${name} type arg ${i} must be a dimension type, got ${formatType(argT)}`), node.span);
+        }
+        sub.dimVars.set(b.var.id, argT.dim);
       }
-      sub.dimVars.set(scheme.dimVars[i].id, argT.dim);
     }
     return applyType(scheme.body, sub);
   }
@@ -236,15 +263,22 @@ function checkFnDecl(decl, env, ctx) {
   // params directly so the dim-vars line up with the signature.
   const savedGenerics = ctx.generics;
   ctx.generics = new Map(savedGenerics);
-  const dimVarsForGenerics = [];
+  // Track binders in declaration order (matters for application-site
+  // positional args). Each entry is {kind: 'T'|'D', var, name}.
+  const declBinders = [];
   for (const g of decl.generics || []) {
-    if (g.kind !== 'Dim') {
-      ctx.generics = savedGenerics;
-      throw withSpan(new Error(`generic kind '${g.kind}' not yet supported (only 'Dim')`), decl.span);
+    if (g.kind === 'Dim') {
+      const tdv = freshTDimVar();
+      ctx.generics.set(g.name, { kind: 'D', var: tdv });
+      declBinders.push({ kind: 'D', var: tdv, name: g.name });
+    } else {
+      // Default ('Type') or any other annotation: unrestricted TVar.
+      // Promotion to TDim happens lazily via Equal constraints when the
+      // generic is used in a dim-arithmetic position.
+      const tv = freshTVar();
+      ctx.generics.set(g.name, { kind: 'T', var: tv });
+      declBinders.push({ kind: 'T', var: tv, name: g.name });
     }
-    const tdv = freshTDimVar();
-    ctx.generics.set(g.name, tdv);
-    dimVarsForGenerics.push(tdv);
   }
 
   // Param types from annotations (or fresh TVar if missing).
@@ -259,7 +293,10 @@ function checkFnDecl(decl, env, ctx) {
   // version below — using the same scheme object means the recursive
   // call site instantiates with fresh dim-vars per call.
   const fnTypeForRecursion = tFn(paramTypes, returnType);
-  const recursionScheme = generalize(fnTypeForRecursion, [], dimVarsForGenerics);
+  const tvarsForGenerics   = declBinders.filter(b => b.kind === 'T').map(b => b.var);
+  const dimVarsForGenerics = declBinders.filter(b => b.kind === 'D').map(b => b.var);
+  const binderOrder = declBinders.map(b => b.kind);
+  const recursionScheme = tScheme(tvarsForGenerics, dimVarsForGenerics, fnTypeForRecursion, { binderOrder });
   typeEnvBindFn(env, decl.name, recursionScheme);
 
   // If body is null, this is an extern decl — nothing to check internally.
@@ -281,8 +318,9 @@ function checkFnDecl(decl, env, ctx) {
   }
 
   ctx.generics = savedGenerics;
-  // Final scheme — already bound above for recursion; rebind to ensure
-  // the env points at the same scheme object (no functional change).
+  // Final scheme is the one bound above for recursion. finalizeDecl in
+  // integration.js applies the per-decl solver's subst and re-derives
+  // binders from the resolved body's free vars.
   typeEnvBindFn(env, decl.name, recursionScheme);
 }
 
@@ -346,29 +384,31 @@ function checkUnitDecl(decl, env, ctx) {
 }
 
 function checkStructDecl(decl, env, ctx) {
-  // Generic struct: fresh TDimVars for each generic param, exposed in
-  // ctx.generics for field-type annotation resolution. Mirrors fn-decl's
-  // handling.
+  // Generic struct generics: each binder is T-kinded (unrestricted)
+  // by default, D-kinded with explicit `: Dim`. Mirrors fn-decl.
   const savedGenerics = ctx.generics;
   ctx.generics = new Map(savedGenerics);
-  const dimVarsForGenerics = [];
+  const declBinders = [];
   for (const g of decl.generics || []) {
-    if (g.kind !== 'Dim') {
-      ctx.generics = savedGenerics;
-      throw withSpan(new Error(`generic kind '${g.kind}' not yet supported (only 'Dim')`), decl.span);
+    if (g.kind === 'Dim') {
+      const tdv = freshTDimVar();
+      ctx.generics.set(g.name, { kind: 'D', var: tdv });
+      declBinders.push({ kind: 'D', var: tdv, name: g.name });
+    } else {
+      const tv = freshTVar();
+      ctx.generics.set(g.name, { kind: 'T', var: tv });
+      declBinders.push({ kind: 'T', var: tv, name: g.name });
     }
-    const tdv = freshTDimVar();
-    ctx.generics.set(g.name, tdv);
-    dimVarsForGenerics.push(tdv);
   }
   const fields = {};
   for (const f of decl.fields) {
     fields[f.name] = evalTypeAnno(f.type, env, ctx);
   }
   ctx.generics = savedGenerics;
-  // Always store as a scheme so lookups are uniform (empty binders for
-  // non-generic structs).
-  typeEnvBindStruct(env, decl.name, generalize(tStruct(decl.name, fields), [], dimVarsForGenerics));
+  const tvars   = declBinders.filter(b => b.kind === 'T').map(b => b.var);
+  const dimVars = declBinders.filter(b => b.kind === 'D').map(b => b.var);
+  const binderOrder = declBinders.map(b => b.kind);
+  typeEnvBindStruct(env, decl.name, tScheme(tvars, dimVars, tStruct(decl.name, fields), { binderOrder }));
 }
 
 // ── Expression-level inference ────────────────────────────────────
