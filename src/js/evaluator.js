@@ -710,6 +710,21 @@ export function evaluate(body) {
         env.values.set('_',   q);
         env.values.set('ans', q);
       } catch (e) { q = null; err = e.message; }
+      // @output(unit) unit-dim check — surfaces the same mismatch the
+      // outputs panel detects, but as an inline error on the binding
+      // so the user sees it WHERE the binding is, not just in the
+      // outputs panel. Skip when there's already an evaluation error
+      // (don't double-up).
+      if (q && !err && isOutput && outputUnit) {
+        try {
+          const spec = resolveUnitExpression(outputUnit);
+          if (!dEq(spec.dim, q.dim)) {
+            err = `<row>:1:1: @output(${outputUnit}) wants [${fmtDim(spec.dim)}] but value is [${fmtDim(q.dim)}]`;
+          }
+        } catch (e) {
+          err = `@output(${outputUnit}): ${e.message}`;
+        }
+      }
       row.result = q;
       row.error  = err;
       // Supplementary typecheck — re-form the binding as a numbat let-decl.
