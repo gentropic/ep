@@ -30,6 +30,24 @@ conformance corpus uses).
 When the WASM is absent the test reports as skipped — `npm test`
 doesn't require it.
 
+## Benchmark
+
+```sh
+node test/numbat-wasm-bench.js
+```
+
+Runs a fixed set of small programs through both engines, reports the
+median wall-clock per call, and prints an `ep / wasm` ratio. Not part
+of `npm test` — timings drift and it requires the WASM artifact. Skips
+gracefully if the WASM is absent.
+
+Caveat: this is the cost of `evaluate(programSource)` from a cold
+string. Upstream's `interpret(code)` re-parses and re-typechecks every
+call (there is no precompile API), and it pays the wasm string-copy
+cost plus a `FinalizationRegistry` registration per call. ep is a
+direct in-JS interpreter against a smaller prelude. Take the numbers
+as a useful sanity check, not a language-level comparison.
+
 ## Refresh
 
 The upstream WASM changes whenever numbat releases. Re-run `fetch.sh`
