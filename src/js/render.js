@@ -629,17 +629,12 @@ function applyErrorMarks() {
     let col = 0;
     const m = message.match(/^[^:]*:1:(\d+):/);   // numbat formats as "src:1:col: …"
     if (m) {
-      const snippetCol = parseInt(m[1], 10);      // 1-based within the snippet
-      // Bindings are passed to the evaluator with their RHS only; recover
-      // the offset of the RHS within the source line so the col lines up.
-      const src = row.src || '';
-      const eq = src.indexOf('=');
-      let prefix = 0;
-      if (eq >= 0 && (row.kind === 'binding' || /^\s*[a-zA-Z_]/.test(src))) {
-        prefix = eq + 1;
-        while (prefix < src.length && src[prefix] === ' ') prefix++;
-      }
-      col = prefix + snippetCol;
+      // The col in the message is already in row.src coordinates —
+      // typecheckStatementSrc subtracts the wrap prefix before tagging.
+      // Runtime errors that bubble up with the older "let __ep__ = "
+      // wrap are off by ~13; we accept some misalignment there until
+      // runtime is upgraded to match.
+      col = parseInt(m[1], 10);
     }
     items.push({ line: i + 1, col, message });
   }

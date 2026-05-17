@@ -553,10 +553,18 @@ function evalExprText(text, env) {
 // Typecheck the AST for one ep statement. Records any errors into
 // `outErrorsByLine` keyed by the originating body row. `srcLineOffset`
 // is the row index where the statement starts in the body, used to map
-// the typechecker's local span lines back to body rows. Errors are
-// silently dropped on parse failure — runtime will surface the same
-// problem with its own message.
-function typecheckStatementSrc(stmtSrc, tcEnv, srcLineOffset, outErrorsByLine) {
+// the typechecker's local span lines back to body rows.
+//
+// `colShift` is subtracted from the typecheck-reported col to convert
+// it back to a col in the ORIGINAL row source. For a binding rewritten
+// as `let name: T = expr` for typecheck, colShift is the length of the
+// `let ` prefix (4); for bare expressions wrapped as
+// `let __ep__ = expr`, colShift is 13; for decl statements that pass
+// through unchanged, colShift is 0.
+//
+// Errors are silently dropped on parse failure — runtime will surface
+// the same problem with its own message.
+function typecheckStatementSrc(stmtSrc, tcEnv, srcLineOffset, colShift, outErrorsByLine) {
   let ast;
   try {
     ast = parse(tokenize(stmtSrc, '<row>'), '<row>');
@@ -568,12 +576,12 @@ function typecheckStatementSrc(stmtSrc, tcEnv, srcLineOffset, outErrorsByLine) {
     // Statement source starts on body row `srcLineOffset` (0-indexed).
     // Typechecker spans are 1-indexed lines within stmtSrc, so subtract 1.
     const row = srcLineOffset + ((err.span?.line ?? 1) - 1);
-    // Prefix with "<row>:1:col:" so render.js's annotation extractor
-    // picks up the column. col is the typecheck-reported col (relative
-    // to stmtSrc, not the original body source — but for in-row carets
-    // the col is usually fine).
-    const col = err.span?.col ?? 1;
-    const formatted = `<row>:1:${col}: ${err.message}`;
+    // Convert typecheck-reported col (relative to stmtSrc) to col in
+    // the original row source. `<row>:1:col:` prefix lets render.js's
+    // annotation extractor pick the right column.
+    const rawCol  = err.span?.col ?? 1;
+    const origCol = Math.max(1, rawCol - colShift);
+    const formatted = `<row>:1:${origCol}: ${err.message}`;
     if (!outErrorsByLine.has(row)) outErrorsByLine.set(row, formatted);
   }
 }
@@ -706,7 +714,9 @@ export function evaluate(body) {
       row.error  = err;
       // Supplementary typecheck — re-form the binding as a numbat let-decl.
       const annoStr = c.anno ? `: ${c.anno}` : '';
-      typecheckStatementSrc(`let ${name}${annoStr} = ${c.expr}`, tcEnv, ownerIdx, tcErrorsByLine);
+      // Wrap adds `let ` (4 chars). colShift = 4 puts the col back
+      // into the original `name[: T] = expr` source.
+      typecheckStatementSrc(`let ${name}${annoStr} = ${c.expr}`, tcEnv, ownerIdx, 4, tcErrorsByLine);
       if (wantsChip) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
@@ -749,7 +759,8 @@ export function evaluate(body) {
       const src = passthrough ? passthrough + '\n' + c.src : c.src;
       try { loadStatement(src, env); }
       catch (e) { row.error = e.message; }
-      typecheckStatementSrc(src, tcEnv, ownerIdx, tcErrorsByLine);
+      // Decl statements pass through unchanged — col matches original.
+      typecheckStatementSrc(src, tcEnv, ownerIdx, 0, tcErrorsByLine);
       continue;
     }
     if (c.kind === 'use-decl') {
@@ -772,7 +783,8 @@ export function evaluate(body) {
         env.values.set('ans', q);
       } catch (e) { row.error = e.message; }
       // Typecheck via the same `let __ep__ = expr` wrap used at eval.
-      typecheckStatementSrc(`let __ep__ = ${c.expr}`, tcEnv, ownerIdx, tcErrorsByLine);
+      // Bare expr wrapped with `let __ep__ = `. Prefix length is 13.
+      typecheckStatementSrc(`let __ep__ = ${c.expr}`, tcEnv, ownerIdx, 13, tcErrorsByLine);
       continue;
     }
   }
