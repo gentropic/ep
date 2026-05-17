@@ -146,7 +146,18 @@ export function tDim(dimExpr)              { return Object.freeze({ kind: 'TDim'
 export function tBool()                    { return T_BOOL; }
 export function tString()                  { return T_STRING; }
 export function tNever()                   { return T_NEVER; }
-export function tFn(params, result)        { return Object.freeze({ kind: 'TFn', params: Object.freeze([...params]), result }); }
+// tFn(params, result, opts?). opts.optional = N marks the LAST N params
+// as optional — call sites can omit them. Used by variadic procs like
+// assert_eq (mandatory `a, b`; optional `tolerance`).
+export function tFn(params, result, opts) {
+  const optional = opts?.optional ?? 0;
+  return Object.freeze({
+    kind: 'TFn',
+    params: Object.freeze([...params]),
+    result,
+    optional,
+  });
+}
 export function tList(elem)                { return Object.freeze({ kind: 'TList', elem }); }
 export function tStruct(name, fields)      { return Object.freeze({ kind: 'TStruct', name, fields: Object.freeze({ ...fields }) }); }
 export function tTuple(elems)              { return Object.freeze({ kind: 'TTuple', elems: Object.freeze([...elems]) }); }

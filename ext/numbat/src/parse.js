@@ -49,6 +49,41 @@ export function parse(tokens, sourceName = '<input>') {
   const atKw = (name) => peek() && peek().type === 'kw' && peek().name === name;
   const atType = (type) => peek() && peek().type === type;
 
+  // Span-combining helpers — attach a span to compound nodes that
+  // covers the leftmost-child's start through the rightmost-child's
+  // end. Lets error formatters caret the full source range of an
+  // expression instead of just one operand.
+  const spanOfN = (n) => n?.span ?? null;
+  const combineSpans = (a, b) => {
+    if (!a) return b;
+    if (!b) return a;
+    return { source: a.source, line: a.line, col: a.col, offset: a.offset, end: b.end ?? b.offset };
+  };
+  const mkBin = (op, left, right) => ({
+    type: 'Binary', op, left, right,
+    span: combineSpans(spanOfN(left), spanOfN(right)),
+  });
+  const mkUnary = (op, expr, headSpan) => ({
+    type: 'Unary', op, expr,
+    span: combineSpans(headSpan, spanOfN(expr)),
+  });
+  const mkParen = (expr, openSpan, closeSpan) => ({
+    type: 'Paren', expr,
+    span: combineSpans(openSpan, closeSpan ?? spanOfN(expr)),
+  });
+  const mkIf = (cond, thenB, elseB, headSpan) => ({
+    type: 'If', cond, then: thenB, else: elseB,
+    span: combineSpans(headSpan, spanOfN(elseB)),
+  });
+  const mkFactorial = (expr, bangSpan) => ({
+    type: 'Factorial', expr,
+    span: combineSpans(spanOfN(expr), bangSpan),
+  });
+  const mkField = (obj, name, nameSpan) => ({
+    type: 'Field', obj, name,
+    span: combineSpans(spanOfN(obj), nameSpan),
+  });
+
   const err = (tok, msg) => {
     const span = tok?.span;
     const loc = span ? `${span.source ?? sourceName}:${span.line}:${span.col}` : `${sourceName}:?:?`;
@@ -381,7 +416,7 @@ export function parse(tokens, sourceName = '<input>') {
     if (!atKw('else')) throw err(peek(), `expected 'else' in if-expression`);
     eat();
     const elseBranch = parseExpr();
-    return { type: 'If', cond, then: thenBranch, else: elseBranch };
+    return mkIf(cond, thenBranch, elseBranch, spanOfN(cond));
   }
 
   // Precedence (lowest → highest, all left-associative except ^):
@@ -401,7 +436,7 @@ export function parse(tokens, sourceName = '<input>') {
     let l = parseAnd();
     while (atOp('||')) {
       eat();
-      l = { type: 'Binary', op: '||', left: l, right: parseAnd() };
+      l = mkBin('||', l, parseAnd());
     }
     return l;
   }
@@ -410,7 +445,7 @@ export function parse(tokens, sourceName = '<input>') {
     let l = parseCmp();
     while (atOp('&&')) {
       eat();
-      l = { type: 'Binary', op: '&&', left: l, right: parseCmp() };
+      l = mkBin('&&', l, parseCmp());
     }
     return l;
   }
@@ -419,7 +454,7 @@ export function parse(tokens, sourceName = '<input>') {
     let l = parseConversion();
     while (peek() && peek().type === 'op' && CMP_OPS.has(peek().op)) {
       const op = eat().op;
-      l = { type: 'Binary', op, left: l, right: parseConversion() };
+      l = mkBin(op, l, parseConversion());
     }
     return l;
   }
@@ -429,7 +464,7 @@ export function parse(tokens, sourceName = '<input>') {
     while (atOp('->') || atKw('to')) {
       eat();
       const right = parseAddExpr();
-      l = { type: 'Binary', op: '->', left: l, right };
+      l = mkBin('->', l, right);
     }
     return l;
   }
@@ -438,7 +473,7 @@ export function parse(tokens, sourceName = '<input>') {
     let l = parseMulExpr();
     while (atOp('+') || atOp('-')) {
       const op = eat().op;
-      l = { type: 'Binary', op, left: l, right: parseMulExpr() };
+      l = mkBin(op, l, parseMulExpr());
     }
     return l;
   }
@@ -450,7 +485,7 @@ export function parse(tokens, sourceName = '<input>') {
       if (atOp('*') || atOp('/')) op = eat().op;
       else if (atKw('per'))       { eat(); op = '/'; }   // `meter per second`
       else break;
-      l = { type: 'Binary', op, left: l, right: parseImplMul() };
+      l = mkBin(op, l, parseImplMul());
     }
     return l;
   }
@@ -458,7 +493,7 @@ export function parse(tokens, sourceName = '<input>') {
   function parseImplMul() {
     let l = parsePower();
     while (isExprStart(peek())) {
-      l = { type: 'Binary', op: '*', left: l, right: parsePower() };
+      l = mkBin('*', l, parsePower());
     }
     return l;
   }
@@ -472,30 +507,30 @@ export function parse(tokens, sourceName = '<input>') {
       if (atOp('.')) {
         eat();
         const fnameTok = expectType('id', 'field name');
-        base = { type: 'Field', obj: base, name: fnameTok.name };
+        base = mkField(base, fnameTok.name, fnameTok.span);
       } else {
-        eat();
-        base = { type: 'Factorial', expr: base };
+        const bangTok = eat();
+        base = mkFactorial(base, bangTok.span);
       }
     }
     if (atOp('^') || atOp('**')) {
       eat();
       const exp = parsePower();  // right-associative
-      return { type: 'Binary', op: '^', left: base, right: exp };
+      return mkBin('^', base, exp);
     }
     return base;
   }
 
   function parseUnary() {
     if (atOp('-')) {
-      eat();
-      return { type: 'Unary', op: '-', expr: parseUnary() };
+      const tok = eat();
+      return mkUnary('-', parseUnary(), tok.span);
     }
     // Prefix `!` is boolean NOT. (Postfix `!` factorial is handled in
     // parsePower, after the operand is consumed.)
     if (atOp('!')) {
-      eat();
-      return { type: 'Unary', op: '!', expr: parseUnary() };
+      const tok = eat();
+      return mkUnary('!', parseUnary(), tok.span);
     }
     return parsePrimary();
   }
@@ -541,10 +576,10 @@ export function parse(tokens, sourceName = '<input>') {
       return { type: 'Ident', name: t.name, span: t.span };
     }
     if (t.type === 'op' && t.op === '(') {
-      eat();
-      const inner = parseExpr();
-      expectOp(')');
-      return { type: 'Paren', expr: inner };
+      const openTok  = eat();
+      const inner    = parseExpr();
+      const closeTok = expectOp(')');
+      return mkParen(inner, openTok.span, closeTok.span);
     }
     // List literal: `[a, b, c]`, or `[]` for empty. Trailing commas allowed.
     if (t.type === 'op' && t.op === '[') {

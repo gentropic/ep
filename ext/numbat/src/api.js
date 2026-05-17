@@ -82,7 +82,11 @@ export class Numbat {
 
   // Tokenize, parse, and load a Numbat-script source. Doesn't add to the
   // module map; useful for ad-hoc input.
-  loadSource(text, sourceName = '<inline>') {
+  //
+  // opts:
+  //   typecheck: true → run the typechecker before evaluation, throw on
+  //                     dim mismatch / unknown identifier / etc.
+  loadSource(text, sourceName = '<inline>', opts = {}) {
     const env = makeEnv({
       dims: this.dims,
       units: this.registry,
@@ -91,7 +95,7 @@ export class Numbat {
       structs: this.structs,
       resolveUse: (path) => this.use(path.join('::')),
     });
-    loadSource(text, sourceName, env);
+    loadSource(text, sourceName, env, opts);
   }
 
   // Register every vendored .nbt module bundled at build time, then load

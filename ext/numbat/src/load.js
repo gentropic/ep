@@ -36,6 +36,22 @@ export function evalDimExpr(node, env) {
     return env.dims.resolve(node.name);
   }
   if (node.type === 'Paren') return evalDimExpr(node.expr, env);
+  if (node.type === 'TypeApp') {
+    // List<D>: the dim of the list IS the dim of the element. Same for
+    // any other generic single-arg type constructor referencing a known
+    // dim. Multi-arg constructors fall through to error since the
+    // runtime can't infer which arg contributes the dim.
+    if (node.base.type === 'Ident' && node.base.name === 'List' && node.args.length === 1) {
+      return evalDimExpr(node.args[0], env);
+    }
+    // For user-defined generic structs etc., the runtime doesn't track
+    // dim per type arg. Fall through.
+    throw new Error(`type application ${node.base.name ?? '?'}<...> not allowed in dimension expression`);
+  }
+  if (node.type === 'FnTypeAnno') {
+    // A Fn[...] annotation isn't a dim — used in fn-type positions only.
+    throw new Error(`Fn[...] not allowed in dimension expression`);
+  }
   if (node.type === 'Binary') {
     if (node.op === '^') {
       const base = evalDimExpr(node.left, env);
@@ -844,6 +860,17 @@ function evalSymDim(node, env, genericNames) {
     return env.dims.resolve(node.name);
   }
   if (node.type === 'Paren') return evalSymDim(node.expr, env, genericNames);
+  if (node.type === 'TypeApp') {
+    // List<D>: dim is the elem's dim. Other constructors are opaque to
+    // the symbolic dim solver.
+    if (node.base.type === 'Ident' && node.base.name === 'List' && node.args.length === 1) {
+      return evalSymDim(node.args[0], env, genericNames);
+    }
+    throw new Error(`type application ${node.base.name ?? '?'}<...> not allowed in type expression`);
+  }
+  if (node.type === 'FnTypeAnno') {
+    throw new Error(`Fn[...] not allowed in type expression`);
+  }
   if (node.type === 'Binary') {
     if (node.op === '^') {
       const base = evalSymDim(node.left, env, genericNames);
@@ -1231,10 +1258,10 @@ function loadLetDecl(decl, env) {
 
 // ── convenience: tokenize + parse + load in one call ─────────────
 
-export function loadSource(text, sourceName, env) {
+export function loadSource(text, sourceName, env, opts = {}) {
   const tokens = tokenize(text, sourceName);
   const ast = parse(tokens, sourceName);
-  loadModule(ast, env);
+  loadModule(ast, env, opts);
 }
 
 // Build the env object used by the loader. Hosts that want to use the

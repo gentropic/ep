@@ -640,6 +640,41 @@ function parse(tokens, sourceName = '<input>') {
   const atKw = (name) => peek() && peek().type === 'kw' && peek().name === name;
   const atType = (type) => peek() && peek().type === type;
 
+  // Span-combining helpers — attach a span to compound nodes that
+  // covers the leftmost-child's start through the rightmost-child's
+  // end. Lets error formatters caret the full source range of an
+  // expression instead of just one operand.
+  const spanOfN = (n) => n?.span ?? null;
+  const combineSpans = (a, b) => {
+    if (!a) return b;
+    if (!b) return a;
+    return { source: a.source, line: a.line, col: a.col, offset: a.offset, end: b.end ?? b.offset };
+  };
+  const mkBin = (op, left, right) => ({
+    type: 'Binary', op, left, right,
+    span: combineSpans(spanOfN(left), spanOfN(right)),
+  });
+  const mkUnary = (op, expr, headSpan) => ({
+    type: 'Unary', op, expr,
+    span: combineSpans(headSpan, spanOfN(expr)),
+  });
+  const mkParen = (expr, openSpan, closeSpan) => ({
+    type: 'Paren', expr,
+    span: combineSpans(openSpan, closeSpan ?? spanOfN(expr)),
+  });
+  const mkIf = (cond, thenB, elseB, headSpan) => ({
+    type: 'If', cond, then: thenB, else: elseB,
+    span: combineSpans(headSpan, spanOfN(elseB)),
+  });
+  const mkFactorial = (expr, bangSpan) => ({
+    type: 'Factorial', expr,
+    span: combineSpans(spanOfN(expr), bangSpan),
+  });
+  const mkField = (obj, name, nameSpan) => ({
+    type: 'Field', obj, name,
+    span: combineSpans(spanOfN(obj), nameSpan),
+  });
+
   const err = (tok, msg) => {
     const span = tok?.span;
     const loc = span ? `${span.source ?? sourceName}:${span.line}:${span.col}` : `${sourceName}:?:?`;
@@ -972,7 +1007,7 @@ function parse(tokens, sourceName = '<input>') {
     if (!atKw('else')) throw err(peek(), `expected 'else' in if-expression`);
     eat();
     const elseBranch = parseExpr();
-    return { type: 'If', cond, then: thenBranch, else: elseBranch };
+    return mkIf(cond, thenBranch, elseBranch, spanOfN(cond));
   }
 
   // Precedence (lowest → highest, all left-associative except ^):
@@ -992,7 +1027,7 @@ function parse(tokens, sourceName = '<input>') {
     let l = parseAnd();
     while (atOp('||')) {
       eat();
-      l = { type: 'Binary', op: '||', left: l, right: parseAnd() };
+      l = mkBin('||', l, parseAnd());
     }
     return l;
   }
@@ -1001,7 +1036,7 @@ function parse(tokens, sourceName = '<input>') {
     let l = parseCmp();
     while (atOp('&&')) {
       eat();
-      l = { type: 'Binary', op: '&&', left: l, right: parseCmp() };
+      l = mkBin('&&', l, parseCmp());
     }
     return l;
   }
@@ -1010,7 +1045,7 @@ function parse(tokens, sourceName = '<input>') {
     let l = parseConversion();
     while (peek() && peek().type === 'op' && CMP_OPS.has(peek().op)) {
       const op = eat().op;
-      l = { type: 'Binary', op, left: l, right: parseConversion() };
+      l = mkBin(op, l, parseConversion());
     }
     return l;
   }
@@ -1020,7 +1055,7 @@ function parse(tokens, sourceName = '<input>') {
     while (atOp('->') || atKw('to')) {
       eat();
       const right = parseAddExpr();
-      l = { type: 'Binary', op: '->', left: l, right };
+      l = mkBin('->', l, right);
     }
     return l;
   }
@@ -1029,7 +1064,7 @@ function parse(tokens, sourceName = '<input>') {
     let l = parseMulExpr();
     while (atOp('+') || atOp('-')) {
       const op = eat().op;
-      l = { type: 'Binary', op, left: l, right: parseMulExpr() };
+      l = mkBin(op, l, parseMulExpr());
     }
     return l;
   }
@@ -1041,7 +1076,7 @@ function parse(tokens, sourceName = '<input>') {
       if (atOp('*') || atOp('/')) op = eat().op;
       else if (atKw('per'))       { eat(); op = '/'; }   // `meter per second`
       else break;
-      l = { type: 'Binary', op, left: l, right: parseImplMul() };
+      l = mkBin(op, l, parseImplMul());
     }
     return l;
   }
@@ -1049,7 +1084,7 @@ function parse(tokens, sourceName = '<input>') {
   function parseImplMul() {
     let l = parsePower();
     while (isExprStart(peek())) {
-      l = { type: 'Binary', op: '*', left: l, right: parsePower() };
+      l = mkBin('*', l, parsePower());
     }
     return l;
   }
@@ -1063,30 +1098,30 @@ function parse(tokens, sourceName = '<input>') {
       if (atOp('.')) {
         eat();
         const fnameTok = expectType('id', 'field name');
-        base = { type: 'Field', obj: base, name: fnameTok.name };
+        base = mkField(base, fnameTok.name, fnameTok.span);
       } else {
-        eat();
-        base = { type: 'Factorial', expr: base };
+        const bangTok = eat();
+        base = mkFactorial(base, bangTok.span);
       }
     }
     if (atOp('^') || atOp('**')) {
       eat();
       const exp = parsePower();  // right-associative
-      return { type: 'Binary', op: '^', left: base, right: exp };
+      return mkBin('^', base, exp);
     }
     return base;
   }
 
   function parseUnary() {
     if (atOp('-')) {
-      eat();
-      return { type: 'Unary', op: '-', expr: parseUnary() };
+      const tok = eat();
+      return mkUnary('-', parseUnary(), tok.span);
     }
     // Prefix `!` is boolean NOT. (Postfix `!` factorial is handled in
     // parsePower, after the operand is consumed.)
     if (atOp('!')) {
-      eat();
-      return { type: 'Unary', op: '!', expr: parseUnary() };
+      const tok = eat();
+      return mkUnary('!', parseUnary(), tok.span);
     }
     return parsePrimary();
   }
@@ -1132,10 +1167,10 @@ function parse(tokens, sourceName = '<input>') {
       return { type: 'Ident', name: t.name, span: t.span };
     }
     if (t.type === 'op' && t.op === '(') {
-      eat();
-      const inner = parseExpr();
-      expectOp(')');
-      return { type: 'Paren', expr: inner };
+      const openTok  = eat();
+      const inner    = parseExpr();
+      const closeTok = expectOp(')');
+      return mkParen(inner, openTok.span, closeTok.span);
     }
     // List literal: `[a, b, c]`, or `[]` for empty. Trailing commas allowed.
     if (t.type === 'op' && t.op === '[') {
@@ -1361,7 +1396,18 @@ function tDim(dimExpr)              { return Object.freeze({ kind: 'TDim', dim: 
 function tBool()                    { return T_BOOL; }
 function tString()                  { return T_STRING; }
 function tNever()                   { return T_NEVER; }
-function tFn(params, result)        { return Object.freeze({ kind: 'TFn', params: Object.freeze([...params]), result }); }
+// tFn(params, result, opts?). opts.optional = N marks the LAST N params
+// as optional — call sites can omit them. Used by variadic procs like
+// assert_eq (mandatory `a, b`; optional `tolerance`).
+function tFn(params, result, opts) {
+  const optional = opts?.optional ?? 0;
+  return Object.freeze({
+    kind: 'TFn',
+    params: Object.freeze([...params]),
+    result,
+    optional,
+  });
+}
 function tList(elem)                { return Object.freeze({ kind: 'TList', elem }); }
 function tStruct(name, fields)      { return Object.freeze({ kind: 'TStruct', name, fields: Object.freeze({ ...fields }) }); }
 function tTuple(elems)              { return Object.freeze({ kind: 'TTuple', elems: Object.freeze([...elems]) }); }
@@ -2200,8 +2246,14 @@ function inferCall(node, env, ctx) {
 
 function inferDirectFnCall(fnT, node, env, ctx) {
   if (fnT.kind !== 'TFn') throw withSpan(new Error(`call target is not a function: ${formatType(fnT)}`), node.span);
-  if (fnT.params.length !== node.args.length) {
-    throw withSpan(new Error(`${node.name}: expected ${fnT.params.length} args, got ${node.args.length}`), node.span);
+  // Variadic support: optional trailing params can be omitted. The
+  // accepted arg count range is [params.length - optional, params.length].
+  const optional = fnT.optional ?? 0;
+  const minArity = fnT.params.length - optional;
+  const maxArity = fnT.params.length;
+  if (node.args.length < minArity || node.args.length > maxArity) {
+    const arityRange = minArity === maxArity ? `${minArity}` : `${minArity}..${maxArity}`;
+    throw withSpan(new Error(`${node.name}: expected ${arityRange} args, got ${node.args.length}`), node.span);
   }
   for (let i = 0; i < node.args.length; i++) {
     const argT = inferExpr(node.args[i], env, ctx);
@@ -2297,7 +2349,7 @@ function applyType(t, subst) {
       return t;
     }
     case 'TDim':    return tDim(applyDimExpr(t.dim, subst));
-    case 'TFn':     return tFn(t.params.map(p => applyType(p, subst)), applyType(t.result, subst));
+    case 'TFn':     return tFn(t.params.map(p => applyType(p, subst)), applyType(t.result, subst), { optional: t.optional ?? 0 });
     case 'TList':   return tList(applyType(t.elem, subst));
     case 'TTuple':  return tTuple(t.elems.map(e => applyType(e, subst)));
     case 'TStruct': {
@@ -2315,7 +2367,7 @@ function applyType(t, subst) {
 function applyDimVarSubstToType(t, dimVarId, repl) {
   switch (t.kind) {
     case 'TDim':    return tDim(dimExprSubstVar(t.dim, dimVarId, repl));
-    case 'TFn':     return tFn(t.params.map(p => applyDimVarSubstToType(p, dimVarId, repl)), applyDimVarSubstToType(t.result, dimVarId, repl));
+    case 'TFn':     return tFn(t.params.map(p => applyDimVarSubstToType(p, dimVarId, repl)), applyDimVarSubstToType(t.result, dimVarId, repl), { optional: t.optional ?? 0 });
     case 'TList':   return tList(applyDimVarSubstToType(t.elem, dimVarId, repl));
     case 'TTuple':  return tTuple(t.elems.map(e => applyDimVarSubstToType(e, dimVarId, repl)));
     case 'TStruct': {
@@ -2796,9 +2848,9 @@ function schemeRoot(n) {
 // fixed-arity scheme here that matches the canonical form. Variadic
 // proc typing is tracked as a follow-up.
 function schemeAssertEq() {
-  // <T>(T, T) -> Scalar
+  // <T>(T, T, T?) -> Scalar — third arg is optional tolerance.
   const t = freshTVar();
-  return generalize(tFn([t, t], T_SCALAR), [t], []);
+  return generalize(tFn([t, t, t], T_SCALAR, { optional: 1 }), [t], []);
 }
 function schemeAssertBool() {
   return generalize(tFn([tBool()], T_SCALAR), [], []);
@@ -3180,6 +3232,22 @@ function evalDimExpr(node, env) {
     return env.dims.resolve(node.name);
   }
   if (node.type === 'Paren') return evalDimExpr(node.expr, env);
+  if (node.type === 'TypeApp') {
+    // List<D>: the dim of the list IS the dim of the element. Same for
+    // any other generic single-arg type constructor referencing a known
+    // dim. Multi-arg constructors fall through to error since the
+    // runtime can't infer which arg contributes the dim.
+    if (node.base.type === 'Ident' && node.base.name === 'List' && node.args.length === 1) {
+      return evalDimExpr(node.args[0], env);
+    }
+    // For user-defined generic structs etc., the runtime doesn't track
+    // dim per type arg. Fall through.
+    throw new Error(`type application ${node.base.name ?? '?'}<...> not allowed in dimension expression`);
+  }
+  if (node.type === 'FnTypeAnno') {
+    // A Fn[...] annotation isn't a dim — used in fn-type positions only.
+    throw new Error(`Fn[...] not allowed in dimension expression`);
+  }
   if (node.type === 'Binary') {
     if (node.op === '^') {
       const base = evalDimExpr(node.left, env);
@@ -3988,6 +4056,17 @@ function evalSymDim(node, env, genericNames) {
     return env.dims.resolve(node.name);
   }
   if (node.type === 'Paren') return evalSymDim(node.expr, env, genericNames);
+  if (node.type === 'TypeApp') {
+    // List<D>: dim is the elem's dim. Other constructors are opaque to
+    // the symbolic dim solver.
+    if (node.base.type === 'Ident' && node.base.name === 'List' && node.args.length === 1) {
+      return evalSymDim(node.args[0], env, genericNames);
+    }
+    throw new Error(`type application ${node.base.name ?? '?'}<...> not allowed in type expression`);
+  }
+  if (node.type === 'FnTypeAnno') {
+    throw new Error(`Fn[...] not allowed in type expression`);
+  }
   if (node.type === 'Binary') {
     if (node.op === '^') {
       const base = evalSymDim(node.left, env, genericNames);
@@ -4375,10 +4454,10 @@ function loadLetDecl(decl, env) {
 
 // ── convenience: tokenize + parse + load in one call ─────────────
 
-function loadSource(text, sourceName, env) {
+function loadSource(text, sourceName, env, opts = {}) {
   const tokens = tokenize(text, sourceName);
   const ast = parse(tokens, sourceName);
-  loadModule(ast, env);
+  loadModule(ast, env, opts);
 }
 
 // Build the env object used by the loader. Hosts that want to use the
@@ -4723,7 +4802,11 @@ class Numbat {
 
   // Tokenize, parse, and load a Numbat-script source. Doesn't add to the
   // module map; useful for ad-hoc input.
-  loadSource(text, sourceName = '<inline>') {
+  //
+  // opts:
+  //   typecheck: true → run the typechecker before evaluation, throw on
+  //                     dim mismatch / unknown identifier / etc.
+  loadSource(text, sourceName = '<inline>', opts = {}) {
     const env = makeEnv({
       dims: this.dims,
       units: this.registry,
@@ -4732,7 +4815,7 @@ class Numbat {
       structs: this.structs,
       resolveUse: (path) => this.use(path.join('::')),
     });
-    loadSource(text, sourceName, env);
+    loadSource(text, sourceName, env, opts);
   }
 
   // Register every vendored .nbt module bundled at build time, then load

@@ -53,9 +53,9 @@ function schemeRoot(n) {
 // fixed-arity scheme here that matches the canonical form. Variadic
 // proc typing is tracked as a follow-up.
 function schemeAssertEq() {
-  // <T>(T, T) -> Scalar
+  // <T>(T, T, T?) -> Scalar — third arg is optional tolerance.
   const t = freshTVar();
-  return generalize(tFn([t, t], T_SCALAR), [t], []);
+  return generalize(tFn([t, t, t], T_SCALAR, { optional: 1 }), [t], []);
 }
 function schemeAssertBool() {
   return generalize(tFn([tBool()], T_SCALAR), [], []);

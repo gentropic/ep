@@ -629,8 +629,14 @@ function inferCall(node, env, ctx) {
 
 function inferDirectFnCall(fnT, node, env, ctx) {
   if (fnT.kind !== 'TFn') throw withSpan(new Error(`call target is not a function: ${formatType(fnT)}`), node.span);
-  if (fnT.params.length !== node.args.length) {
-    throw withSpan(new Error(`${node.name}: expected ${fnT.params.length} args, got ${node.args.length}`), node.span);
+  // Variadic support: optional trailing params can be omitted. The
+  // accepted arg count range is [params.length - optional, params.length].
+  const optional = fnT.optional ?? 0;
+  const minArity = fnT.params.length - optional;
+  const maxArity = fnT.params.length;
+  if (node.args.length < minArity || node.args.length > maxArity) {
+    const arityRange = minArity === maxArity ? `${minArity}` : `${minArity}..${maxArity}`;
+    throw withSpan(new Error(`${node.name}: expected ${arityRange} args, got ${node.args.length}`), node.span);
   }
   for (let i = 0; i < node.args.length; i++) {
     const argT = inferExpr(node.args[i], env, ctx);

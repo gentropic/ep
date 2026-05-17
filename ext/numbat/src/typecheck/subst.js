@@ -28,7 +28,7 @@ export function applyType(t, subst) {
       return t;
     }
     case 'TDim':    return tDim(applyDimExpr(t.dim, subst));
-    case 'TFn':     return tFn(t.params.map(p => applyType(p, subst)), applyType(t.result, subst));
+    case 'TFn':     return tFn(t.params.map(p => applyType(p, subst)), applyType(t.result, subst), { optional: t.optional ?? 0 });
     case 'TList':   return tList(applyType(t.elem, subst));
     case 'TTuple':  return tTuple(t.elems.map(e => applyType(e, subst)));
     case 'TStruct': {
@@ -46,7 +46,7 @@ export function applyType(t, subst) {
 export function applyDimVarSubstToType(t, dimVarId, repl) {
   switch (t.kind) {
     case 'TDim':    return tDim(dimExprSubstVar(t.dim, dimVarId, repl));
-    case 'TFn':     return tFn(t.params.map(p => applyDimVarSubstToType(p, dimVarId, repl)), applyDimVarSubstToType(t.result, dimVarId, repl));
+    case 'TFn':     return tFn(t.params.map(p => applyDimVarSubstToType(p, dimVarId, repl)), applyDimVarSubstToType(t.result, dimVarId, repl), { optional: t.optional ?? 0 });
     case 'TList':   return tList(applyDimVarSubstToType(t.elem, dimVarId, repl));
     case 'TTuple':  return tTuple(t.elems.map(e => applyDimVarSubstToType(e, dimVarId, repl)));
     case 'TStruct': {

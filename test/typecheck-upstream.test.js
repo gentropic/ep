@@ -527,11 +527,10 @@ test('upstream: boolean_values — unary minus on bool errors', () => {
 // them in the typed env. SKIP.
 
 test('upstream: arity_checks_in_procedure_calls', () => {
-  assertErr(wrap('assert_eq(1)'), /expected 2 args/);
+  assertErr(wrap('assert_eq(1)'),       /expected 2\.\.3 args/);
   assertOk(wrap('assert_eq(1, 2)'));
-  // Note: 3-arg variant (with tolerance) is also accepted by the runtime,
-  // but our scheme is fixed at arity 2 — variadic proc typing is a
-  // follow-up. 3-arg use will spuriously error at typecheck.
+  assertOk(wrap('assert_eq(1, 2, 3)'));   // 3-arg variant with tolerance
+  assertErr(wrap('assert_eq(1, 2, 3, 4)'), /expected 2\.\.3 args/);
 });
 
 // ── foreign_function / unknown_foreign_function ─────────────────
