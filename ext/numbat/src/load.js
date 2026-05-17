@@ -22,6 +22,7 @@ import { Quantity } from './quantity.js';
 import { dimEq, dimMul, dimDiv, dimPow, dimEmpty } from './dimensions.js';
 import { tokenize } from './tokenize.js';
 import { parse } from './parse.js';
+import { typecheckModule } from './typecheck/integration.js';
 
 // ── expression evaluators ────────────────────────────────────────
 
@@ -1090,7 +1091,20 @@ function decoratorInfo(decorators) {
 
 // ── module loader ────────────────────────────────────────────────
 
-export function loadModule(ast, env) {
+export function loadModule(ast, env, opts = {}) {
+  // Opt-in static typecheck pass. When enabled, runs check → solve before
+  // evaluation. Mismatches become exceptions (with span info) so the
+  // caller surfaces them at parse time instead of at first-execution-of-
+  // the-bad-branch. Off by default — pre-existing callers see no change.
+  if (opts.typecheck) {
+    const { errors } = typecheckModule(ast, env);
+    if (errors.length) {
+      // Surface the first error; full list is available via typecheckModule().
+      const e0 = errors[0];
+      const loc = e0.span ? ` at line ${e0.span.line}:${e0.span.col}` : '';
+      throw new Error(`typecheck${loc}: ${e0.message}`);
+    }
+  }
   for (const decl of ast.decls) {
     try {
       switch (decl.type) {

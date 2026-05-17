@@ -2544,6 +2544,154 @@ function solve(constraintSet) {
   return { subst, errors };
 }
 
+// ─── typecheck/integration.js ──────────────────────────
+// Glue between the typechecker and the runtime (load.js).
+//
+// `buildTypeEnv(runtimeEnv)` walks a freshly-constructed runtime env
+// (dims registry, units registry, value table) and produces a parallel
+// typed env. Hand-rolled schemes for the BUILTIN_FNS handle math
+// primitives that aren't defined via vendored .nbt sources.
+//
+// `typecheckModule(ast, runtimeEnv)` runs the full pipeline (check →
+// solve) and returns `{ subst, errors, env: typeEnv }`. Calling it
+// before loadModule(ast, runtimeEnv) lets the runtime skip dim checks
+// the typechecker already proved — and surfaces dim mismatches at
+// parse/check time instead of at first-execution-of-the-bad-branch.
+
+// ── Hand-rolled schemes for BUILTIN_FNS ───────────────────────────
+//
+// These mirror the upstream-Numbat-style declarations:
+//   sqrt: <D>(D^2) -> D
+//   abs:  <D>(D)   -> D
+//   sin:  (Scalar) -> Scalar
+// (Angle is represented as Scalar in our runtime, so sin accepts Scalar.)
+//
+// We build each scheme fresh so the dim-var ids stay unique. The
+// generalize() call packages them as proper ∀-bound schemes.
+
+function schemeUnaryPreserveDim() {
+  const d = freshTDimVar();
+  const td = tDim(dimExprFromVar(d));
+  return generalize(tFn([td], td), [], [d]);
+}
+
+function schemeUnaryScalarToScalar() {
+  return generalize(tFn([T_SCALAR], T_SCALAR), [], []);
+}
+
+function schemeRoot(n) {
+  // sqrt: <D>(D^n) -> D
+  const d = freshTDimVar();
+  const dimExp = dimExprPow(dimExprFromVar(d), ratOf(n));
+  return generalize(tFn([tDim(dimExp)], tDim(dimExprFromVar(d))), [], [d]);
+}
+
+const BUILTIN_FN_SCHEMES = {
+  // Dim-preserving
+  abs:   schemeUnaryPreserveDim,
+  floor: schemeUnaryPreserveDim,
+  ceil:  schemeUnaryPreserveDim,
+  round: schemeUnaryPreserveDim,
+
+  // Root extractors (handle even/cube exponents)
+  sqrt:  () => schemeRoot(2),
+  cbrt:  () => schemeRoot(3),
+
+  // Trig + log + exp: dimensionless in and out
+  sin:   schemeUnaryScalarToScalar,
+  cos:   schemeUnaryScalarToScalar,
+  tan:   schemeUnaryScalarToScalar,
+  asin:  schemeUnaryScalarToScalar,
+  acos:  schemeUnaryScalarToScalar,
+  atan:  schemeUnaryScalarToScalar,
+  log:   schemeUnaryScalarToScalar,
+  log10: schemeUnaryScalarToScalar,
+  log2:  schemeUnaryScalarToScalar,
+  ln:    schemeUnaryScalarToScalar,
+  exp:   schemeUnaryScalarToScalar,
+  sinh:  schemeUnaryScalarToScalar,
+  cosh:  schemeUnaryScalarToScalar,
+  tanh:  schemeUnaryScalarToScalar,
+  asinh: schemeUnaryScalarToScalar,
+  acosh: schemeUnaryScalarToScalar,
+  atanh: schemeUnaryScalarToScalar,
+
+  // Factorial: scalar in, scalar out (Factorial node has its own infer
+  // rule but `n!` invocations route through Call('factorial', [n]) too).
+  factorial: schemeUnaryScalarToScalar,
+};
+
+// ── Building the typed env ────────────────────────────────────────
+
+function buildTypeEnv(runtimeEnv) {
+  const tcEnv = makeTypeEnv();
+
+  // Accepts either the makeEnv-shaped object (env.units is the unit
+  // registry) OR a Numbat host instance directly (host.registry is the
+  // unit registry). Normalize.
+  const unitRegistry = runtimeEnv.units || runtimeEnv.registry || null;
+
+  // Dims: copy the public name → DimMap mapping.
+  if (runtimeEnv.dims?.list) {
+    for (const { name, dim } of runtimeEnv.dims.list()) {
+      typeEnvBindDim(tcEnv, name, dim);
+    }
+  }
+
+  // Units: every unit lookup-name becomes a typed value `TDim(unit.dim)`.
+  // We iterate the private map directly — it's the only exhaustive source
+  // (the public list() filters out inputOnly entries, which we DO want
+  // for typechecking).
+  if (unitRegistry?._units) {
+    for (const [name, entry] of unitRegistry._units) {
+      if (!tcEnv.values.has(name)) {
+        typeEnvBindValue(tcEnv, name, tDim(dimExprFromMap(entry.dim)));
+      }
+    }
+  }
+
+  // Constants and let-bindings already in the runtime values table.
+  if (runtimeEnv.values) {
+    for (const [name, val] of runtimeEnv.values) {
+      if (tcEnv.values.has(name)) continue;
+      if (val && typeof val === 'object' && 'dim' in val && 'value' in val) {
+        // Quantity-shaped — register as a TDim.
+        typeEnvBindValue(tcEnv, name, tDim(dimExprFromMap(val.dim)));
+      }
+      // Skip fn-typed values; they're handled below via env.fns.
+    }
+  }
+
+  // User-declared fns from previous loadModule passes: we don't have AST
+  // available here, so we punt. The typecheck pass operates on the
+  // module being loaded — user fns from THAT module register themselves
+  // via checkFnDecl. Earlier-loaded user fns (e.g. from `use`-imported
+  // modules) would need their schemes round-tripped through the typed
+  // env, which is a follow-up. For now, log to ctx.errors if a call
+  // references one.
+
+  // BUILTINs: math primitives get hand-rolled schemes so user code can
+  // call sqrt/sin/etc. and typecheck cleanly.
+  for (const [name, mkScheme] of Object.entries(BUILTIN_FN_SCHEMES)) {
+    if (!tcEnv.fns.has(name)) typeEnvBindFn(tcEnv, name, mkScheme());
+  }
+
+  return tcEnv;
+}
+
+// One-shot: parse + check + solve, return diagnostics. Hosts that want
+// to opt into typechecking call this before loadModule.
+function typecheckModule(ast, runtimeEnv) {
+  const env = buildTypeEnv(runtimeEnv);
+  const { constraints, errors: checkErrors } = checkModule(ast, env);
+  const { subst, errors: solveErrors } = solve(constraints);
+  return {
+    env,
+    subst,
+    errors: [...checkErrors, ...solveErrors],
+  };
+}
+
 // ─── load.js ───────────────────────────────────────────
 // Loader for parsed Numbat-script modules.
 //
@@ -3632,7 +3780,20 @@ function decoratorInfo(decorators) {
 
 // ── module loader ────────────────────────────────────────────────
 
-function loadModule(ast, env) {
+function loadModule(ast, env, opts = {}) {
+  // Opt-in static typecheck pass. When enabled, runs check → solve before
+  // evaluation. Mismatches become exceptions (with span info) so the
+  // caller surfaces them at parse time instead of at first-execution-of-
+  // the-bad-branch. Off by default — pre-existing callers see no change.
+  if (opts.typecheck) {
+    const { errors } = typecheckModule(ast, env);
+    if (errors.length) {
+      // Surface the first error; full list is available via typecheckModule().
+      const e0 = errors[0];
+      const loc = e0.span ? ` at line ${e0.span.line}:${e0.span.col}` : '';
+      throw new Error(`typecheck${loc}: ${e0.message}`);
+    }
+  }
   for (const decl of ast.decls) {
     try {
       switch (decl.type) {
