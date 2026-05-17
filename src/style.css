@@ -699,27 +699,33 @@ body {
 
 /* Inline-error block: lives BELOW the offending line so the full
  * dim-mismatch / did-you-mean / etc. message has room to read at a
- * glance. The leading pad approximates the column of the caret so the
- * message reads like an annotation pointing at the right operand. */
+ * glance. The wavy underline on the source range pinpoints the column;
+ * the block message left-aligns to the line's leading whitespace and
+ * wraps naturally if the message is long. Box-sizing math keeps it
+ * inside the content area so the right edge doesn't clip into the
+ * result gutter. */
 .body .cm-content .cm-ep-error-block {
   display: block;
-  padding: 1px 0 3px 0;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 2px 8px 3px;
   font-size: 11px;
   line-height: 1.35;
   color: var(--sw-red);
   background: rgba(168, 49, 42, 0.06);     /* sw-red @ 6% */
   border-left: 2px solid var(--sw-red);
-  margin-left: 1px;
 }
 .body .cm-content .cm-ep-error-block-pad {
+  /* Approximate caret-column offset, but capped so a deep column
+   * doesn't push the message off-screen. The wavy underline above
+   * already does the precise pointing. */
   display: inline-block;
-  /* ch units match the editor's monospace cell width — gives a rough
-   * caret-position offset without measuring DOM. */
-  width: calc(var(--ep-err-col, 0) * 1ch);
+  width: calc(min(var(--ep-err-col, 0), 12) * 1ch);
 }
 .body .cm-content .cm-ep-error-block-msg {
+  display: inline;
   white-space: normal;
-  padding-right: 4px;
+  overflow-wrap: anywhere;
 }
 /* Dark theme tweak — the pale red background washes out in dark mode;
  * use a slightly stronger tint and lighter text. */
