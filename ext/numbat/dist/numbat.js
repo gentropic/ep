@@ -1656,6 +1656,26 @@ function evalTypeAnno(node, env, ctx) {
 
 function withSpan(err, span) { err.span = span || null; return err; }
 
+// Best-effort span lookup. The parser attaches `.span` to Ident, Call,
+// StructInit, List, and a few decl-level nodes — but not to Binary,
+// Unary, If, or Paren. For those, fall back to the leftmost
+// span-carrying child so error messages still point at *some* spot in
+// the source.
+function spanOf(node) {
+  if (!node) return null;
+  if (node.span) return node.span;
+  switch (node.type) {
+    case 'Binary':    return spanOf(node.left) || spanOf(node.right);
+    case 'Unary':     return spanOf(node.expr);
+    case 'Paren':     return spanOf(node.expr);
+    case 'Factorial': return spanOf(node.expr);
+    case 'If':        return spanOf(node.cond) || spanOf(node.then) || spanOf(node.else);
+    case 'Field':     return spanOf(node.obj);
+    case 'TypeApp':   return spanOf(node.base);
+    default:          return null;
+  }
+}
+
 // TypeApp: `List<D>`, `Box<Length>`, `Pair<Length, Mass>`. Looks up the
 // head as a struct/list constructor and substitutes the explicit args
 // for the constructor's bound dim-vars. Note: we DON'T call instantiate
@@ -1721,7 +1741,7 @@ function checkLetDecl(decl, env, ctx) {
   const inferred = inferExpr(decl.expr, env, ctx);
   if (decl.dim) {
     const anno = evalTypeAnno(decl.dim, env, ctx);
-    cAdd(ctx.cs, cEqual(anno, inferred, decl.expr.span));
+    cAdd(ctx.cs, cEqual(anno, inferred, spanOf(decl.expr)));
     typeEnvBindValue(env, decl.name, anno);   // annotation wins as the declared type
   } else {
     typeEnvBindValue(env, decl.name, inferred);
@@ -1767,7 +1787,7 @@ function checkFnDecl(decl, env, ctx) {
       }
     }
     const bodyType = inferExpr(decl.body, bodyEnv, ctx);
-    cAdd(ctx.cs, cEqual(returnType, bodyType, decl.body.span));
+    cAdd(ctx.cs, cEqual(returnType, bodyType, spanOf(decl.body)));
   }
 
   ctx.generics = savedGenerics;
@@ -1891,11 +1911,11 @@ function inferUnary(node, env, ctx) {
   const inner = inferExpr(node.expr, env, ctx);
   switch (node.op) {
     case '-': {
-      cAdd(ctx.cs, cIsDType(inner, node.span));
+      cAdd(ctx.cs, cIsDType(inner, spanOf(node)));
       return inner;
     }
     case '!': {
-      cAdd(ctx.cs, cEqual(inner, tBool(), node.span));
+      cAdd(ctx.cs, cEqual(inner, tBool(), spanOf(node)));
       return tBool();
     }
     default:
@@ -1909,31 +1929,31 @@ function inferBinary(node, env, ctx) {
   if (op === '&&' || op === '||') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, tBool(), node.left.span));
-    cAdd(ctx.cs, cEqual(r, tBool(), node.right.span));
+    cAdd(ctx.cs, cEqual(l, tBool(), spanOf(node.left)));
+    cAdd(ctx.cs, cEqual(r, tBool(), spanOf(node.right)));
     return tBool();
   }
 
   if (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, r, node.span));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return tBool();
   }
 
   if (op === '+' || op === '-') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cIsDType(l, node.left.span));
-    cAdd(ctx.cs, cEqual(l, r, node.span));
+    cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return l;
   }
 
   if (op === '*' || op === '/') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cIsDType(l, node.left.span));
-    cAdd(ctx.cs, cIsDType(r, node.right.span));
+    cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
+    cAdd(ctx.cs, cIsDType(r, spanOf(node.right)));
     if (l.kind === 'TDim' && r.kind === 'TDim') {
       return tDim(op === '*' ? dimExprMul(l.dim, r.dim) : dimExprDiv(l.dim, r.dim));
     }
@@ -1951,15 +1971,15 @@ function inferBinary(node, env, ctx) {
       if (l.kind === 'TDim') return tDim(dimExprPow(l.dim, exp));
       // Unresolved base — emit a constraint that it must be a dim, return
       // a fresh dim-var TDim so the surrounding pass can keep walking.
-      cAdd(ctx.cs, cIsDType(l, node.left.span));
+      cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
       const tdv = freshTDimVar();
       return tDim(dimExprFromVar(tdv));
     }
     // Non-const exponent — both base and exp must be Scalar (the only
     // case dimensionally well-defined without static eval).
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, T_SCALAR, node.left.span));
-    cAdd(ctx.cs, cEqual(r, T_SCALAR, node.right.span));
+    cAdd(ctx.cs, cEqual(l, T_SCALAR, spanOf(node.left)));
+    cAdd(ctx.cs, cEqual(r, T_SCALAR, spanOf(node.right)));
     return T_SCALAR;
   }
 
@@ -1968,7 +1988,7 @@ function inferBinary(node, env, ctx) {
     // dim. Result type = left (the value side).
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, r, node.span));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return l;
   }
 
@@ -1995,17 +2015,17 @@ function inferDirectFnCall(fnT, node, env, ctx) {
   }
   for (let i = 0; i < node.args.length; i++) {
     const argT = inferExpr(node.args[i], env, ctx);
-    cAdd(ctx.cs, cEqual(fnT.params[i], argT, node.args[i].span));
+    cAdd(ctx.cs, cEqual(fnT.params[i], argT, spanOf(node.args[i])));
   }
   return fnT.result;
 }
 
 function inferIf(node, env, ctx) {
   const c = inferExpr(node.cond, env, ctx);
-  cAdd(ctx.cs, cEqual(c, tBool(), node.cond.span));
+  cAdd(ctx.cs, cEqual(c, tBool(), spanOf(node.cond)));
   const t = inferExpr(node.then,  env, ctx);
   const e = inferExpr(node.else,  env, ctx);
-  cAdd(ctx.cs, cEqual(t, e, node.span));
+  cAdd(ctx.cs, cEqual(t, e, spanOf(node)));
   return t;
 }
 
@@ -2014,7 +2034,7 @@ function inferList(node, env, ctx) {
   const first = inferExpr(node.items[0], env, ctx);
   for (let i = 1; i < node.items.length; i++) {
     const ti = inferExpr(node.items[i], env, ctx);
-    cAdd(ctx.cs, cEqual(first, ti, node.items[i].span));
+    cAdd(ctx.cs, cEqual(first, ti, spanOf(node.items[i])));
   }
   return tList(first);
 }
@@ -2030,7 +2050,7 @@ function inferField(node, env, ctx) {
   // Polymorphic case: emit HasField, return a fresh tvar that the solver
   // will tie to the actual field type.
   const ft = freshTVar();
-  cAdd(ctx.cs, cHasField(objT, node.name, ft, node.span));
+  cAdd(ctx.cs, cHasField(objT, node.name, ft, spanOf(node)));
   return ft;
 }
 
@@ -2045,7 +2065,7 @@ function inferStructInit(node, env, ctx) {
     if (!(f.name in s.fields)) throw withSpan(new Error(`struct ${node.name} has no field '${f.name}'`), node.span);
     seen.add(f.name);
     const fT = inferExpr(f.value, env, ctx);
-    cAdd(ctx.cs, cEqual(s.fields[f.name], fT, f.value.span));
+    cAdd(ctx.cs, cEqual(s.fields[f.name], fT, spanOf(f.value)));
   }
   for (const k in s.fields) {
     if (!seen.has(k)) throw withSpan(new Error(`struct ${node.name} missing field '${k}'`), node.span);
@@ -2055,7 +2075,7 @@ function inferStructInit(node, env, ctx) {
 
 function inferFactorial(node, env, ctx) {
   const t = inferExpr(node.expr, env, ctx);
-  cAdd(ctx.cs, cEqual(t, T_SCALAR, node.expr.span));
+  cAdd(ctx.cs, cEqual(t, T_SCALAR, spanOf(node.expr)));
   return T_SCALAR;
 }
 
@@ -2186,6 +2206,129 @@ function occursTVar(id, t) {
   }
 }
 
+// ─── typecheck/errors.js ───────────────────────────────
+// Error formatting for typecheck diagnostics.
+//
+// Takes the (message, span) records that solve() produces and turns them
+// into multi-line strings with source snippets and caret pointers —
+// Rust-/upstream-Numbat-style. Span-less errors degrade gracefully to
+// just the message text.
+//
+// Dim formatting upgraded over `formatType`'s debug form: capitalized
+// base names (Length, not length), Unicode superscripts where they make
+// sense, fractional exponents shown as "^(1/2)" rather than "^0.5".
+
+// ── Dim formatting ────────────────────────────────────────────────
+
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// Unicode superscripts for common integer exponents. Fall back to ASCII
+// `^N` for anything we can't render cleanly (rationals, large numbers).
+const SUP = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻',
+};
+
+function unicodeExp(n) {
+  const s = String(n);
+  let out = '';
+  for (const ch of s) {
+    if (!(ch in SUP)) return null;   // bail to ASCII form
+    out += SUP[ch];
+  }
+  return out;
+}
+
+// Format an integer or rational exponent for display.
+function formatExp(rat) {
+  if (rat.d === 1) {
+    if (rat.n === 1) return '';
+    const u = unicodeExp(rat.n);
+    return u !== null ? u : `^${rat.n}`;
+  }
+  return `^(${ratFormat(rat)})`;
+}
+
+function formatDim(dimExpr) {
+  const parts = [];
+  for (const k in dimExpr.base) {
+    const r = dimExpr.base[k];
+    if (ratIsZero(r)) continue;
+    parts.push(capitalize(k) + formatExp(r));
+  }
+  for (const k in dimExpr.vars) {
+    const r = dimExpr.vars[k];
+    if (ratIsZero(r)) continue;
+    parts.push('$' + k + formatExp(r));
+  }
+  return parts.join('·') || 'Scalar';
+}
+
+function formatTypePretty(t) {
+  switch (t.kind) {
+    case 'TBool':   return 'Bool';
+    case 'TString': return 'String';
+    case 'TNever':  return '!';
+    case 'TVar':    return `'a${t.id}`;
+    case 'TDimVar': return `$${t.id}`;
+    case 'TDim':    return formatDim(t.dim);
+    case 'TFn':     return `(${t.params.map(formatTypePretty).join(', ')}) -> ${formatTypePretty(t.result)}`;
+    case 'TList':   return `List<${formatTypePretty(t.elem)}>`;
+    case 'TTuple':  return `(${t.elems.map(formatTypePretty).join(', ')})`;
+    case 'TStruct': return t.name;
+    case 'TScheme': {
+      const bs = [
+        ...t.tvars.map(v => `'a${v.id}`),
+        ...t.dimVars.map(v => `$${v.id}`),
+      ].join(', ');
+      return bs.length ? `∀(${bs}). ${formatTypePretty(t.body)}` : formatTypePretty(t.body);
+    }
+    default: return `<unknown ${t.kind}>`;
+  }
+}
+
+// ── Source-snippet error formatting ───────────────────────────────
+
+// Single-line snippet pointer:
+//
+//   <source>:LINE:COL: MESSAGE
+//      L | … source line …
+//        |   ^^^^^^ (column carets, sized to span)
+//
+// Multi-line spans (rare in our error set) collapse to caret-at-start.
+
+function formatError(err, source, sourceName) {
+  const msg = err.message || '(no message)';
+  const span = err.span;
+  if (!span || !source) {
+    const loc = sourceName ? `${sourceName}: ` : '';
+    return `${loc}error: ${msg}`;
+  }
+  const where = `${span.source || sourceName || '<input>'}:${span.line}:${span.col}`;
+  const lines = source.split('\n');
+  const lineText = lines[span.line - 1] ?? '';
+  const linePrefix = `   ${span.line} | `;
+  const margin    = '     | ';
+  // Caret width: end - offset → spanned chars. Cap at line length so we
+  // don't run carets past end of line (multi-line spans degrade here).
+  const startCol = Math.max(1, span.col);
+  const width = Math.max(1, Math.min(
+    (span.end ?? (span.offset + 1)) - span.offset,
+    lineText.length - (startCol - 1),
+  ));
+  const carets = ' '.repeat(startCol - 1) + '^'.repeat(width);
+  return [
+    `${where}: error: ${msg}`,
+    linePrefix + lineText,
+    margin    + carets,
+  ].join('\n');
+}
+
+// Render a list of errors as a single block, blank-line separated.
+function formatErrors(errors, source, sourceName) {
+  return errors.map(e => formatError(e, source, sourceName)).join('\n\n');
+}
+
 // ─── typecheck/dim-solve.js ────────────────────────────
 // Dim-equation solver.
 //
@@ -2214,7 +2357,7 @@ function solveDimEq(a, b, subst, span) {
   // No vars to bind — the equation must already hold.
   if (Object.keys(c.vars).length === 0) {
     if (dimExprIsScalar(c)) return subst;
-    throw new UnifyError(`dimension mismatch: ${dimExprFormat(aR)} != ${dimExprFormat(bR)}`, span);
+    throw new UnifyError(`dimension mismatch: expected ${formatDim(aR)}, got ${formatDim(bR)}`, span);
   }
 
   // Pick a var to solve for. Heuristic: prefer the one whose coefficient
@@ -2299,7 +2442,7 @@ function unify(t1, t2, subst, span) {
     return s;
   }
 
-  throw new UnifyError(`cannot unify ${formatType(a)} with ${formatType(b)}`, span);
+  throw new UnifyError(`cannot unify ${formatTypePretty(a)} with ${formatTypePretty(b)}`, span);
 }
 
 // ─── typecheck/scheme.js ───────────────────────────────
@@ -2371,7 +2514,7 @@ function solve(constraintSet) {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
           if (r.kind === 'TVar') { next.push(c); continue; }  // defer
-          throw new UnifyError(`expected dimension type, got ${formatType(r)}`, c.span);
+          throw new UnifyError(`expected dimension type, got ${formatTypePretty(r)}`, c.span);
         } else if (c.kind === 'HasField') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TStruct') {
@@ -2382,7 +2525,7 @@ function solve(constraintSet) {
           } else if (r.kind === 'TVar') {
             next.push(c);
           } else {
-            throw new UnifyError(`field access on non-struct: ${formatType(r)}`, c.span);
+            throw new UnifyError(`field access on non-struct: ${formatTypePretty(r)}`, c.span);
           }
         }
       } catch (e) {

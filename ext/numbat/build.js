@@ -27,6 +27,7 @@ const SRC_FILES = [
   'typecheck/constraints.js',
   'typecheck/check.js',
   'typecheck/subst.js',
+  'typecheck/errors.js',
   'typecheck/dim-solve.js',
   'typecheck/unify.js',
   'typecheck/scheme.js',

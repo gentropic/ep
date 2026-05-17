@@ -19,7 +19,8 @@
 
 import { ratOf, ratDiv } from './rat.js';
 import { applyDimExpr, extendDimVar, UnifyError } from './subst.js';
-import { dimExprFormat, dimExprDiv, dimExprPow, dimExprIsScalar } from './types.js';
+import { dimExprDiv, dimExprPow, dimExprIsScalar } from './types.js';
+import { formatDim } from './errors.js';
 
 export function solveDimEq(a, b, subst, span) {
   const aR = applyDimExpr(a, subst);
@@ -29,7 +30,7 @@ export function solveDimEq(a, b, subst, span) {
   // No vars to bind — the equation must already hold.
   if (Object.keys(c.vars).length === 0) {
     if (dimExprIsScalar(c)) return subst;
-    throw new UnifyError(`dimension mismatch: ${dimExprFormat(aR)} != ${dimExprFormat(bR)}`, span);
+    throw new UnifyError(`dimension mismatch: expected ${formatDim(aR)}, got ${formatDim(bR)}`, span);
   }
 
   // Pick a var to solve for. Heuristic: prefer the one whose coefficient

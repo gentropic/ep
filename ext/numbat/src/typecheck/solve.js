@@ -10,7 +10,7 @@
 
 import { applyType, makeSubst, UnifyError } from './subst.js';
 import { unify } from './unify.js';
-import { formatType } from './types.js';
+import { formatTypePretty } from './errors.js';
 
 export function solve(constraintSet) {
   let subst = makeSubst();
@@ -36,7 +36,7 @@ export function solve(constraintSet) {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
           if (r.kind === 'TVar') { next.push(c); continue; }  // defer
-          throw new UnifyError(`expected dimension type, got ${formatType(r)}`, c.span);
+          throw new UnifyError(`expected dimension type, got ${formatTypePretty(r)}`, c.span);
         } else if (c.kind === 'HasField') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TStruct') {
@@ -47,7 +47,7 @@ export function solve(constraintSet) {
           } else if (r.kind === 'TVar') {
             next.push(c);
           } else {
-            throw new UnifyError(`field access on non-struct: ${formatType(r)}`, c.span);
+            throw new UnifyError(`field access on non-struct: ${formatTypePretty(r)}`, c.span);
           }
         }
       } catch (e) {

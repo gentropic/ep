@@ -124,6 +124,26 @@ function evalTypeAnno(node, env, ctx) {
 
 function withSpan(err, span) { err.span = span || null; return err; }
 
+// Best-effort span lookup. The parser attaches `.span` to Ident, Call,
+// StructInit, List, and a few decl-level nodes — but not to Binary,
+// Unary, If, or Paren. For those, fall back to the leftmost
+// span-carrying child so error messages still point at *some* spot in
+// the source.
+function spanOf(node) {
+  if (!node) return null;
+  if (node.span) return node.span;
+  switch (node.type) {
+    case 'Binary':    return spanOf(node.left) || spanOf(node.right);
+    case 'Unary':     return spanOf(node.expr);
+    case 'Paren':     return spanOf(node.expr);
+    case 'Factorial': return spanOf(node.expr);
+    case 'If':        return spanOf(node.cond) || spanOf(node.then) || spanOf(node.else);
+    case 'Field':     return spanOf(node.obj);
+    case 'TypeApp':   return spanOf(node.base);
+    default:          return null;
+  }
+}
+
 // TypeApp: `List<D>`, `Box<Length>`, `Pair<Length, Mass>`. Looks up the
 // head as a struct/list constructor and substitutes the explicit args
 // for the constructor's bound dim-vars. Note: we DON'T call instantiate
@@ -189,7 +209,7 @@ function checkLetDecl(decl, env, ctx) {
   const inferred = inferExpr(decl.expr, env, ctx);
   if (decl.dim) {
     const anno = evalTypeAnno(decl.dim, env, ctx);
-    cAdd(ctx.cs, cEqual(anno, inferred, decl.expr.span));
+    cAdd(ctx.cs, cEqual(anno, inferred, spanOf(decl.expr)));
     typeEnvBindValue(env, decl.name, anno);   // annotation wins as the declared type
   } else {
     typeEnvBindValue(env, decl.name, inferred);
@@ -235,7 +255,7 @@ function checkFnDecl(decl, env, ctx) {
       }
     }
     const bodyType = inferExpr(decl.body, bodyEnv, ctx);
-    cAdd(ctx.cs, cEqual(returnType, bodyType, decl.body.span));
+    cAdd(ctx.cs, cEqual(returnType, bodyType, spanOf(decl.body)));
   }
 
   ctx.generics = savedGenerics;
@@ -359,11 +379,11 @@ function inferUnary(node, env, ctx) {
   const inner = inferExpr(node.expr, env, ctx);
   switch (node.op) {
     case '-': {
-      cAdd(ctx.cs, cIsDType(inner, node.span));
+      cAdd(ctx.cs, cIsDType(inner, spanOf(node)));
       return inner;
     }
     case '!': {
-      cAdd(ctx.cs, cEqual(inner, tBool(), node.span));
+      cAdd(ctx.cs, cEqual(inner, tBool(), spanOf(node)));
       return tBool();
     }
     default:
@@ -377,31 +397,31 @@ function inferBinary(node, env, ctx) {
   if (op === '&&' || op === '||') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, tBool(), node.left.span));
-    cAdd(ctx.cs, cEqual(r, tBool(), node.right.span));
+    cAdd(ctx.cs, cEqual(l, tBool(), spanOf(node.left)));
+    cAdd(ctx.cs, cEqual(r, tBool(), spanOf(node.right)));
     return tBool();
   }
 
   if (op === '==' || op === '!=' || op === '<' || op === '<=' || op === '>' || op === '>=') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, r, node.span));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return tBool();
   }
 
   if (op === '+' || op === '-') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cIsDType(l, node.left.span));
-    cAdd(ctx.cs, cEqual(l, r, node.span));
+    cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return l;
   }
 
   if (op === '*' || op === '/') {
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cIsDType(l, node.left.span));
-    cAdd(ctx.cs, cIsDType(r, node.right.span));
+    cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
+    cAdd(ctx.cs, cIsDType(r, spanOf(node.right)));
     if (l.kind === 'TDim' && r.kind === 'TDim') {
       return tDim(op === '*' ? dimExprMul(l.dim, r.dim) : dimExprDiv(l.dim, r.dim));
     }
@@ -419,15 +439,15 @@ function inferBinary(node, env, ctx) {
       if (l.kind === 'TDim') return tDim(dimExprPow(l.dim, exp));
       // Unresolved base — emit a constraint that it must be a dim, return
       // a fresh dim-var TDim so the surrounding pass can keep walking.
-      cAdd(ctx.cs, cIsDType(l, node.left.span));
+      cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
       const tdv = freshTDimVar();
       return tDim(dimExprFromVar(tdv));
     }
     // Non-const exponent — both base and exp must be Scalar (the only
     // case dimensionally well-defined without static eval).
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, T_SCALAR, node.left.span));
-    cAdd(ctx.cs, cEqual(r, T_SCALAR, node.right.span));
+    cAdd(ctx.cs, cEqual(l, T_SCALAR, spanOf(node.left)));
+    cAdd(ctx.cs, cEqual(r, T_SCALAR, spanOf(node.right)));
     return T_SCALAR;
   }
 
@@ -436,7 +456,7 @@ function inferBinary(node, env, ctx) {
     // dim. Result type = left (the value side).
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, r, node.span));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return l;
   }
 
@@ -463,17 +483,17 @@ function inferDirectFnCall(fnT, node, env, ctx) {
   }
   for (let i = 0; i < node.args.length; i++) {
     const argT = inferExpr(node.args[i], env, ctx);
-    cAdd(ctx.cs, cEqual(fnT.params[i], argT, node.args[i].span));
+    cAdd(ctx.cs, cEqual(fnT.params[i], argT, spanOf(node.args[i])));
   }
   return fnT.result;
 }
 
 function inferIf(node, env, ctx) {
   const c = inferExpr(node.cond, env, ctx);
-  cAdd(ctx.cs, cEqual(c, tBool(), node.cond.span));
+  cAdd(ctx.cs, cEqual(c, tBool(), spanOf(node.cond)));
   const t = inferExpr(node.then,  env, ctx);
   const e = inferExpr(node.else,  env, ctx);
-  cAdd(ctx.cs, cEqual(t, e, node.span));
+  cAdd(ctx.cs, cEqual(t, e, spanOf(node)));
   return t;
 }
 
@@ -482,7 +502,7 @@ function inferList(node, env, ctx) {
   const first = inferExpr(node.items[0], env, ctx);
   for (let i = 1; i < node.items.length; i++) {
     const ti = inferExpr(node.items[i], env, ctx);
-    cAdd(ctx.cs, cEqual(first, ti, node.items[i].span));
+    cAdd(ctx.cs, cEqual(first, ti, spanOf(node.items[i])));
   }
   return tList(first);
 }
@@ -498,7 +518,7 @@ function inferField(node, env, ctx) {
   // Polymorphic case: emit HasField, return a fresh tvar that the solver
   // will tie to the actual field type.
   const ft = freshTVar();
-  cAdd(ctx.cs, cHasField(objT, node.name, ft, node.span));
+  cAdd(ctx.cs, cHasField(objT, node.name, ft, spanOf(node)));
   return ft;
 }
 
@@ -513,7 +533,7 @@ function inferStructInit(node, env, ctx) {
     if (!(f.name in s.fields)) throw withSpan(new Error(`struct ${node.name} has no field '${f.name}'`), node.span);
     seen.add(f.name);
     const fT = inferExpr(f.value, env, ctx);
-    cAdd(ctx.cs, cEqual(s.fields[f.name], fT, f.value.span));
+    cAdd(ctx.cs, cEqual(s.fields[f.name], fT, spanOf(f.value)));
   }
   for (const k in s.fields) {
     if (!seen.has(k)) throw withSpan(new Error(`struct ${node.name} missing field '${k}'`), node.span);
@@ -523,6 +543,6 @@ function inferStructInit(node, env, ctx) {
 
 function inferFactorial(node, env, ctx) {
   const t = inferExpr(node.expr, env, ctx);
-  cAdd(ctx.cs, cEqual(t, T_SCALAR, node.expr.span));
+  cAdd(ctx.cs, cEqual(t, T_SCALAR, spanOf(node.expr)));
   return T_SCALAR;
 }

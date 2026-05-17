@@ -14,9 +14,10 @@
 // Throws UnifyError with the constraint's source span attached so
 // phase-5 error reporting can point at the right line.
 
-import { typeEq, formatType } from './types.js';
+import { typeEq } from './types.js';
 import { applyType, extendTVar, UnifyError } from './subst.js';
 import { solveDimEq } from './dim-solve.js';
+import { formatTypePretty } from './errors.js';
 
 export function unify(t1, t2, subst, span) {
   const a = applyType(t1, subst);
@@ -62,5 +63,5 @@ export function unify(t1, t2, subst, span) {
     return s;
   }
 
-  throw new UnifyError(`cannot unify ${formatType(a)} with ${formatType(b)}`, span);
+  throw new UnifyError(`cannot unify ${formatTypePretty(a)} with ${formatTypePretty(b)}`, span);
 }
