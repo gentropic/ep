@@ -14,6 +14,7 @@ import { epConfirm } from './dialogs.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
 import { formatCurrentProgram } from './format-cmd.js';
 import { idbReplaceAllPrograms } from './idb.js';
+import { checkForUpdateNow, getLastUpdateCheck, syncAutoCheckSetting } from './update-check.js';
 
 const SIG_OPTIONS  = [3, 4, 5, 6];
 const WIDTH_OPTIONS = [30, 40, 50, 60, 80];
@@ -61,6 +62,9 @@ const templateResetBtn   = document.getElementById('templateResetBtn');
 const formatBtn         = document.getElementById('settingsFormatBtn');
 const replayTutBtn      = document.getElementById('settingsReplayTutBtn');
 const resetBtn          = document.getElementById('settingsResetBtn');
+const autoCheckControl  = document.getElementById('autoCheckControl');
+const checkUpdateBtn    = document.getElementById('settingsCheckUpdateBtn');
+const updateLastCheckedHint = document.getElementById('updateLastCheckedHint');
 
 export function openSettings() {
   if (!panel) return;
@@ -163,6 +167,15 @@ function renderControls() {
       renderControls();
     });
 
+  renderPillRow(autoCheckControl, ON_OFF,
+    getSetting('autoCheckUpdates', true) ? 'on' : 'off', v => {
+      const on = v === 'on';
+      setSetting('autoCheckUpdates', on);
+      syncAutoCheckSetting();
+      renderControls();
+    });
+  updateLastCheckedLabel();
+
   renderPillRow(sortControl, SORT_OPTIONS, getSetting('sort', 'recent'), v => {
     setSetting('sort', v);
     // drawer.js listens for ep:storage-changed to re-render the list.
@@ -236,6 +249,39 @@ if (formatBtn) {
     formatCurrentProgram();
     closeSettings();
   });
+}
+
+if (checkUpdateBtn) {
+  checkUpdateBtn.addEventListener('click', async () => {
+    const prev = checkUpdateBtn.textContent;
+    checkUpdateBtn.textContent = 'checking…';
+    checkUpdateBtn.disabled = true;
+    try { await checkForUpdateNow(); }
+    finally {
+      checkUpdateBtn.disabled = false;
+      checkUpdateBtn.textContent = prev;
+      updateLastCheckedLabel();
+    }
+  });
+}
+
+// Renders the "last checked: …" line under the check-now button. Called
+// from renderControls() (when the panel opens) and right after a manual
+// check completes.
+function updateLastCheckedLabel() {
+  if (!updateLastCheckedHint) return;
+  const at = getLastUpdateCheck();
+  if (!at) {
+    updateLastCheckedHint.textContent = 'last checked: never';
+    return;
+  }
+  const d = Date.now() - at;
+  let ago;
+  if (d < 60_000)        ago = 'just now';
+  else if (d < 3_600_000) ago = Math.floor(d /     60_000) + 'm ago';
+  else if (d < 86_400_000) ago = Math.floor(d /  3_600_000) + 'h ago';
+  else                    ago = Math.floor(d / 86_400_000) + 'd ago';
+  updateLastCheckedHint.textContent = 'last checked: ' + ago + ' · ' + new Date(at).toLocaleString();
 }
 
 if (replayTutBtn) {

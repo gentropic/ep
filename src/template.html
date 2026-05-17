@@ -163,6 +163,15 @@
   </div>
 </aside>
 
+<!-- Update toast — shown when the service worker has pulled in a newer
+     version of ep in the background. Reload to swap to it. Sits above
+     everything (z-index 90) so a stale view never hides the prompt. -->
+<div class="update-toast" id="updateToast">
+  <span class="update-toast-msg">A new version of ep is ready.</span>
+  <button class="update-toast-btn primary" id="updateToastReload">reload</button>
+  <button class="update-toast-btn" id="updateToastDismiss" aria-label="dismiss">✕</button>
+</div>
+
 <!-- Unit picker bottom sheet — opened from the accessory bar's "⋯ units"
      button. Categorised grid of every resolvable unit; tap to insert at
      cursor. Mobile-first thumb-reachable position. -->
@@ -283,6 +292,26 @@
           <div class="settings-row-hint">pinned programs always appear first</div>
         </div>
         <div class="settings-row-control" id="settingsSortControl"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-hdr">updates</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>auto-check for updates</div>
+          <div class="settings-row-hint">when on, ep refreshes the cached app shell in the background and shows a "reload" toast when a new version is ready</div>
+        </div>
+        <div class="settings-row-control" id="autoCheckControl"></div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>check for updates</div>
+          <div class="settings-row-hint" id="updateLastCheckedHint">last checked: never</div>
+        </div>
+        <div class="settings-row-control">
+          <button class="settings-btn" id="settingsCheckUpdateBtn">check now</button>
+        </div>
       </div>
     </div>
 

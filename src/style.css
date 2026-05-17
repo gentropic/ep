@@ -807,6 +807,56 @@ body {
   color: var(--sw-orange);
 }
 
+/* Update toast — pinned at the bottom of the viewport, slides up when
+ * an update lands. z-index 90 is above panels (80) and the drawer (60)
+ * so a stale view never hides the prompt. */
+.update-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%) translateY(120%);
+  background: var(--sw-bg-raised);
+  border: 1px solid var(--sw-orange);
+  border-radius: var(--sw-radius);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 90;
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  color: var(--sw-text);
+  max-width: calc(100vw - 32px);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 200ms ease, opacity 200ms ease;
+}
+.update-toast.on {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.update-toast-msg { white-space: nowrap; }
+.update-toast-btn {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 5px 9px;
+  color: var(--sw-text);
+  cursor: pointer;
+}
+.update-toast-btn:hover { border-color: var(--sw-orange); }
+.update-toast-btn.primary {
+  background: var(--sw-orange);
+  border-color: var(--sw-orange);
+  color: var(--sw-bg);
+  font-weight: 700;
+}
+.update-toast-btn.primary:hover { background: var(--sw-text); border-color: var(--sw-text); }
+
 /* CM6 autocompletion popup — styled to match the switchboard palette.
  * The icon (cm-completionIcon) gets recolored per completion `type` so
  * variables / functions / keywords / units are visually distinct. */
