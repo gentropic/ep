@@ -142,8 +142,8 @@ const CORPUS = [
   { name: 'ep: sample_mass',             source: 'sample_mass(NQ_core, 5 m, 2.7 g/cm3)', q: { value: 24023.570526442, dim: {mass: 1} } },
 
   // ─── 9. Errors ──────────────────────────────────────────────────
-  { name: 'err: dim mismatch',           source: '1 m + 1 kg',        error: /can't add/ },
-  { name: 'err: anno mismatch',          source: 'let l: Length = 5 kg', error: /annotated/ },
+  { name: 'err: dim mismatch',           source: '1 m + 1 kg',        error: /dimension mismatch|can't add/ },
+  { name: 'err: anno mismatch',          source: 'let l: Length = 5 kg', error: /dimension mismatch|annotated/ },
   { name: 'err: unknown id',             source: 'unknown_thing + 1', error: /unknown identifier/ },
   { name: 'err: unknown unit',           source: '5 quux',            error: /unknown identifier|unknown unit/ },
 

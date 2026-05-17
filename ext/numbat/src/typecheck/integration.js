@@ -357,6 +357,32 @@ function structRecordToScheme(rec, tcEnv) {
   return tScheme(tvars, dimVars, tStruct(rec.name, fields), { binderOrder: order });
 }
 
+// Typecheck a single parsed statement against a persistent typed env.
+// Errors are returned (not thrown). The typed env is updated in place
+// — subsequent calls see this decl's bindings. Used by ep's evaluator
+// to interleave typecheck with per-statement runtime eval.
+export function typecheckStatement(ast, tcEnv) {
+  const errors = [];
+  for (const decl of ast.decls) {
+    const ctx = { cs: makeConstraintSet(), errors: [], generics: new Map() };
+    try {
+      checkDecl(decl, tcEnv, ctx);
+    } catch (e) {
+      errors.push({ message: e.message, span: e.span || null });
+      continue;
+    }
+    if (ctx.errors.length) {
+      errors.push(...ctx.errors);
+      continue;
+    }
+    const { subst, errors: solveErrs } = solve(ctx.cs);
+    errors.push(...solveErrs);
+    if (solveErrs.length) continue;
+    finalizeDecl(decl, tcEnv, subst, errors);
+  }
+  return errors;
+}
+
 // One-shot: parse + check + solve + generalize, return diagnostics.
 // Hosts that want to opt into typechecking call this before loadModule.
 //

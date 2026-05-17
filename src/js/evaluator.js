@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
 // Uses the v0.1 prelude: ep's existing ore-body-shaped unit table. The
@@ -533,6 +533,34 @@ function evalExprText(text, env) {
   return evalValueExpr(ast.decls[0].expr, env);
 }
 
+// Typecheck the AST for one ep statement. Records any errors into
+// `outErrorsByLine` keyed by the originating body row. `srcLineOffset`
+// is the row index where the statement starts in the body, used to map
+// the typechecker's local span lines back to body rows. Errors are
+// silently dropped on parse failure — runtime will surface the same
+// problem with its own message.
+function typecheckStatementSrc(stmtSrc, tcEnv, srcLineOffset, outErrorsByLine) {
+  let ast;
+  try {
+    ast = parse(tokenize(stmtSrc, '<row>'), '<row>');
+  } catch {
+    return;
+  }
+  const errors = typecheckStatement(ast, tcEnv);
+  for (const err of errors) {
+    // Statement source starts on body row `srcLineOffset` (0-indexed).
+    // Typechecker spans are 1-indexed lines within stmtSrc, so subtract 1.
+    const row = srcLineOffset + ((err.span?.line ?? 1) - 1);
+    // Prefix with "<row>:1:col:" so render.js's annotation extractor
+    // picks up the column. col is the typecheck-reported col (relative
+    // to stmtSrc, not the original body source — but for in-row carets
+    // the col is usually fine).
+    const col = err.span?.col ?? 1;
+    const formatted = `<row>:1:${col}: ${err.message}`;
+    if (!outErrorsByLine.has(row)) outErrorsByLine.set(row, formatted);
+  }
+}
+
 // Run a single-line numbat-script statement (fn / dimension / unit / use)
 // against the env. Side-effects only — no value to display.
 function loadStatement(text, env) {
@@ -600,6 +628,14 @@ export function evaluate(body) {
   }
 
   const env = freshEnv();
+  // Parallel typed env for supplementary typecheck. Errors from typecheck
+  // are merged into row.error AFTER runtime eval — preferring the
+  // typecheck message when both layers agree something's wrong (typecheck
+  // produces contextual + did-you-mean hints; runtime doesn't). Typecheck
+  // false-positives are tolerated: if runtime succeeds, the typecheck
+  // error is dropped.
+  const tcEnv = buildTypeEnv(host());
+  const tcErrorsByLine = new Map();
   const params = [];
   const outputs = [];
   const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
@@ -651,6 +687,9 @@ export function evaluate(body) {
       } catch (e) { q = null; err = e.message; }
       row.result = q;
       row.error  = err;
+      // Supplementary typecheck — re-form the binding as a numbat let-decl.
+      const annoStr = c.anno ? `: ${c.anno}` : '';
+      typecheckStatementSrc(`let ${name}${annoStr} = ${c.expr}`, tcEnv, ownerIdx, tcErrorsByLine);
       if (wantsChip) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
@@ -693,11 +732,15 @@ export function evaluate(body) {
       const src = passthrough ? passthrough + '\n' + c.src : c.src;
       try { loadStatement(src, env); }
       catch (e) { row.error = e.message; }
+      typecheckStatementSrc(src, tcEnv, ownerIdx, tcErrorsByLine);
       continue;
     }
     if (c.kind === 'use-decl') {
       try { loadStatement(c.src, env); }
       catch (e) { row.error = e.message; }
+      // `use` directives don't need typechecking themselves — they
+      // load modules into env. Lifting those modules into tcEnv is
+      // tracked separately (#98).
       continue;
     }
 
@@ -711,7 +754,18 @@ export function evaluate(body) {
         env.values.set('_',   q);
         env.values.set('ans', q);
       } catch (e) { row.error = e.message; }
+      // Typecheck via the same `let __ep__ = expr` wrap used at eval.
+      typecheckStatementSrc(`let __ep__ = ${c.expr}`, tcEnv, ownerIdx, tcErrorsByLine);
       continue;
+    }
+  }
+
+  // Merge typecheck errors into row.error where both layers reported.
+  // Typecheck-only errors (runtime ran fine) are dropped — false
+  // positives are tolerated to avoid noise from typechecker gaps.
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].error && tcErrorsByLine.has(i)) {
+      rows[i].error = tcErrorsByLine.get(i);
     }
   }
 

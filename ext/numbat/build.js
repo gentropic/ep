@@ -58,6 +58,9 @@ const PUBLIC_API = [
   // formatParts is exposed so the unit-picker logic in ep can be
   // reused inside the interpolation hook.
   'formatParts',
+  // Typechecker entry points — hosts (ep, future AIR integration) call
+  // these to typecheck programs before/alongside evaluation.
+  'typecheckStatement', 'typecheckModule', 'buildTypeEnv',
   // Bundled vendored .nbt modules (v0.2) — Numbat.loadVendoredPrelude uses this.
   'VENDORED_MODULES',
 ];
