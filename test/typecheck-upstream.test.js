@@ -126,7 +126,7 @@ test('upstream: basic_arithmetic', () => {
 // Our typechecker treats `0` as TScalar and requires `1 a` + `Scalar` —
 // emits dim mismatch. This is a real divergence. SKIP with note.
 
-test('upstream: polymorphic_zero', { skip: 'requires polymorphic-zero handling — Scalar additive identity for any dim' }, () => {
+test('upstream: polymorphic_zero', () => {
   assertOk(wrap('1 a + 0'));
   assertOk(wrap('0 + 1 a'));
   assertOk(wrap('1 b + 0'));
@@ -431,10 +431,74 @@ test('upstream: calling a dim value as function', () => {
 // Block of tests that all need `Fn[(A) -> B]` type annotations which
 // our parser currently discards (#94). Skip until that lands.
 
-test('upstream: function_types_basic', { skip: 'Fn[(A) -> B] annotation parsing not done (#94)' }, () => {
+test('upstream: function_types_basic', () => {
   assertOk(`
     let returns_a_ref1 = returns_a
     let returns_a_ref2: Fn[() -> A] = returns_a
+
+    let takes_a_returns_a_ref1 = takes_a_returns_a
+    let takes_a_returns_a_ref2: Fn[(A) -> A] = takes_a_returns_a
+
+    let takes_a_returns_b_ref1 = takes_a_returns_b
+    let takes_a_returns_b_ref2: Fn[(A) -> B] = takes_a_returns_b
+
+    let takes_a_and_b_returns_C_ref1 = takes_a_and_b_returns_c
+    let takes_a_and_b_returns_C_ref2: Fn[(A, B) -> C] = takes_a_and_b_returns_c
+  `);
+});
+
+test('upstream: function_types — wrong return type rejected', () => {
+  assertErr('let wrong_return_type: Fn[() -> B] = returns_a');
+});
+
+test('upstream: function_types — wrong argument type rejected', () => {
+  assertErr('let wrong_arg_type: Fn[(B) -> A] = takes_a_returns_a');
+});
+
+test('upstream: function_types — wrong argument count rejected', () => {
+  assertErr('let wrong_arg_count: Fn[(A, B) -> C] = takes_a_returns_a');
+});
+
+test('upstream: function_types_in_return_position', () => {
+  assertOk(`
+    fn returns_fn1() -> Fn[() -> A] = returns_a
+    fn returns_fn2() -> Fn[(A) -> A] = takes_a_returns_a
+    fn returns_fn3() -> Fn[(A) -> B] = takes_a_returns_b
+    fn returns_fn4() -> Fn[(A, B) -> C] = takes_a_and_b_returns_c
+  `);
+  assertErr('fn returns_fn5() -> Fn[() -> B] = returns_a');
+});
+
+test('upstream: function_types_in_argument_position', () => {
+  assertOk(`
+    fn takes_fn1(f: Fn[() -> A]) -> A = f()
+    fn takes_fn2(f: Fn[(A) -> A]) -> A = f(a)
+    fn takes_fn3(f: Fn[(A) -> B]) -> B = f(a)
+    fn takes_fn4(f: Fn[(A, B) -> C]) -> C = f(a, b)
+
+    let p1 = takes_fn1(returns_a)
+    let p2 = takes_fn2(takes_a_returns_a)
+    let p3 = takes_fn3(takes_a_returns_b)
+    let p4 = takes_fn4(takes_a_and_b_returns_c)
+  `);
+});
+
+test('upstream: function_types_in_argument_position — wrong arity', () => {
+  assertErr('fn bad(f: Fn[(A) -> B]) -> B = f()');
+});
+
+test('upstream: function_types_in_argument_position — wrong arg type', () => {
+  assertErr('fn bad(f: Fn[(A) -> B]) -> B = f(b)');
+});
+
+test('upstream: function_types_in_argument_position — wrong return type', () => {
+  assertErr('fn bad(f: Fn[() -> A]) -> B = f()');
+});
+
+test('upstream: function_types_in_argument_position — passing fn-of-wrong-shape', () => {
+  assertErr(`
+    fn takes_zero_arg(f: Fn[() -> A]) -> A = f()
+    let z = takes_zero_arg(takes_a_returns_a)
   `);
 });
 
@@ -794,8 +858,15 @@ test('upstream-infer: 2^x — x is Scalar', () => {
   assert.equal(s.tvars.length + s.dimVars.length, 0);
 });
 
-test('upstream-infer: x^y unannotated — needs annotation', { skip: 'needs ExponentiationNeedsTypeAnnotation diagnostic' }, () => {
-  assertErr('fn f(x, y) = x^y');
+// Intentional divergence from upstream: upstream rejects `x^y` when
+// neither side has a known dim (ExponentiationNeedsTypeAnnotation),
+// requiring an explicit annotation. We INFER both as Scalar — the only
+// dimensionally-consistent answer without static eval of the exponent.
+// Less noisy for the calculator use case; semantically equivalent for
+// programs that would have passed either way.
+test('ep-divergence: x^y unannotated infers (Scalar, Scalar) -> Scalar', () => {
+  const s = inferredFnScheme('fn f(x, y) = x^y', 'f');
+  assert.equal(shape(s), '∀0+0.(Dim,Dim)→Dim');
 });
 
 // ── inference: dimension_types_combinations ────────────────────

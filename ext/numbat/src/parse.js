@@ -214,9 +214,9 @@ export function parse(tokens, sourceName = '<input>') {
 
   // Type expression: parseAddExpr followed by optional generic-type-args
   // `<...>` (captured as TypeApp) or function-type args `[(A) -> B]`
-  // (still discarded — Fn-type parsing is a follow-up). Capturing the
-  // angle-bracket args lets the typechecker see generic-struct and
-  // List/<D> applications.
+  // (captured as FnTypeAnno when the head is `Fn`). The angle-bracket
+  // form is used for generic structs and List<D>; the bracket form is
+  // used for first-class function types.
   function parseTypeExpr() {
     let t = parseAddExpr();
     while (atOp('<') || atOp('[')) {
@@ -232,17 +232,36 @@ export function parse(tokens, sourceName = '<input>') {
         eat();
         t = { type: 'TypeApp', base: t, args, span: t.span };
       } else {
-        // `[...]` is still discarded — fn-type args (Fn[(A) -> B]) aren't
-        // typechecked yet, and the bracket contents may include nested
-        // `<...>` and `->` which we don't want to half-parse.
-        eat();
-        let depth = 1;
-        while (depth > 0 && peek()) {
-          if (atOp('['))      { depth++; eat(); }
-          else if (atOp(']')) { depth--; eat(); if (depth === 0) break; }
-          else                { eat(); }
+        // `Fn[(A, B) -> C]` — parse the params + result properly.
+        // Only recognized when the head is the identifier 'Fn'. For
+        // anything else, fall back to the legacy "scan and discard"
+        // behavior so non-Fn `[...]` annotations don't break parses.
+        if (t.type === 'Ident' && t.name === 'Fn') {
+          eat();   // consume '['
+          expectOp('(');
+          const params = [];
+          if (!atOp(')')) {
+            params.push(parseTypeExpr());
+            while (atOp(',')) { eat(); params.push(parseTypeExpr()); }
+          }
+          expectOp(')');
+          if (!atOp('->')) throw err(peek(), `expected '->' in Fn[...] type`);
+          eat();
+          const result = parseTypeExpr();
+          if (!atOp(']')) throw err(peek(), `expected ']' to close Fn[...] type`);
+          eat();
+          t = { type: 'FnTypeAnno', params, result, span: t.span };
+        } else {
+          // Unknown `[...]` annotation — scan and discard.
+          eat();
+          let depth = 1;
+          while (depth > 0 && peek()) {
+            if (atOp('['))      { depth++; eat(); }
+            else if (atOp(']')) { depth--; eat(); if (depth === 0) break; }
+            else                { eat(); }
+          }
+          if (depth !== 0) throw err(peek(), `expected ']' to close type-arg bracket`);
         }
-        if (depth !== 0) throw err(peek(), `expected ']' to close type-arg bracket`);
       }
     }
     return t;

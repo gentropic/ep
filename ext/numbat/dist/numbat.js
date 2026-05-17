@@ -805,9 +805,9 @@ function parse(tokens, sourceName = '<input>') {
 
   // Type expression: parseAddExpr followed by optional generic-type-args
   // `<...>` (captured as TypeApp) or function-type args `[(A) -> B]`
-  // (still discarded — Fn-type parsing is a follow-up). Capturing the
-  // angle-bracket args lets the typechecker see generic-struct and
-  // List/<D> applications.
+  // (captured as FnTypeAnno when the head is `Fn`). The angle-bracket
+  // form is used for generic structs and List<D>; the bracket form is
+  // used for first-class function types.
   function parseTypeExpr() {
     let t = parseAddExpr();
     while (atOp('<') || atOp('[')) {
@@ -823,17 +823,36 @@ function parse(tokens, sourceName = '<input>') {
         eat();
         t = { type: 'TypeApp', base: t, args, span: t.span };
       } else {
-        // `[...]` is still discarded — fn-type args (Fn[(A) -> B]) aren't
-        // typechecked yet, and the bracket contents may include nested
-        // `<...>` and `->` which we don't want to half-parse.
-        eat();
-        let depth = 1;
-        while (depth > 0 && peek()) {
-          if (atOp('['))      { depth++; eat(); }
-          else if (atOp(']')) { depth--; eat(); if (depth === 0) break; }
-          else                { eat(); }
+        // `Fn[(A, B) -> C]` — parse the params + result properly.
+        // Only recognized when the head is the identifier 'Fn'. For
+        // anything else, fall back to the legacy "scan and discard"
+        // behavior so non-Fn `[...]` annotations don't break parses.
+        if (t.type === 'Ident' && t.name === 'Fn') {
+          eat();   // consume '['
+          expectOp('(');
+          const params = [];
+          if (!atOp(')')) {
+            params.push(parseTypeExpr());
+            while (atOp(',')) { eat(); params.push(parseTypeExpr()); }
+          }
+          expectOp(')');
+          if (!atOp('->')) throw err(peek(), `expected '->' in Fn[...] type`);
+          eat();
+          const result = parseTypeExpr();
+          if (!atOp(']')) throw err(peek(), `expected ']' to close Fn[...] type`);
+          eat();
+          t = { type: 'FnTypeAnno', params, result, span: t.span };
+        } else {
+          // Unknown `[...]` annotation — scan and discard.
+          eat();
+          let depth = 1;
+          while (depth > 0 && peek()) {
+            if (atOp('['))      { depth++; eat(); }
+            else if (atOp(']')) { depth--; eat(); if (depth === 0) break; }
+            else                { eat(); }
+          }
+          if (depth !== 0) throw err(peek(), `expected ']' to close type-arg bracket`);
         }
-        if (depth !== 0) throw err(peek(), `expected ']' to close type-arg bracket`);
       }
     }
     return t;
@@ -1588,6 +1607,26 @@ function checkModule(ast, env) {
 // arithmetic binops between constants. Mirrors the subset of upstream's
 // const_evaluation.rs that real Numbat programs actually use.
 
+// Detects expressions that are statically zero — used by the polymorphic-
+// zero rule for + and -. Recognizes the literal `0`, parenthesized
+// zeros, unary `-0`, zero multiplied by anything (0 propagates through
+// `*`), and zero divided by anything (0/x = 0 when x ≠ 0).
+function isStaticZero(node) {
+  if (!node) return false;
+  switch (node.type) {
+    case 'Num':       return node.value === 0;
+    case 'Paren':     return isStaticZero(node.expr);
+    case 'Unary':     return node.op === '-' && isStaticZero(node.expr);
+    case 'Binary':
+      if (node.op === '*') return isStaticZero(node.left) || isStaticZero(node.right);
+      if (node.op === '/') return isStaticZero(node.left);
+      if (node.op === '+' || node.op === '-')
+        return isStaticZero(node.left) && isStaticZero(node.right);
+      return false;
+    default: return false;
+  }
+}
+
 function tryFoldConst(node) {
   if (!node) return null;
   switch (node.type) {
@@ -1633,8 +1672,14 @@ function tryFoldConst(node) {
 function evalTypeAnno(node, env, ctx) {
   if (!node) return T_SCALAR;
   switch (node.type) {
-    case 'Paren':   return evalTypeAnno(node.expr, env, ctx);
-    case 'TypeApp': return evalTypeApp(node, env, ctx);
+    case 'Paren':       return evalTypeAnno(node.expr, env, ctx);
+    case 'TypeApp':     return evalTypeApp(node, env, ctx);
+    case 'FnTypeAnno': {
+      // `Fn[(A, B) -> C]` annotation: build a TFn directly.
+      const params = node.params.map(p => evalTypeAnno(p, env, ctx));
+      const result = evalTypeAnno(node.result, env, ctx);
+      return tFn(params, result);
+    }
     case 'Ident': {
       const name = node.name;
       if (ctx.generics.has(name)) {
@@ -2068,8 +2113,22 @@ function inferBinary(node, env, ctx) {
   }
 
   if (op === '+' || op === '-') {
+    // Polymorphic zero: `0` (and `0 * x`, `-0`, etc.) is the additive
+    // identity for any dim. `1 a + 0` typechecks as A; `1 a + 0 * b`
+    // also typechecks as A because `0 * b` is statically zero. Mirrors
+    // upstream Numbat's behavior.
+    const leftZero  = isStaticZero(node.left);
+    const rightZero = isStaticZero(node.right);
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
+    if (leftZero && !rightZero) {
+      cAdd(ctx.cs, cIsDType(r, spanOf(node.right)));
+      return r;
+    }
+    if (rightZero && !leftZero) {
+      cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
+      return l;
+    }
     cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
     cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return l;

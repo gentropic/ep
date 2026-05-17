@@ -34,6 +34,26 @@ export function checkModule(ast, env) {
 // arithmetic binops between constants. Mirrors the subset of upstream's
 // const_evaluation.rs that real Numbat programs actually use.
 
+// Detects expressions that are statically zero — used by the polymorphic-
+// zero rule for + and -. Recognizes the literal `0`, parenthesized
+// zeros, unary `-0`, zero multiplied by anything (0 propagates through
+// `*`), and zero divided by anything (0/x = 0 when x ≠ 0).
+function isStaticZero(node) {
+  if (!node) return false;
+  switch (node.type) {
+    case 'Num':       return node.value === 0;
+    case 'Paren':     return isStaticZero(node.expr);
+    case 'Unary':     return node.op === '-' && isStaticZero(node.expr);
+    case 'Binary':
+      if (node.op === '*') return isStaticZero(node.left) || isStaticZero(node.right);
+      if (node.op === '/') return isStaticZero(node.left);
+      if (node.op === '+' || node.op === '-')
+        return isStaticZero(node.left) && isStaticZero(node.right);
+      return false;
+    default: return false;
+  }
+}
+
 function tryFoldConst(node) {
   if (!node) return null;
   switch (node.type) {
@@ -79,8 +99,14 @@ function tryFoldConst(node) {
 function evalTypeAnno(node, env, ctx) {
   if (!node) return T_SCALAR;
   switch (node.type) {
-    case 'Paren':   return evalTypeAnno(node.expr, env, ctx);
-    case 'TypeApp': return evalTypeApp(node, env, ctx);
+    case 'Paren':       return evalTypeAnno(node.expr, env, ctx);
+    case 'TypeApp':     return evalTypeApp(node, env, ctx);
+    case 'FnTypeAnno': {
+      // `Fn[(A, B) -> C]` annotation: build a TFn directly.
+      const params = node.params.map(p => evalTypeAnno(p, env, ctx));
+      const result = evalTypeAnno(node.result, env, ctx);
+      return tFn(params, result);
+    }
     case 'Ident': {
       const name = node.name;
       if (ctx.generics.has(name)) {
@@ -516,8 +542,22 @@ function inferBinary(node, env, ctx) {
   }
 
   if (op === '+' || op === '-') {
+    // Polymorphic zero: `0` (and `0 * x`, `-0`, etc.) is the additive
+    // identity for any dim. `1 a + 0` typechecks as A; `1 a + 0 * b`
+    // also typechecks as A because `0 * b` is statically zero. Mirrors
+    // upstream Numbat's behavior.
+    const leftZero  = isStaticZero(node.left);
+    const rightZero = isStaticZero(node.right);
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
+    if (leftZero && !rightZero) {
+      cAdd(ctx.cs, cIsDType(r, spanOf(node.right)));
+      return r;
+    }
+    if (rightZero && !leftZero) {
+      cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
+      return l;
+    }
     cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
     cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
     return l;
