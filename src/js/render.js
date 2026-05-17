@@ -716,8 +716,15 @@ export function renderOutputs() {
         [n, u] = fmt(q);
       }
       if (err) {
+        // Don't try to render the full error message inside the chip —
+        // it forces the chip wide and can horizontal-scroll the whole
+        // app. Just show a compact "--" marker; the inline error block
+        // above the binding in the editor has the full diagnostic.
+        // Stash the message on the element's title so hovering still
+        // surfaces it.
         val.classList.add('error');
-        val.textContent = err;
+        val.textContent = '--';
+        val.title = err;
       } else {
         val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
         copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');

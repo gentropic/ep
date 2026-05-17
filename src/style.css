@@ -314,7 +314,12 @@ body {
   text-overflow: ellipsis;
 }
 .chip-out-val .u { color: var(--sw-teal); }
-.chip-out-val.error { color: var(--sw-red); font-size: 11px; text-align: left; }
+.chip-out-val.error {
+  color: var(--sw-red);
+  font-size: 15px;        /* same as a normal value — "--" reads as a placeholder */
+  text-align: right;      /* keep alignment with the rest of the chip */
+  cursor: help;           /* signals the title attr has more detail */
+}
 .chip-res {
   font-family: var(--sw-mono);
   font-size: 10px;
