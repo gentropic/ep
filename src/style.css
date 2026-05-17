@@ -661,18 +661,41 @@ body {
 /* Match the size/spacing of the existing input/output dots
  * (.ep-gutter-result.binding/output::before — 6×6, 6px margin,
  * 0.85 opacity). */
-.body .ep-result-gutter .ep-gutter-err-dot {
+/* Error rows: red ✕ in the gutter. Shape-distinct (vs the circle dots
+ * used for input/output) so the row reads as an error even without
+ * color. The full message lives in the cm-ep-error-block below. */
+.body .ep-result-gutter .ep-gutter-err-x {
+  display: inline-block;
+  color: var(--sw-red);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+[data-theme="dark"] .body .ep-result-gutter .ep-gutter-err-x {
+  color: #ff8a82;
+}
+
+/* Suspect rows: amber square in the gutter, added via ::after so it
+ * coexists with any input/output dot on the same row. The standalone
+ * `.ep-gutter-suspect-sq` span covers the no-value case (e.g. when
+ * the row has no result yet but is still implicated). */
+.body .ep-result-gutter .ep-gutter-result.suspect::after,
+.body .ep-result-gutter .ep-gutter-suspect-sq {
+  content: '';
   display: inline-block;
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: var(--sw-red);
+  background: var(--sw-amber);
   vertical-align: middle;
-  margin-right: 6px;
+  margin-left: 6px;
   opacity: 0.85;
 }
-[data-theme="dark"] .body .ep-result-gutter .ep-gutter-err-dot {
-  background: #ff8a82;
+.body .ep-result-gutter .ep-gutter-suspect-sq { margin-left: 0; margin-right: 6px; }
+[data-theme="dark"] .body .ep-result-gutter .ep-gutter-result.suspect::after,
+[data-theme="dark"] .body .ep-result-gutter .ep-gutter-suspect-sq {
+  background: #d8b261;
 }
 /* Narrow screens — slightly narrower gutter so it overlays less of the body. */
 @media (max-width: 720px) {

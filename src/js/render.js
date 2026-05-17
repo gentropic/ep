@@ -50,14 +50,20 @@ function resultMarkerHtml(lineIdx) {
   const r = state.body[lineIdx];
   if (!r) return null;
   if (r.error) {
-    // Don't echo the full error in the gutter — the inline-error block
-    // widget below the line already shows the message in full. The
-    // gutter just gets a small red dot as a row-level flag, with the
-    // raw message on hover for accessibility.
-    return { html: '<span class="ep-gutter-err-dot" aria-label="error"></span>',
+    // Red ✕ as a shape-distinct error mark (accessible for color-blind
+    // users). The full message lives in the inline error block below
+    // the line; the gutter just flags the row.
+    return { html: '<span class="ep-gutter-err-x" aria-label="error">✕</span>',
              text: r.error, cls: 'error' };
   }
-  if (!r.result) return null;
+  if (!r.result) {
+    // No value yet — but a suspect annotation may still apply.
+    if (r.suspect) {
+      return { html: '<span class="ep-gutter-suspect-sq" aria-label="suspect" title="' + escapeHtml(r.suspect) + '"></span>',
+               text: r.suspect, cls: 'suspect' };
+    }
+    return null;
+  }
   // Non-Quantity values (Bool / String / fn-ref / struct) reach this
   // path when a binding's RHS evaluates to something other than a
   // dimensioned number. fmt() expects a Quantity; show a typed
@@ -86,6 +92,11 @@ function resultMarkerHtml(lineIdx) {
     if (isOutput)        cls = 'output';
     else if (r.inParams) cls = 'binding';
   }
+  // Suspect annotation: blame-trace flagged this row as implicated in
+  // some downstream output's dim mismatch. Adds an amber square after
+  // the value (via .suspect::after) — additive with any existing
+  // input/output dot.
+  if (r.suspect) cls = (cls + ' suspect').trim();
 
   // Display unit resolution, highest priority first:
   //   1. Per-line override the user picked from the gutter (state.ui.gutterUnits)
