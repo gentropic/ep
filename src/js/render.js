@@ -58,6 +58,18 @@ function resultMarkerHtml(lineIdx) {
              text: r.error, cls: 'error' };
   }
   if (!r.result) return null;
+  // Non-Quantity values (Bool / String / fn-ref / struct) reach this
+  // path when a binding's RHS evaluates to something other than a
+  // dimensioned number. fmt() expects a Quantity; show a typed
+  // placeholder instead.
+  if (typeof r.result !== 'object' || r.result.dim == null) {
+    const t = typeof r.result;
+    const label = t === 'boolean' ? (r.result ? 'true' : 'false')
+                : t === 'string'  ? '"' + String(r.result).slice(0, 32) + '"'
+                : t === 'function'? 'fn'
+                : t;
+    return { html: `<span class="u">${escapeHtml(label)}</span>`, text: label, cls: '' };
+  }
 
   const outputSpec = r.kind === 'binding'
     ? state.outputs.find(s => s.name === r.name)
