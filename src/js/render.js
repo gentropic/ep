@@ -75,7 +75,17 @@ function resultMarkerHtml(lineIdx) {
     ? state.outputs.find(s => s.name === r.name)
     : null;
   const isOutput = !!outputSpec;
-  const cls = r.kind === 'binding' ? (isOutput ? 'output' : 'binding') : '';
+  // Dot semantics, refined:
+  //   - 'output'  → teal dot (binding is in @outputs)
+  //   - 'binding' → orange dot (binding is @input — user-editable chip)
+  //   - ''        → no dot (plain intermediate; value reads on its own)
+  // This way orange is reserved for "you can change this", which is the
+  // signal that actually matters at a glance.
+  let cls = '';
+  if (r.kind === 'binding') {
+    if (isOutput)        cls = 'output';
+    else if (r.inParams) cls = 'binding';
+  }
 
   // Display unit resolution, highest priority first:
   //   1. Per-line override the user picked from the gutter (state.ui.gutterUnits)
