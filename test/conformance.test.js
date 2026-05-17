@@ -20,6 +20,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+
+// Bootstrap: load Temporal polyfill before evaluator imports, so datetime
+// stubs see globalThis.Temporal in Node (which doesn't ship it natively
+// as of v24). The polyfill is a self-conditional IIFE — runs only when
+// Temporal is missing.
+if (typeof globalThis.Temporal === 'undefined') {
+  createRequire(import.meta.url)('../ext/temporal/temporal-polyfill.min.js');
+}
+
 globalThis.INITIAL_STATE = { name: 'test', body: [], ui: {} };
 const { evaluate } = await import('../src/js/evaluator.js');
 const { setPrintSink } = await import('../ext/numbat/dist/numbat.js');
@@ -162,6 +172,14 @@ const CORPUS = [
   { name: 'str: ord A',                  source: 'use core::strings\nord("A")', value: 65 },
   { name: 'str: eq same',                source: 'use core::strings\nstr_eq("a","a")', bool: true },
   { name: 'str: eq diff',                source: 'use core::strings\nstr_eq("a","b")', bool: false },
+
+  // ─── 13. Datetime (Temporal-backed) ─────────────────────────────
+  { name: 'dt: ISO parse',               source: 'datetime("2026-05-17T15:30:00Z")', q: { value: 1779031800, dim: {time: 1} } },
+  { name: 'dt: plus one hour',           source: 'datetime("2026-05-17T00:00:00Z") + 1 hour', q: { value: 1778976000 + 3600, dim: {time: 1} } },
+  { name: 'dt: format ISO date',         source: 'format_datetime("%Y-%m-%d", datetime("2026-05-17T12:00:00Z"), tz("UTC"))', text: '2026-05-17' },
+  { name: 'dt: format month name',       source: 'format_datetime("%B %d, %Y", datetime("2026-05-17T12:00:00Z"), tz("UTC"))', text: 'May 17, 2026' },
+  { name: 'dt: format tz-aware',         source: 'format_datetime("%H:%M %Z", datetime("2026-05-17T12:00:00Z"), tz("America/New_York"))', text: /08:00 America\/New_York/ },
+  { name: 'dt: days between',            source: '(datetime("2027-01-01T00:00:00Z") - datetime("2026-05-17T00:00:00Z")) -> day', q: { value: 19785600, dim: {time: 1} } },
 ];
 
 // ── helpers ────────────────────────────────────────────────────────

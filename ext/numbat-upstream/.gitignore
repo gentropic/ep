@@ -1,0 +1,6 @@
+# numbat-wasm is large (~2 MB) and dev-only — fetched on demand for
+# the cross-validation tests. Keep everything except the README out of git.
+*
+!.gitignore
+!README.md
+!fetch.sh

@@ -45,6 +45,11 @@ const VENDORS = [
   { build: 'ext/numbat/build.js', dist: 'ext/numbat/dist/numbat.js' },
   { build: 'ext/qrcode/build.js', dist: 'ext/qrcode/dist/qrcode.js' },
   {                                dist: 'ext/cm6/cm6.min.js' },
+  // Temporal polyfill — fires only when globalThis.Temporal is missing
+  // (Safari + Node + older Chromium). 57 KB raw / 18 KB gzipped; the
+  // guard means modern browsers skip the polyfill body at runtime.
+  {                                dist: 'ext/temporal/temporal-polyfill.min.js',
+                                   wrap: 'if (typeof globalThis.Temporal === "undefined") { /* CONTENT */ }' },
 ];
 
 // JS subset for the viewer artifact — chip eval + render only. No editor,
@@ -184,9 +189,13 @@ function build() {
   const style    = readFileSync(join(SRC, 'style.css'), 'utf8').replace(/\s+$/, '');
 
   // Strip vendor dist files (allow trailing export { ... } block).
+  // A `wrap` template lets us guard the dist content (e.g., conditional
+  // polyfill: only run when the native global is missing).
   const vendorStripped = VENDORS.map(v => {
     const raw = readFileSync(join(ROOT, v.dist), 'utf8');
-    return { name: v.dist, src: stripModules(raw, v.dist, { allowExportBlock: true }) };
+    let src = stripModules(raw, v.dist, { allowExportBlock: true });
+    if (v.wrap) src = v.wrap.replace('/* CONTENT */', src);
+    return { name: v.dist, src };
   });
 
   // Strip ep's own sources (strict).

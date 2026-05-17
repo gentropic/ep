@@ -1355,15 +1355,80 @@ const BUILTIN_PROCS = {
   // Real DateTime semantics (timezones, formatting, calendar arithmetic)
   // need their own type — that's later work. For now these are best-effort
   // stubs that make module loading succeed.
-  get_local_timezone(args) { return 'UTC'; },
-  now(args)                { return new Quantity(Date.now() / 1000, { time: 1 }); },
-  format_datetime(args)    { return String(args[1] ?? ''); },
-  tz(args)                 { return { __struct: 'TzFn', name: String(args[0] ?? '') }; },
-  exchange_rate(args)      { return new Quantity(1, {}); },
+  // Datetime model: we keep the Quantity({time:1}) shape for the VALUE
+  // (seconds since Unix epoch) so existing arith `now() + 1 hour` still
+  // works through the standard time-dim path. When globalThis.Temporal
+  // is available (Firefox 139+, Chrome shipping, Node with polyfill,
+  // Safari with polyfill), datetime() / now() / format_datetime use it
+  // for TZ-aware parsing and formatting; otherwise we fall back to JS
+  // Date.
+  get_local_timezone(args) {
+    if (typeof globalThis.Temporal !== 'undefined') {
+      try { return globalThis.Temporal.Now.timeZoneId(); } catch {}
+    }
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+    catch { return 'UTC'; }
+  },
+  now(args) {
+    // Always seconds-since-epoch as a {time:1} Quantity. Temporal is
+    // used here only as a clock source (sub-second precision is the
+    // same as Date.now / 1000 in practice).
+    if (typeof globalThis.Temporal !== 'undefined') {
+      try {
+        const ms = Number(globalThis.Temporal.Now.instant().epochMilliseconds);
+        return new Quantity(ms / 1000, { time: 1 });
+      } catch {}
+    }
+    return new Quantity(Date.now() / 1000, { time: 1 });
+  },
   datetime(args) {
-    // Parse ISO-ish input into seconds-since-epoch; falls back to 0 on bad input.
-    const t = Date.parse(String(args[0] ?? ''));
+    // Parse via Temporal when available — supports ISO with offsets and
+    // TZ identifiers. Falls back to Date.parse for older runtimes.
+    const s = String(args[0] ?? '');
+    if (typeof globalThis.Temporal !== 'undefined') {
+      try {
+        const inst = globalThis.Temporal.Instant.from(s);
+        return new Quantity(Number(inst.epochMilliseconds) / 1000, { time: 1 });
+      } catch { /* fall through to Date */ }
+      try {
+        const zdt = globalThis.Temporal.ZonedDateTime.from(s);
+        return new Quantity(Number(zdt.epochMilliseconds) / 1000, { time: 1 });
+      } catch { /* fall through */ }
+      try {
+        const pdt = globalThis.Temporal.PlainDateTime.from(s);
+        const zdt = pdt.toZonedDateTime(globalThis.Temporal.Now.timeZoneId());
+        return new Quantity(Number(zdt.epochMilliseconds) / 1000, { time: 1 });
+      } catch { /* fall through */ }
+    }
+    const t = Date.parse(s);
     return new Quantity(Number.isFinite(t) ? t / 1000 : 0, { time: 1 });
+  },
+  format_datetime(args) {
+    // Upstream signature: format_datetime(fmt: String, dt: DateTime, tz?: String)
+    // → String. Numbat uses a strftime-ish format string; we recognize
+    // the common tokens (%Y %m %d %H %M %S %z %Z %A %B %j) and pass
+    // everything else through. Without Temporal we use Date in the
+    // detected TZ; with Temporal we use the proper ZonedDateTime.
+    const fmt = String(args[0] ?? '');
+    const dt  = args[1];
+    const tzArg = args[2];
+    const tz = typeof tzArg === 'string' ? tzArg : (tzArg && tzArg.name) ||
+               (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
+    const secs = dt instanceof Quantity ? dt.value : Number(dt);
+    if (!Number.isFinite(secs)) return '';
+    return formatDatetimeWith(fmt, secs, tz);
+  },
+  tz(args) {
+    // Returns an opaque TZ token. Used as the optional 3rd arg to
+    // format_datetime. We just carry the string identifier; Temporal
+    // accepts that directly.
+    return { __struct: 'TzFn', name: String(args[0] ?? 'UTC') };
+  },
+  exchange_rate(args) {
+    // Live currency rates aren't a thing in a static-file browser app.
+    // Stub returns 1; users wanting accurate FX should pre-bind their
+    // own rates via `let usd_to_eur = 0.92`.
+    return new Quantity(1, {});
   },
 
   // mod(a, b) — least nonnegative remainder. Upstream declares this as
@@ -1620,6 +1685,72 @@ function setQuantityFormatter(fn) { _quantityFormatter = fn; }
 // assert on what programs print.
 let _printSink = null;
 function setPrintSink(fn) { _printSink = fn; }
+
+// ── Datetime formatting ──────────────────────────────────────────
+// strftime-ish formatter used by BUILTIN_PROCS.format_datetime. Recognized
+// tokens: %Y (4-digit year), %y (2-digit year), %m (zero-padded month),
+// %d (zero-padded day), %H (24h zero-pad hour), %M (zero-pad minute),
+// %S (zero-pad second), %B (full month name), %b (abbrev month name),
+// %A (full weekday), %a (abbrev weekday), %j (day-of-year), %z (offset
+// like +0100), %Z (TZ name). `%%` is a literal %. Unrecognized
+// `%<x>` passes through as `%<x>`.
+function formatDatetimeWith(fmt, secs, tz) {
+  let parts;
+  if (typeof globalThis.Temporal !== 'undefined') {
+    try {
+      const inst = globalThis.Temporal.Instant.fromEpochMilliseconds(Math.round(secs * 1000));
+      const zdt = inst.toZonedDateTimeISO(tz);
+      parts = {
+        Y: String(zdt.year).padStart(4, '0'),
+        y: String(zdt.year % 100).padStart(2, '0'),
+        m: String(zdt.month).padStart(2, '0'),
+        d: String(zdt.day).padStart(2, '0'),
+        H: String(zdt.hour).padStart(2, '0'),
+        M: String(zdt.minute).padStart(2, '0'),
+        S: String(zdt.second).padStart(2, '0'),
+        j: String(zdt.dayOfYear).padStart(3, '0'),
+        Z: tz,
+        z: zdt.offset.replace(':', ''),
+        A: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'long' }),
+        a: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'short' }),
+        B: intlFmt(zdt.epochMilliseconds, tz, { month: 'long' }),
+        b: intlFmt(zdt.epochMilliseconds, tz, { month: 'short' }),
+      };
+    } catch { parts = null; }
+  }
+  if (!parts) {
+    // Fallback via Date — UTC accurate, TZ-arg ignored. Use Intl for
+    // weekday/month names so locale formatting works.
+    const d = new Date(secs * 1000);
+    parts = {
+      Y: String(d.getUTCFullYear()).padStart(4, '0'),
+      y: String(d.getUTCFullYear() % 100).padStart(2, '0'),
+      m: String(d.getUTCMonth() + 1).padStart(2, '0'),
+      d: String(d.getUTCDate()).padStart(2, '0'),
+      H: String(d.getUTCHours()).padStart(2, '0'),
+      M: String(d.getUTCMinutes()).padStart(2, '0'),
+      S: String(d.getUTCSeconds()).padStart(2, '0'),
+      j: String(Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 0))) / 86400000)).padStart(3, '0'),
+      Z: 'UTC',
+      z: '+0000',
+      A: intlFmt(d.getTime(), 'UTC', { weekday: 'long' }),
+      a: intlFmt(d.getTime(), 'UTC', { weekday: 'short' }),
+      B: intlFmt(d.getTime(), 'UTC', { month: 'long' }),
+      b: intlFmt(d.getTime(), 'UTC', { month: 'short' }),
+    };
+  }
+  return fmt.replace(/%(.)/g, (_, c) => {
+    if (c === '%') return '%';
+    return parts[c] !== undefined ? parts[c] : '%' + c;
+  });
+}
+
+function intlFmt(epochMs, tz, opts) {
+  try {
+    return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz })
+      .format(new Date(epochMs));
+  } catch { return ''; }
+}
 
 function evalValueExpr(node, env) {
   if (node.type === 'Num')  return new Quantity(node.value, {});

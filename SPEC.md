@@ -372,16 +372,28 @@ Coverage: numeric literals (incl. hex / octal / binary / underscore-sep / scient
 
 Expected values come from first principles or from cross-reference against the upstream numbat CLI / playground. The corpus is the source of truth — if ep diverges from numbat on a real program, add it to the corpus and align.
 
-### Future: live cross-validation against numbat-wasm
+### Live cross-validation against numbat-wasm — **scaffolded; phase-2 pending**
 
-The corpus pins behavior but doesn't catch drift in upstream numbat itself. A complementary harness would:
+`ext/numbat-upstream/` holds the harness for running the conformance corpus through the upstream Rust → WASM build of Numbat alongside ep's JS port. The actual WASM blob (~2 MB) is **gitignored**: dev-only, not required by the default `npm test`. Bootstrap:
 
-1. Vendor `numbat-wasm` (the same WASM bundle numbat.dev's playground uses) under `ext/numbat-upstream/`.
-2. Boot it in the Node test runtime alongside ep's evaluator.
-3. Run the corpus through both. Compare values numerically (with the same tolerance ep uses), dims structurally, errors by class.
-4. Any divergence is either an ep bug or a deliberate ep extension (decorator decorators, the gutter machinery, etc.) — flag it for review.
+```sh
+sh ext/numbat-upstream/fetch.sh    # pulls numbat_wasm_bg.wasm + numbat_wasm.js
+npm test                            # cross-val test wakes up automatically
+```
 
-Cost: ~1 day plus the WASM dep (likely 1–2 MB committed under `ext/`). The dep is dev-only — runtime ep doesn't load it. Pays back if ep's evaluator diverges from upstream silently between releases. Not implemented; revisit when the conformance corpus catches less drift than it should.
+When the WASM is absent the cross-val test reports as `skipped`; `npm test` doesn't require it. When present, the bridge loads and **phase-1** asserts the WASM bridge initialises cleanly. **Phase-2** (TODO in `test/numbat-wasm-cross.test.js`) walks the conformance `CORPUS`, runs each program through both engines, and asserts numeric values match within the corpus's existing tolerance. Lands when there's enough corpus drift to notice — until then, the manual corpus is the source of truth.
+
+### Datetime — Temporal-backed
+
+`now()`, `datetime("…")`, `tz("…")`, `format_datetime("%fmt", dt, tz)` now route through the [Temporal API](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal). Native on Firefox 139+, Chromium, and most evergreen browsers; Safari + Node fall back to `ext/temporal/temporal-polyfill.min.js` (~57 KB raw / ~18 KB gzipped, vendored, self-conditional so modern browsers skip its body).
+
+What this buys us:
+
+- **Real timezone math.** `format_datetime("%H:%M %Z", dt, tz("America/New_York"))` produces the right wall-clock time including DST adjustments. The fallback `Date`-based path before this was UTC-only and silently wrong.
+- **More forgiving parse.** `datetime("2026-05-17T15:30:00+02:00")` and `datetime("2026-05-17T15:30:00[Europe/Berlin]")` both parse correctly via `Temporal.Instant.from` / `Temporal.ZonedDateTime.from`.
+- **strftime-style format strings.** `%Y %m %d %H %M %S %j %A %a %B %b %z %Z %%` are all supported. Unrecognised `%<x>` passes through untouched.
+
+The VALUE model is unchanged — a datetime is still a `Quantity` with `{time: 1}` dim representing seconds since Unix epoch — so existing arith (`now() + 1 hour`) keeps working. The Temporal upgrade only affects parsing and formatting, not the type system. Calendar-aware arithmetic (`now() + 1 month` where "month" has variable length) would require a dedicated Datetime value type and remains future work.
 
 ## File layout
 
