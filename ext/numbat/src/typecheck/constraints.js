@@ -10,9 +10,9 @@
 //   HasField(t, n, ft) — t must be a struct with field n having type ft
 //   (EqualScalar omitted: it's just Equal(t, T_SCALAR))
 
-export function cEqual(t1, t2, span)        { return Object.freeze({ kind: 'Equal',    t1, t2, span: span || null }); }
-export function cIsDType(t, span)           { return Object.freeze({ kind: 'IsDType',  t,      span: span || null }); }
-export function cHasField(t, name, ft, span){ return Object.freeze({ kind: 'HasField', t, name, fieldType: ft, span: span || null }); }
+export function cEqual(t1, t2, span, context)        { return Object.freeze({ kind: 'Equal',    t1, t2, span: span || null, context: context || null }); }
+export function cIsDType(t, span, context)           { return Object.freeze({ kind: 'IsDType',  t,      span: span || null, context: context || null }); }
+export function cHasField(t, name, ft, span, context){ return Object.freeze({ kind: 'HasField', t, name, fieldType: ft, span: span || null, context: context || null }); }
 
 export function makeConstraintSet() { return { items: [] }; }
 export function cAdd(cs, c)         { cs.items.push(c); return cs; }

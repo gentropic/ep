@@ -32,7 +32,7 @@ export function solve(constraintSet) {
     for (const c of deferred) {
       try {
         if (c.kind === 'Equal') {
-          subst = unify(c.t1, c.t2, subst, c.span);
+          subst = unify(c.t1, c.t2, subst, c.span, c.context);
         } else if (c.kind === 'IsDType') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied

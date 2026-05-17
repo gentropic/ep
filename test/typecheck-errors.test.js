@@ -16,7 +16,7 @@ import { resetTypeIds, tDim, T_SCALAR, dimExprFromMap, dimExprFromVar, freshTDim
 import { makeTypeEnv, typeEnvBindValue, typeEnvBindDim } from '../ext/numbat/src/typecheck/env.js';
 import { checkModule } from '../ext/numbat/src/typecheck/check.js';
 import { solve } from '../ext/numbat/src/typecheck/solve.js';
-import { formatDim, formatTypePretty, formatError, formatErrors } from '../ext/numbat/src/typecheck/errors.js';
+import { formatDim, formatTypePretty, formatError, formatErrors, didYouMean, didYouMeanSuffix } from '../ext/numbat/src/typecheck/errors.js';
 
 function freshEnv() {
   const env = makeTypeEnv();
@@ -150,4 +150,55 @@ test('e2e: formatErrors joins multiple error blocks', () => {
   const formatted = formatErrors(r.solveErrors, r.src);
   assert.ok(typeof formatted === 'string');
   assert.ok(formatted.length > 0);
+});
+
+// ── didYouMean ─────────────────────────────────────────────────────
+
+test('didYouMean: returns closest matches', () => {
+  assert.deepEqual(didYouMean('Lenght', ['Length', 'Mass', 'Time']), ['Length']);
+  assert.deepEqual(didYouMean('sqr',    ['sqrt', 'sin', 'cos']),     ['sqrt']);
+});
+
+test('didYouMean: empty when no good candidates', () => {
+  assert.deepEqual(didYouMean('xyz', ['foo', 'bar', 'baz']), []);
+});
+
+test('didYouMean: tight threshold for short names', () => {
+  // 2-char identifier with 2-edit allowance would match many — should not.
+  assert.deepEqual(didYouMean('ab', ['cd', 'xy']), []);
+});
+
+test('didYouMean: case-insensitive matching', () => {
+  assert.deepEqual(didYouMean('LENGTH', ['Length', 'Mass']), ['Length']);
+});
+
+test('didYouMean: respects max', () => {
+  // All within threshold; max caps the list
+  const result = didYouMean('abc', ['abd', 'abe', 'abf', 'abg'], 2);
+  assert.equal(result.length, 2);
+});
+
+test('didYouMeanSuffix: empty when no matches', () => {
+  assert.equal(didYouMeanSuffix('xyz', ['foo']), '');
+});
+
+test('didYouMeanSuffix: single match phrasing', () => {
+  assert.equal(didYouMeanSuffix('lenght', ['length']), " (did you mean 'length'?)");
+});
+
+test('didYouMeanSuffix: multiple matches phrasing', () => {
+  const s = didYouMeanSuffix('abc', ['abd', 'abe']);
+  assert.match(s, / or /);
+  assert.match(s, /abd/);
+  assert.match(s, /abe/);
+});
+
+// ── e2e: hints land in error messages ─────────────────────────────
+
+test('e2e: unknown ident gets did-you-mean hint', () => {
+  const r = runCheck('let v = lenght');
+  // lenght is close to Length (case-insensitive)
+  const errs = [...r.checkErrors, ...r.solveErrors];
+  assert.ok(errs.length > 0);
+  assert.match(errs[0].message, /did you mean/i);
 });

@@ -1615,9 +1615,9 @@ function envFreeVars(env, collect) {
 //   HasField(t, n, ft) — t must be a struct with field n having type ft
 //   (EqualScalar omitted: it's just Equal(t, T_SCALAR))
 
-function cEqual(t1, t2, span)        { return Object.freeze({ kind: 'Equal',    t1, t2, span: span || null }); }
-function cIsDType(t, span)           { return Object.freeze({ kind: 'IsDType',  t,      span: span || null }); }
-function cHasField(t, name, ft, span){ return Object.freeze({ kind: 'HasField', t, name, fieldType: ft, span: span || null }); }
+function cEqual(t1, t2, span, context)        { return Object.freeze({ kind: 'Equal',    t1, t2, span: span || null, context: context || null }); }
+function cIsDType(t, span, context)           { return Object.freeze({ kind: 'IsDType',  t,      span: span || null, context: context || null }); }
+function cHasField(t, name, ft, span, context){ return Object.freeze({ kind: 'HasField', t, name, fieldType: ft, span: span || null, context: context || null }); }
 
 function makeConstraintSet() { return { items: [] }; }
 function cAdd(cs, c)         { cs.items.push(c); return cs; }
@@ -1634,6 +1634,20 @@ function cAll(cs, list)      { for (const c of list) cs.items.push(c); return cs
 // No solving here — the constraint set is handed off to the unifier
 // (phase 3). At this stage TVars and TDimVars in the returned types are
 // just placeholders awaiting substitution.
+
+// Collect candidate names from an env (values + fns + dims + structs)
+// and any in-scope generic params. Used by did-you-mean suggestions.
+function envCandidates(env, ctx) {
+  const out = new Set();
+  for (let e = env; e; e = e.parent) {
+    for (const k of e.values.keys())  out.add(k);
+    for (const k of e.fns.keys())     out.add(k);
+    for (const k of e.dims.keys())    out.add(k);
+    for (const k of e.structs.keys()) out.add(k);
+  }
+  if (ctx?.generics) for (const k of ctx.generics.keys()) out.add(k);
+  return [...out];
+}
 
 // ── Entry point ───────────────────────────────────────────────────
 
@@ -1752,7 +1766,7 @@ function evalTypeAnno(node, env, ctx) {
         }
         return instantiate(struct);
       }
-      throw withSpan(new Error(`unknown type: ${name}`), node.span);
+      throw withSpan(new Error(`unknown type: ${name}${didYouMeanSuffix(name, envCandidates(env, ctx))}`), node.span);
     }
     case 'Num': {
       // Bare 1 in a type position means Scalar — used in `1 / Time`.
@@ -2121,7 +2135,7 @@ function inferIdent(node, env, ctx) {
   if (v) return v;
   const fn = typeEnvLookupFn(env, node.name);
   if (fn) return instantiate(fn);   // higher-order use
-  throw withSpan(new Error(`unknown identifier: ${node.name}`), node.span);
+  throw withSpan(new Error(`unknown identifier: ${node.name}${didYouMeanSuffix(node.name, envCandidates(env, ctx))}`), node.span);
 }
 
 function inferUnary(node, env, ctx) {
@@ -2176,7 +2190,7 @@ function inferBinary(node, env, ctx) {
       return l;
     }
     cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
-    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node), `'${op}'`));
     return l;
   }
 
@@ -2224,7 +2238,7 @@ function inferBinary(node, env, ctx) {
     // dim. Result type = left (the value side).
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node), `conversion '->'`));
     return l;
   }
 
@@ -2239,7 +2253,7 @@ function inferCall(node, env, ctx) {
     // routes both through Call). Fall back to value lookup.
     const v = typeEnvLookupValue(env, node.name);
     if (v && v.kind === 'TFn') return inferDirectFnCall(v, node, env, ctx);
-    throw withSpan(new Error(`unknown function: ${node.name}`), node.span);
+    throw withSpan(new Error(`unknown function: ${node.name}${didYouMeanSuffix(node.name, envCandidates(env, ctx))}`), node.span);
   }
   return inferDirectFnCall(instantiate(scheme), node, env, ctx);
 }
@@ -2257,17 +2271,17 @@ function inferDirectFnCall(fnT, node, env, ctx) {
   }
   for (let i = 0; i < node.args.length; i++) {
     const argT = inferExpr(node.args[i], env, ctx);
-    cAdd(ctx.cs, cEqual(fnT.params[i], argT, spanOf(node.args[i])));
+    cAdd(ctx.cs, cEqual(fnT.params[i], argT, spanOf(node.args[i]), `argument ${i + 1} of call to '${node.name}'`));
   }
   return fnT.result;
 }
 
 function inferIf(node, env, ctx) {
   const c = inferExpr(node.cond, env, ctx);
-  cAdd(ctx.cs, cEqual(c, tBool(), spanOf(node.cond)));
+  cAdd(ctx.cs, cEqual(c, tBool(), spanOf(node.cond), `if condition`));
   const t = inferExpr(node.then,  env, ctx);
   const e = inferExpr(node.else,  env, ctx);
-  cAdd(ctx.cs, cEqual(t, e, spanOf(node)));
+  cAdd(ctx.cs, cEqual(t, e, spanOf(node), `if branches`));
   return t;
 }
 
@@ -2571,6 +2585,63 @@ function formatErrors(errors, source, sourceName) {
   return errors.map(e => formatError(e, source, sourceName)).join('\n\n');
 }
 
+// ── did-you-mean suggestion engine ────────────────────────────────
+//
+// Levenshtein-based: rank known names by edit distance to the typo,
+// return up to N close matches (distance ≤ threshold). Used by check.js
+// when surfacing "unknown identifier" / "unknown type" / "unknown
+// function" errors.
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  // Two-row DP: rolling-array.
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,        // insert
+        prev[j] + 1,            // delete
+        prev[j - 1] + cost,     // substitute
+      );
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+// Return up to `max` candidate names from `candidates`, sorted by edit
+// distance to `target`. Edit-distance threshold scales with target
+// length — short names need to match tighter (a 3-char identifier with
+// a 2-edit allowance produces too much noise).
+function didYouMean(target, candidates, max = 3, threshold = null) {
+  if (!target || !candidates?.length) return [];
+  const cap = threshold ?? (target.length <= 2 ? 0 : target.length <= 4 ? 1 : 2);
+  const scored = [];
+  for (const c of candidates) {
+    const d = levenshtein(target.toLowerCase(), c.toLowerCase());
+    // Include exact-match-only-different-case as a hint (user wrote
+    // 'length' when the binding is 'Length' — surface the right case).
+    if (d <= cap && (d > 0 || c !== target)) scored.push({ name: c, d });
+  }
+  scored.sort((a, b) => a.d - b.d || a.name.localeCompare(b.name));
+  return scored.slice(0, max).map(s => s.name);
+}
+
+// Format a did-you-mean suffix to append to a "unknown X" message.
+// Returns an empty string when no good candidates exist.
+function didYouMeanSuffix(target, candidates) {
+  const matches = didYouMean(target, candidates);
+  if (matches.length === 0) return '';
+  if (matches.length === 1) return ` (did you mean '${matches[0]}'?)`;
+  return ` (did you mean ${matches.map(m => `'${m}'`).join(' or ')}?)`;
+}
+
 // ─── typecheck/dim-solve.js ────────────────────────────
 // Dim-equation solver.
 //
@@ -2591,7 +2662,7 @@ function formatErrors(errors, source, sourceName) {
 // Rational exponents throughout — the solver handles `sqrt`-style ops
 // correctly (`Length^(1/2) = D` → D := Length^(1/2)).
 
-function solveDimEq(a, b, subst, span) {
+function solveDimEq(a, b, subst, span, context) {
   const aR = applyDimExpr(a, subst);
   const bR = applyDimExpr(b, subst);
   const c  = dimExprDiv(aR, bR);
@@ -2599,7 +2670,8 @@ function solveDimEq(a, b, subst, span) {
   // No vars to bind — the equation must already hold.
   if (Object.keys(c.vars).length === 0) {
     if (dimExprIsScalar(c)) return subst;
-    throw new UnifyError(`dimension mismatch: expected ${formatDim(aR)}, got ${formatDim(bR)}`, span);
+    const where = context ? ` in ${context}` : '';
+    throw new UnifyError(`dimension mismatch${where}: expected ${formatDim(aR)}, got ${formatDim(bR)}`, span);
   }
 
   // Pick a var to solve for. Heuristic: prefer the one whose coefficient
@@ -2640,7 +2712,7 @@ function solveDimEq(a, b, subst, span) {
 // Throws UnifyError with the constraint's source span attached so
 // phase-5 error reporting can point at the right line.
 
-function unify(t1, t2, subst, span) {
+function unify(t1, t2, subst, span, context) {
   const a = applyType(t1, subst);
   const b = applyType(t2, subst);
   if (typeEq(a, b)) return subst;
@@ -2649,42 +2721,44 @@ function unify(t1, t2, subst, span) {
   if (b.kind === 'TVar') return extendTVar(subst, b.id, a);
 
   if (a.kind === 'TDim' && b.kind === 'TDim') {
-    return solveDimEq(a.dim, b.dim, subst, span);
+    return solveDimEq(a.dim, b.dim, subst, span, context);
   }
+
+  const where = context ? ` in ${context}` : '';
 
   if (a.kind === 'TFn' && b.kind === 'TFn') {
     if (a.params.length !== b.params.length) {
-      throw new UnifyError(`function arity mismatch: expected ${a.params.length}, got ${b.params.length}`, span);
+      throw new UnifyError(`function arity mismatch${where}: expected ${a.params.length}, got ${b.params.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span);
-    return unify(a.result, b.result, s, span);
+    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span, context);
+    return unify(a.result, b.result, s, span, context);
   }
 
   if (a.kind === 'TList' && b.kind === 'TList') {
-    return unify(a.elem, b.elem, subst, span);
+    return unify(a.elem, b.elem, subst, span, context);
   }
 
   if (a.kind === 'TTuple' && b.kind === 'TTuple') {
     if (a.elems.length !== b.elems.length) {
-      throw new UnifyError(`tuple arity mismatch: expected ${a.elems.length}, got ${b.elems.length}`, span);
+      throw new UnifyError(`tuple arity mismatch${where}: expected ${a.elems.length}, got ${b.elems.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span);
+    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span, context);
     return s;
   }
 
   if (a.kind === 'TStruct' && b.kind === 'TStruct') {
-    if (a.name !== b.name) throw new UnifyError(`struct mismatch: ${a.name} vs ${b.name}`, span);
+    if (a.name !== b.name) throw new UnifyError(`struct mismatch${where}: ${a.name} vs ${b.name}`, span);
     let s = subst;
     for (const k in a.fields) {
       if (!(k in b.fields)) throw new UnifyError(`struct ${a.name}: field ${k} missing on other side`, span);
-      s = unify(a.fields[k], b.fields[k], s, span);
+      s = unify(a.fields[k], b.fields[k], s, span, context);
     }
     return s;
   }
 
-  throw new UnifyError(`cannot unify ${formatTypePretty(a)} with ${formatTypePretty(b)}`, span);
+  throw new UnifyError(`cannot unify ${formatTypePretty(a)} with ${formatTypePretty(b)}${where}`, span);
 }
 
 // ─── typecheck/scheme.js ───────────────────────────────
@@ -2758,7 +2832,7 @@ function solve(constraintSet) {
     for (const c of deferred) {
       try {
         if (c.kind === 'Equal') {
-          subst = unify(c.t1, c.t2, subst, c.span);
+          subst = unify(c.t1, c.t2, subst, c.span, c.context);
         } else if (c.kind === 'IsDType') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
@@ -2866,6 +2940,34 @@ function schemeErrorString() {
   return generalize(tFn([tString()], t), [t], []);
 }
 
+// Arithmetic-on-dim procs (mod, max, min) — return type matches the
+// shared dim of all args. Variadic for max/min isn't worth tracking
+// in our 2-arg-min scheme: we represent them as 2-arg with no optional
+// slot here, and users calling with more args get a spurious error.
+// Tracked alongside #103 if it becomes important.
+function schemeBinaryPreserveDim() {
+  // <D: Dim>(D, D) -> D
+  const d = freshTDimVar();
+  const td = tDim(dimExprFromVar(d));
+  return generalize(tFn([td, td], td), [], [d]);
+}
+function schemeTypeOf() {
+  // <T>(T) -> String — runtime returns a textual description of the type
+  const t = freshTVar();
+  return generalize(tFn([t], tString()), [t], []);
+}
+function schemeStrFn1() { return generalize(tFn([tString()], tString()), [], []); }
+function schemeStrEq()  { return generalize(tFn([tString(), tString()], tBool()), [], []); }
+function schemeStrLen() { return generalize(tFn([tString()], T_SCALAR), [], []); }
+function schemeStrAppend() { return generalize(tFn([tString(), tString()], tString()), [], []); }
+function schemeStrSlice() {
+  // str_slice(start: Scalar, end: Scalar, s: String) -> String
+  return generalize(tFn([T_SCALAR, T_SCALAR, tString()], tString()), [], []);
+}
+function schemeChr() { return generalize(tFn([T_SCALAR], tString()), [], []); }
+function schemeOrd() { return generalize(tFn([tString()], T_SCALAR), [], []); }
+function schemeRandom() { return generalize(tFn([], T_SCALAR), [], []); }
+
 // List ops (subset of core::lists). Registered here so user programs
 // can call them without `use core::lists` lifting through the runtime.
 function schemeHead() {
@@ -2890,16 +2992,34 @@ function schemeLen() {
 }
 
 const BUILTIN_PROC_SCHEMES = {
-  assert:    schemeAssertBool,
-  assert_eq: schemeAssertEq,
-  print:     schemePolyUnary,
-  println:   schemePolyUnary,
-  error:     schemeErrorString,
-  head:      schemeHead,
-  tail:      schemeTail,
-  cons:      schemeCons,
-  cons_end:  schemeCons,
-  len:       schemeLen,
+  // Assertions + I/O
+  assert:     schemeAssertBool,
+  assert_eq:  schemeAssertEq,
+  print:      schemePolyUnary,
+  println:    schemePolyUnary,
+  error:      schemeErrorString,
+  // List ops
+  head:       schemeHead,
+  tail:       schemeTail,
+  cons:       schemeCons,
+  cons_end:   schemeCons,
+  len:        schemeLen,
+  // Arithmetic
+  mod:        schemeBinaryPreserveDim,
+  max:        schemeBinaryPreserveDim,
+  min:        schemeBinaryPreserveDim,
+  random:     schemeRandom,
+  // Reflection
+  type:       schemeTypeOf,
+  // String ops
+  str_length: schemeStrLen,
+  str_eq:     schemeStrEq,
+  str_slice:  schemeStrSlice,
+  str_append: schemeStrAppend,
+  chr:        schemeChr,
+  ord:        schemeOrd,
+  lowercase:  schemeStrFn1,
+  uppercase:  schemeStrFn1,
 };
 
 const BUILTIN_FN_SCHEMES = {

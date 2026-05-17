@@ -121,3 +121,60 @@ export function formatError(err, source, sourceName) {
 export function formatErrors(errors, source, sourceName) {
   return errors.map(e => formatError(e, source, sourceName)).join('\n\n');
 }
+
+// ── did-you-mean suggestion engine ────────────────────────────────
+//
+// Levenshtein-based: rank known names by edit distance to the typo,
+// return up to N close matches (distance ≤ threshold). Used by check.js
+// when surfacing "unknown identifier" / "unknown type" / "unknown
+// function" errors.
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  // Two-row DP: rolling-array.
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,        // insert
+        prev[j] + 1,            // delete
+        prev[j - 1] + cost,     // substitute
+      );
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+// Return up to `max` candidate names from `candidates`, sorted by edit
+// distance to `target`. Edit-distance threshold scales with target
+// length — short names need to match tighter (a 3-char identifier with
+// a 2-edit allowance produces too much noise).
+export function didYouMean(target, candidates, max = 3, threshold = null) {
+  if (!target || !candidates?.length) return [];
+  const cap = threshold ?? (target.length <= 2 ? 0 : target.length <= 4 ? 1 : 2);
+  const scored = [];
+  for (const c of candidates) {
+    const d = levenshtein(target.toLowerCase(), c.toLowerCase());
+    // Include exact-match-only-different-case as a hint (user wrote
+    // 'length' when the binding is 'Length' — surface the right case).
+    if (d <= cap && (d > 0 || c !== target)) scored.push({ name: c, d });
+  }
+  scored.sort((a, b) => a.d - b.d || a.name.localeCompare(b.name));
+  return scored.slice(0, max).map(s => s.name);
+}
+
+// Format a did-you-mean suffix to append to a "unknown X" message.
+// Returns an empty string when no good candidates exist.
+export function didYouMeanSuffix(target, candidates) {
+  const matches = didYouMean(target, candidates);
+  if (matches.length === 0) return '';
+  if (matches.length === 1) return ` (did you mean '${matches[0]}'?)`;
+  return ` (did you mean ${matches.map(m => `'${m}'`).join(' or ')}?)`;
+}

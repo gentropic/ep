@@ -71,6 +71,34 @@ function schemeErrorString() {
   return generalize(tFn([tString()], t), [t], []);
 }
 
+// Arithmetic-on-dim procs (mod, max, min) — return type matches the
+// shared dim of all args. Variadic for max/min isn't worth tracking
+// in our 2-arg-min scheme: we represent them as 2-arg with no optional
+// slot here, and users calling with more args get a spurious error.
+// Tracked alongside #103 if it becomes important.
+function schemeBinaryPreserveDim() {
+  // <D: Dim>(D, D) -> D
+  const d = freshTDimVar();
+  const td = tDim(dimExprFromVar(d));
+  return generalize(tFn([td, td], td), [], [d]);
+}
+function schemeTypeOf() {
+  // <T>(T) -> String — runtime returns a textual description of the type
+  const t = freshTVar();
+  return generalize(tFn([t], tString()), [t], []);
+}
+function schemeStrFn1() { return generalize(tFn([tString()], tString()), [], []); }
+function schemeStrEq()  { return generalize(tFn([tString(), tString()], tBool()), [], []); }
+function schemeStrLen() { return generalize(tFn([tString()], T_SCALAR), [], []); }
+function schemeStrAppend() { return generalize(tFn([tString(), tString()], tString()), [], []); }
+function schemeStrSlice() {
+  // str_slice(start: Scalar, end: Scalar, s: String) -> String
+  return generalize(tFn([T_SCALAR, T_SCALAR, tString()], tString()), [], []);
+}
+function schemeChr() { return generalize(tFn([T_SCALAR], tString()), [], []); }
+function schemeOrd() { return generalize(tFn([tString()], T_SCALAR), [], []); }
+function schemeRandom() { return generalize(tFn([], T_SCALAR), [], []); }
+
 // List ops (subset of core::lists). Registered here so user programs
 // can call them without `use core::lists` lifting through the runtime.
 function schemeHead() {
@@ -95,16 +123,34 @@ function schemeLen() {
 }
 
 const BUILTIN_PROC_SCHEMES = {
-  assert:    schemeAssertBool,
-  assert_eq: schemeAssertEq,
-  print:     schemePolyUnary,
-  println:   schemePolyUnary,
-  error:     schemeErrorString,
-  head:      schemeHead,
-  tail:      schemeTail,
-  cons:      schemeCons,
-  cons_end:  schemeCons,
-  len:       schemeLen,
+  // Assertions + I/O
+  assert:     schemeAssertBool,
+  assert_eq:  schemeAssertEq,
+  print:      schemePolyUnary,
+  println:    schemePolyUnary,
+  error:      schemeErrorString,
+  // List ops
+  head:       schemeHead,
+  tail:       schemeTail,
+  cons:       schemeCons,
+  cons_end:   schemeCons,
+  len:        schemeLen,
+  // Arithmetic
+  mod:        schemeBinaryPreserveDim,
+  max:        schemeBinaryPreserveDim,
+  min:        schemeBinaryPreserveDim,
+  random:     schemeRandom,
+  // Reflection
+  type:       schemeTypeOf,
+  // String ops
+  str_length: schemeStrLen,
+  str_eq:     schemeStrEq,
+  str_slice:  schemeStrSlice,
+  str_append: schemeStrAppend,
+  chr:        schemeChr,
+  ord:        schemeOrd,
+  lowercase:  schemeStrFn1,
+  uppercase:  schemeStrFn1,
 };
 
 const BUILTIN_FN_SCHEMES = {

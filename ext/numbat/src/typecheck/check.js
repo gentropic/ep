@@ -15,6 +15,21 @@ import { typeEnvExtend, typeEnvBindValue, typeEnvBindFn, typeEnvBindDim, typeEnv
 import { cEqual, cIsDType, cHasField, cAdd, makeConstraintSet } from './constraints.js';
 import { generalize, instantiate } from './scheme.js';
 import { applyType, makeSubst } from './subst.js';
+import { didYouMeanSuffix } from './errors.js';
+
+// Collect candidate names from an env (values + fns + dims + structs)
+// and any in-scope generic params. Used by did-you-mean suggestions.
+function envCandidates(env, ctx) {
+  const out = new Set();
+  for (let e = env; e; e = e.parent) {
+    for (const k of e.values.keys())  out.add(k);
+    for (const k of e.fns.keys())     out.add(k);
+    for (const k of e.dims.keys())    out.add(k);
+    for (const k of e.structs.keys()) out.add(k);
+  }
+  if (ctx?.generics) for (const k of ctx.generics.keys()) out.add(k);
+  return [...out];
+}
 
 // ── Entry point ───────────────────────────────────────────────────
 
@@ -133,7 +148,7 @@ function evalTypeAnno(node, env, ctx) {
         }
         return instantiate(struct);
       }
-      throw withSpan(new Error(`unknown type: ${name}`), node.span);
+      throw withSpan(new Error(`unknown type: ${name}${didYouMeanSuffix(name, envCandidates(env, ctx))}`), node.span);
     }
     case 'Num': {
       // Bare 1 in a type position means Scalar — used in `1 / Time`.
@@ -504,7 +519,7 @@ function inferIdent(node, env, ctx) {
   if (v) return v;
   const fn = typeEnvLookupFn(env, node.name);
   if (fn) return instantiate(fn);   // higher-order use
-  throw withSpan(new Error(`unknown identifier: ${node.name}`), node.span);
+  throw withSpan(new Error(`unknown identifier: ${node.name}${didYouMeanSuffix(node.name, envCandidates(env, ctx))}`), node.span);
 }
 
 function inferUnary(node, env, ctx) {
@@ -559,7 +574,7 @@ function inferBinary(node, env, ctx) {
       return l;
     }
     cAdd(ctx.cs, cIsDType(l, spanOf(node.left)));
-    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node), `'${op}'`));
     return l;
   }
 
@@ -607,7 +622,7 @@ function inferBinary(node, env, ctx) {
     // dim. Result type = left (the value side).
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
-    cAdd(ctx.cs, cEqual(l, r, spanOf(node)));
+    cAdd(ctx.cs, cEqual(l, r, spanOf(node), `conversion '->'`));
     return l;
   }
 
@@ -622,7 +637,7 @@ function inferCall(node, env, ctx) {
     // routes both through Call). Fall back to value lookup.
     const v = typeEnvLookupValue(env, node.name);
     if (v && v.kind === 'TFn') return inferDirectFnCall(v, node, env, ctx);
-    throw withSpan(new Error(`unknown function: ${node.name}`), node.span);
+    throw withSpan(new Error(`unknown function: ${node.name}${didYouMeanSuffix(node.name, envCandidates(env, ctx))}`), node.span);
   }
   return inferDirectFnCall(instantiate(scheme), node, env, ctx);
 }
@@ -640,17 +655,17 @@ function inferDirectFnCall(fnT, node, env, ctx) {
   }
   for (let i = 0; i < node.args.length; i++) {
     const argT = inferExpr(node.args[i], env, ctx);
-    cAdd(ctx.cs, cEqual(fnT.params[i], argT, spanOf(node.args[i])));
+    cAdd(ctx.cs, cEqual(fnT.params[i], argT, spanOf(node.args[i]), `argument ${i + 1} of call to '${node.name}'`));
   }
   return fnT.result;
 }
 
 function inferIf(node, env, ctx) {
   const c = inferExpr(node.cond, env, ctx);
-  cAdd(ctx.cs, cEqual(c, tBool(), spanOf(node.cond)));
+  cAdd(ctx.cs, cEqual(c, tBool(), spanOf(node.cond), `if condition`));
   const t = inferExpr(node.then,  env, ctx);
   const e = inferExpr(node.else,  env, ctx);
-  cAdd(ctx.cs, cEqual(t, e, spanOf(node)));
+  cAdd(ctx.cs, cEqual(t, e, spanOf(node), `if branches`));
   return t;
 }
 

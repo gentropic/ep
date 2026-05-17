@@ -19,7 +19,7 @@ import { applyType, extendTVar, UnifyError } from './subst.js';
 import { solveDimEq } from './dim-solve.js';
 import { formatTypePretty } from './errors.js';
 
-export function unify(t1, t2, subst, span) {
+export function unify(t1, t2, subst, span, context) {
   const a = applyType(t1, subst);
   const b = applyType(t2, subst);
   if (typeEq(a, b)) return subst;
@@ -28,40 +28,42 @@ export function unify(t1, t2, subst, span) {
   if (b.kind === 'TVar') return extendTVar(subst, b.id, a);
 
   if (a.kind === 'TDim' && b.kind === 'TDim') {
-    return solveDimEq(a.dim, b.dim, subst, span);
+    return solveDimEq(a.dim, b.dim, subst, span, context);
   }
+
+  const where = context ? ` in ${context}` : '';
 
   if (a.kind === 'TFn' && b.kind === 'TFn') {
     if (a.params.length !== b.params.length) {
-      throw new UnifyError(`function arity mismatch: expected ${a.params.length}, got ${b.params.length}`, span);
+      throw new UnifyError(`function arity mismatch${where}: expected ${a.params.length}, got ${b.params.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span);
-    return unify(a.result, b.result, s, span);
+    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span, context);
+    return unify(a.result, b.result, s, span, context);
   }
 
   if (a.kind === 'TList' && b.kind === 'TList') {
-    return unify(a.elem, b.elem, subst, span);
+    return unify(a.elem, b.elem, subst, span, context);
   }
 
   if (a.kind === 'TTuple' && b.kind === 'TTuple') {
     if (a.elems.length !== b.elems.length) {
-      throw new UnifyError(`tuple arity mismatch: expected ${a.elems.length}, got ${b.elems.length}`, span);
+      throw new UnifyError(`tuple arity mismatch${where}: expected ${a.elems.length}, got ${b.elems.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span);
+    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span, context);
     return s;
   }
 
   if (a.kind === 'TStruct' && b.kind === 'TStruct') {
-    if (a.name !== b.name) throw new UnifyError(`struct mismatch: ${a.name} vs ${b.name}`, span);
+    if (a.name !== b.name) throw new UnifyError(`struct mismatch${where}: ${a.name} vs ${b.name}`, span);
     let s = subst;
     for (const k in a.fields) {
       if (!(k in b.fields)) throw new UnifyError(`struct ${a.name}: field ${k} missing on other side`, span);
-      s = unify(a.fields[k], b.fields[k], s, span);
+      s = unify(a.fields[k], b.fields[k], s, span, context);
     }
     return s;
   }
 
-  throw new UnifyError(`cannot unify ${formatTypePretty(a)} with ${formatTypePretty(b)}`, span);
+  throw new UnifyError(`cannot unify ${formatTypePretty(a)} with ${formatTypePretty(b)}${where}`, span);
 }
