@@ -48,6 +48,65 @@ function schemeRoot(n) {
   return generalize(tFn([tDim(dimExp)], tDim(dimExprFromVar(d))), [], [d]);
 }
 
+// Schemes for the most-used BUILTIN_PROCS. The runtime procs are
+// variadic in some cases (assert_eq is 2-or-3 args); we register a
+// fixed-arity scheme here that matches the canonical form. Variadic
+// proc typing is tracked as a follow-up.
+function schemeAssertEq() {
+  // <T>(T, T) -> Scalar
+  const t = freshTVar();
+  return generalize(tFn([t, t], T_SCALAR), [t], []);
+}
+function schemeAssertBool() {
+  return generalize(tFn([tBool()], T_SCALAR), [], []);
+}
+function schemePolyUnary() {
+  // <T>(T) -> Scalar — for print, println
+  const t = freshTVar();
+  return generalize(tFn([t], T_SCALAR), [t], []);
+}
+function schemeErrorString() {
+  // error<T>(String) -> T — diverging, so return is fully polymorphic
+  const t = freshTVar();
+  return generalize(tFn([tString()], t), [t], []);
+}
+
+// List ops (subset of core::lists). Registered here so user programs
+// can call them without `use core::lists` lifting through the runtime.
+function schemeHead() {
+  // <T>(List<T>) -> T
+  const t = freshTVar();
+  return generalize(tFn([tList(t)], t), [t], []);
+}
+function schemeTail() {
+  // <T>(List<T>) -> List<T>
+  const t = freshTVar();
+  return generalize(tFn([tList(t)], tList(t)), [t], []);
+}
+function schemeCons() {
+  // <T>(T, List<T>) -> List<T>
+  const t = freshTVar();
+  return generalize(tFn([t, tList(t)], tList(t)), [t], []);
+}
+function schemeLen() {
+  // <T>(List<T>) -> Scalar
+  const t = freshTVar();
+  return generalize(tFn([tList(t)], T_SCALAR), [t], []);
+}
+
+const BUILTIN_PROC_SCHEMES = {
+  assert:    schemeAssertBool,
+  assert_eq: schemeAssertEq,
+  print:     schemePolyUnary,
+  println:   schemePolyUnary,
+  error:     schemeErrorString,
+  head:      schemeHead,
+  tail:      schemeTail,
+  cons:      schemeCons,
+  cons_end:  schemeCons,
+  len:       schemeLen,
+};
+
 const BUILTIN_FN_SCHEMES = {
   // Dim-preserving
   abs:   schemeUnaryPreserveDim,
@@ -153,11 +212,56 @@ export function buildTypeEnv(runtimeEnv) {
   for (const [name, mkScheme] of Object.entries(BUILTIN_FN_SCHEMES)) {
     if (!tcEnv.fns.has(name)) typeEnvBindFn(tcEnv, name, mkScheme());
   }
+  // BUILTIN_PROCS too — same priority order, last so user decls win.
+  for (const [name, mkScheme] of Object.entries(BUILTIN_PROC_SCHEMES)) {
+    if (!tcEnv.fns.has(name)) typeEnvBindFn(tcEnv, name, mkScheme());
+  }
 
   return tcEnv;
 }
 
 // ── Lifting helpers ───────────────────────────────────────────────
+
+// Verify that each declared generic param still has an independent free
+// var after solving. Returns an error record if two binders collapsed
+// onto the same var, or null if all binders remain independent (or were
+// resolved to concrete types — that's allowed; just means the user's
+// `<A, B>` annotation was redundant).
+function checkBindersStillIndependent(binders, subst, decl) {
+  const seenTVarIds = new Map();    // id → binder name
+  const seenDimVarIds = new Map();
+  for (const b of binders) {
+    const probe = b.kind === 'T'
+      ? applyType({ kind: 'TVar', id: b.var.id }, subst)
+      : applyType({ kind: 'TDim', dim: { base: {}, vars: { [b.var.id]: { n: 1, d: 1 } } } }, subst);
+    // Concrete result (no free vars): binder was constrained to a
+    // specific type. That's fine — the scheme just won't include it.
+    const fv = freeVars(probe);
+    const ids = [...fv.tvars, ...fv.dimVars];
+    if (ids.length === 0) continue;
+    if (ids.length > 1) continue;   // multi-var resolution; OK
+    // Single-var resolution: must not collide with another binder.
+    for (const id of fv.tvars) {
+      if (seenTVarIds.has(id)) {
+        return {
+          message: `type parameters '${seenTVarIds.get(id)}' and '${b.name}' were unified — the signature claimed independence that the body doesn't deliver`,
+          span: decl.span,
+        };
+      }
+      seenTVarIds.set(id, b.name);
+    }
+    for (const id of fv.dimVars) {
+      if (seenDimVarIds.has(id)) {
+        return {
+          message: `type parameters '${seenDimVarIds.get(id)}' and '${b.name}' were unified — the signature claimed independence that the body doesn't deliver`,
+          span: decl.span,
+        };
+      }
+      seenDimVarIds.set(id, b.name);
+    }
+  }
+  return null;
+}
 
 function liftGenerics(declGenerics) {
   // Returns { generics: Map<name, {kind,var}>, binders: [{kind,var,name}] }.
@@ -237,18 +341,32 @@ export function typecheckModule(ast, runtimeEnv) {
     // inspect resolved types after the whole module.
     for (const [k, v] of subst.tvars)   allSubst.tvars.set(k, v);
     for (const [k, v] of subst.dimVars) allSubst.dimVars.set(k, v);
-    finalizeDecl(decl, env, subst);
+    finalizeDecl(decl, env, subst, errors);
   }
   return { env, subst: allSubst, errors };
 }
 
 // After per-decl solve, apply the substitution to anything this decl
 // added to the env and generalize fn schemes.
-function finalizeDecl(decl, env, subst) {
+function finalizeDecl(decl, env, subst, errors) {
   if (decl.type === 'FnDecl') {
     const scheme = env.fns.get(decl.name);
     if (!scheme || scheme.kind !== 'TScheme') return;
     const resolvedBody = applyType(scheme.body, subst);
+
+    // Free-var consistency check: if the user wrote `fn f<A, B>(...)`,
+    // each original binder should resolve to a distinct free variable
+    // in the body (either still a TVar or a TDim<single dim-var>).
+    // If two original binders end up sharing the same resolved var,
+    // the signature claimed independence the body didn't deliver —
+    // upstream rejects, so we do too. See #101.
+    const originals = scheme.binders ?? [];
+    const consistencyErr = checkBindersStillIndependent(originals, subst, decl);
+    if (consistencyErr) {
+      errors.push(consistencyErr);
+      // Still install a scheme so subsequent decls can reference the fn.
+    }
+
     // Re-derive binders purely from free vars in the resolved body —
     // this is the textbook HM "generalize" step. Original binders that
     // got constrained to concrete types drop out (their vars no longer

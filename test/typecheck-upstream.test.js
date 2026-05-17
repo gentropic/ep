@@ -62,16 +62,11 @@ function buildPreludedHost() {
   for (const [name, dim] of Object.entries(DIMENSION_OF)) {
     host.dims.defineDerived(name, dim);
   }
-  // Run TEST_PRELUDE through the LOADER so dims/units/fns/structs
-  // register in the runtime env. The typecheck pass on user input
-  // also includes the prelude (see tc()) so let-bound fn refs etc.
-  // resolve correctly through check.js's own bindings.
-  const env = numbat.makeEnv({
-    dims: host.dims, units: host.registry, values: host.values,
-    fns: host.fns, structs: host.structs, resolveUse: () => {},
-  });
-  const preAst = numbat.parse(numbat.tokenize(TEST_PRELUDE, '<prelude>'), '<prelude>');
-  numbat.loadModule(preAst, env);
+  // TEST_PRELUDE is prepended to every typecheck input in tc() so the
+  // checker registers its dims/units/fns/structs natively. We don't
+  // also pre-load it into the runtime env — doing so would cause
+  // buildTypeEnv to lift the prelude fns once, and then the typecheck
+  // pass would re-register them and hit the redeclaration check.
   return host;
 }
 
@@ -345,12 +340,11 @@ test('upstream: generics — atan2 with same-typed args', () => {
   assertOk('fn f3<T: Dim>(y: T, x: T) = atan2(y, x)');
 });
 
-test('upstream: generics — mismatched return signature', { skip: 'needs free-var consistency check post-solve (track as follow-up): solver currently binds T1=T2 instead of rejecting' }, () => {
-  // `T2/T1` in return but body returns `x/y` which is T1/T2 — upstream
-  // rejects. Our solver "succeeds" by unifying T1 := T2 since they're
-  // dim-vars with no other constraint. Need a post-solve pass that
-  // verifies each generic param's binding is still genuinely free.
-  assertErr('fn f<T1: Dim, T2: Dim>(x: T1, y: T2) -> T2/T1 = x/y', DIM_MISMATCH);
+test('upstream: generics — mismatched return signature', () => {
+  // `T2/T1` in return but body returns `x/y` which is T1/T2 — the body
+  // forces T1 := T2, which contradicts the signature's claim that they're
+  // independent. Post-solve free-var consistency check catches it (#101).
+  assertErr('fn f<T1: Dim, T2: Dim>(x: T1, y: T2) -> T2/T1 = x/y', /unified|claimed independence/);
 });
 
 // ── unknown identifier / function ────────────────────────────────
@@ -451,7 +445,7 @@ test('upstream: function_types_basic', { skip: 'Fn[(A) -> B] annotation parsing 
 // the annotation side. SKIP because BUILTIN core::lists isn't lifted
 // into the typed env yet (follow-up #98).
 
-test('upstream: list_head_tail', { skip: 'core::lists schemes not lifted yet (#98)' }, () => {
+test('upstream: list_head_tail', () => {
   assertOk('let xs = [2 a, 3 a]\nlet x = head(xs)');
   assertErr('let x = head([2 a, 3 b])', DIM_MISMATCH);
 });
@@ -468,9 +462,12 @@ test('upstream: boolean_values — unary minus on bool errors', () => {
 // (overloaded 2-or-3 args). We have BUILTIN_PROCS but no schemes for
 // them in the typed env. SKIP.
 
-test('upstream: arity_checks_in_procedure_calls', { skip: 'BUILTIN_PROCS schemes not lifted into typed env yet' }, () => {
-  assertErr('assert_eq(1)', /arity/);
-  assertOk('assert_eq(1, 2)');
+test('upstream: arity_checks_in_procedure_calls', () => {
+  assertErr(wrap('assert_eq(1)'), /expected 2 args/);
+  assertOk(wrap('assert_eq(1, 2)'));
+  // Note: 3-arg variant (with tolerance) is also accepted by the runtime,
+  // but our scheme is fixed at arity 2 — variadic proc typing is a
+  // follow-up. 3-arg use will spuriously error at typecheck.
 });
 
 // ── foreign_function / unknown_foreign_function ─────────────────
@@ -480,8 +477,8 @@ test('upstream: arity_checks_in_procedure_calls', { skip: 'BUILTIN_PROCS schemes
 // fns as extern (matching upstream behavior) but doesn't validate
 // against a host fn registry. SKIP both.
 
-test('upstream: foreign_function_with_missing_return_type', { skip: 'extern fn must have annotated return — we currently allow inferred' }, () => {
-  assertErr('fn sin(x: Scalar)');
+test('upstream: foreign_function_with_missing_return_type', () => {
+  assertErr('fn my_sin(x: Scalar)', /needs a return type/);
 });
 
 // ── structs ──────────────────────────────────────────────────────
@@ -574,11 +571,18 @@ test('upstream: generic_structs — nested generics', () => {
   `.trim());
 });
 
-test('upstream: generic_structs — wrong number of type args', { skip: 'arity check on generic-struct application not implemented yet' }, () => {
+test('upstream: generic_structs — wrong number of type args (missing)', () => {
   assertErr(`
     struct Wrapper<D: Dim> { inner: D }
     let x: Wrapper = Wrapper { inner: 1 a }
-  `.trim());
+  `.trim(), /expects 1 type args, got 0/);
+});
+
+test('upstream: generic_structs — wrong number of type args (excess)', () => {
+  assertErr(`
+    struct Tuple<X: Dim, Y: Dim> { x: X, y: Y }
+    let p: Tuple<A> = Tuple { x: 1 a, y: 1 b }
+  `.trim(), /expects 2 type args, got 1/);
 });
 
 // ── lists ────────────────────────────────────────────────────────
@@ -616,8 +620,20 @@ test('upstream: instantiation — id_for_dim rejects non-Dim', () => {
 // Upstream rejects `dimension Foo` + `struct Foo` (clash). Ours just
 // shadows / overrides. Not currently enforced.
 
-test('upstream: name_resolution — dim/struct clash', { skip: 'name-clash detection not implemented (#93 family)' }, () => {
-  assertErr('dimension Foo\nstruct Foo {}');
+test('upstream: name_resolution — dim/struct clash', () => {
+  assertErr('dimension Foo\nstruct Foo {}', /already used/);
+});
+
+test('upstream: name_resolution — struct/dim clash', () => {
+  assertErr('struct Foo {}\ndimension Foo', /already used/);
+});
+
+test('upstream: name_resolution — fn redeclaration rejected', () => {
+  assertErr('fn dup() -> Scalar = 1\nfn dup() -> Scalar = 2', /already defined/);
+});
+
+test('upstream: name_resolution — fn/dim clash', () => {
+  assertErr('fn Bar() -> Scalar = 1\ndimension Bar', /already used as a function/);
 });
 
 // ═══ type_inference.rs ════════════════════════════════════════════

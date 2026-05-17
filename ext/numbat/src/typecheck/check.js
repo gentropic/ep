@@ -97,7 +97,16 @@ function evalTypeAnno(node, env, ctx) {
       const dim = typeEnvLookupDim(env, name);
       if (dim) return tDim(dimExprFromMap(dim));
       const struct = typeEnvLookupStruct(env, name);
-      if (struct) return instantiate(struct);   // generic struct in type position
+      if (struct) {
+        // Generic struct referenced without `<...>` is an error — matches
+        // upstream's strict arity check. Non-generic structs (binders=[])
+        // pass through.
+        const binders = struct.kind === 'TScheme' ? (struct.binders ?? []) : [];
+        if (binders.length > 0) {
+          throw withSpan(new Error(`${name} expects ${binders.length} type args, got 0`), node.span);
+        }
+        return instantiate(struct);
+      }
       throw withSpan(new Error(`unknown type: ${name}`), node.span);
     }
     case 'Num': {
@@ -258,6 +267,16 @@ function checkLetDecl(decl, env, ctx) {
 }
 
 function checkFnDecl(decl, env, ctx) {
+  // Extern fn (no body) must have an annotated return type. Without it
+  // the type would be polymorphic in a vacuous way and the runtime
+  // dispatcher couldn't validate calls. Matches upstream.
+  if (decl.body === null && decl.returnType === null) {
+    throw withSpan(new Error(`extern fn '${decl.name}' needs a return type annotation`), decl.span);
+  }
+  // Name-clash: fn names mustn't collide with let-bound values, dim
+  // names, or struct names. Multiple fn overloads with the same name
+  // are also rejected (we don't have overload resolution).
+  assertNameAvailable(decl.name, env, ctx, decl.span, 'fn');
   // Generic params bind in a fresh ctx — each call site gets fresh tvars
   // via instantiate() in phase 4. For the body-check we use the generic
   // params directly so the dim-vars line up with the signature.
@@ -324,7 +343,27 @@ function checkFnDecl(decl, env, ctx) {
   typeEnvBindFn(env, decl.name, recursionScheme);
 }
 
+// Cross-namespace name clash check. Each name lives in at most one of:
+// { dims, values (let/unit), fns, structs }. Multiple decls of the same
+// name within the SAME namespace are allowed only when `allowReplace`
+// is true (used for fn redeclaration during recursive pre-binding).
+function assertNameAvailable(name, env, ctx, span, kind) {
+  // Forbid cross-namespace clashes. Recursive fn pre-binding doesn't
+  // route through this check — it goes directly to typeEnvBindFn — so
+  // we can reject fn redeclaration unconditionally here.
+  if (kind !== 'dim'    && typeEnvLookupDim(env, name))    throw withSpan(new Error(`name '${name}' already used as a dimension`), span);
+  if (kind !== 'struct' && typeEnvLookupStruct(env, name)) throw withSpan(new Error(`name '${name}' already used as a struct`), span);
+  if (kind !== 'fn'     && typeEnvLookupFn(env, name))     throw withSpan(new Error(`name '${name}' already used as a function`), span);
+  // Within fn namespace: redeclaration is also an error.
+  if (kind === 'fn' && env.fns.has(name)) {
+    throw withSpan(new Error(`fn '${name}' is already defined`), span);
+  }
+  // Don't enforce a clash against env.values (let/unit) — Numbat
+  // intentionally allows shadowing via `let` in many cases.
+}
+
 function checkDimensionDecl(decl, env, ctx) {
+  assertNameAvailable(decl.name, env, ctx, decl.span, 'dim');
   // `dimension Foo` → base axis named 'foo' (lowercased to match runtime).
   // `dimension Foo = Length * Mass` → derived dim.
   if (!decl.exprs || decl.exprs.length === 0) {
@@ -384,6 +423,7 @@ function checkUnitDecl(decl, env, ctx) {
 }
 
 function checkStructDecl(decl, env, ctx) {
+  assertNameAvailable(decl.name, env, ctx, decl.span, 'struct');
   // Generic struct generics: each binder is T-kinded (unrestricted)
   // by default, D-kinded with explicit `: Dim`. Mirrors fn-decl.
   const savedGenerics = ctx.generics;
