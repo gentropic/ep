@@ -612,7 +612,11 @@ body {
   top: 0;
   right: 0;
   width: var(--ep-gutter-w);
-  background: linear-gradient(to right, transparent 0, var(--sw-bg) 14px);
+  /* Transparent so error-block widgets behind the gutter can extend
+   * across the full editor width without being masked. The result text
+   * inside the gutter is short and right-aligned; whatever sits behind
+   * (body text on a long line, or an error-block tint) reads fine. */
+  background: transparent;
   pointer-events: none;
   z-index: 4;
 }
