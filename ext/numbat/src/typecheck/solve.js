@@ -13,7 +13,8 @@ import { unify } from './unify.js';
 import { tDim, freshTDimVar, dimExprFromVar } from './types.js';
 import { formatTypePretty } from './errors.js';
 
-export function solve(constraintSet) {
+export function solve(constraintSet, opts) {
+  const dimAliases = opts?.dimAliases ?? null;
   let subst = makeSubst();
   const errors = [];
   let deferred = constraintSet.items.slice();
@@ -32,7 +33,7 @@ export function solve(constraintSet) {
     for (const c of deferred) {
       try {
         if (c.kind === 'Equal') {
-          subst = unify(c.t1, c.t2, subst, c.span, c.context);
+          subst = unify(c.t1, c.t2, subst, c.span, c.context, dimAliases);
         } else if (c.kind === 'IsDType') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
@@ -52,7 +53,7 @@ export function solve(constraintSet) {
             if (!(c.name in r.fields)) {
               throw new UnifyError(`struct ${r.name}: no field '${c.name}'`, c.span);
             }
-            subst = unify(c.fieldType, r.fields[c.name], subst, c.span);
+            subst = unify(c.fieldType, r.fields[c.name], subst, c.span, c.context, dimAliases);
           } else if (r.kind === 'TVar') {
             next.push(c);
           } else {

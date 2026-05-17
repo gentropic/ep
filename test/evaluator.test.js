@@ -195,13 +195,10 @@ test('evaluate: annotation mismatch is reported with both sides', () => {
   const r = evaluate(bodyOf([
     'density : Density = 2.7 g',   // annotated Density, got Mass
   ]));
-  // Typecheck-driven message uses the canonical dim shape:
-  //   "dimension mismatch: expected Mass·Length⁻³, got Mass"
-  // Runtime fallback would say "annotated Density but got [mass]"
-  // (preserves the user's "Density" name). For now we accept either;
-  // resolving the alias back to the user's name in typecheck errors
-  // is a follow-up.
-  assert.match(r.rows[0].error, /dimension mismatch|annotated/);
+  // Typecheck-driven message resolves the dim alias from env.dims:
+  //   "dimension mismatch: expected Density, got Mass"
+  // Runtime fallback would say "annotated Density but got [mass]".
+  assert.match(r.rows[0].error, /Density/);
   assert.match(r.rows[0].error, /Mass|mass/);
   // binding still attempted; scope should NOT contain density (post-failure)
   assert.equal(r.scope.density, undefined);

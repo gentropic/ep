@@ -42,7 +42,15 @@ function formatExp(rat) {
   return `^(${ratFormat(rat)})`;
 }
 
-export function formatDim(dimExpr) {
+export function formatDim(dimExpr, dimAliases = null) {
+  // When an alias map is provided and the canonical form matches a
+  // registered dim name, surface the user-facing name instead of the
+  // raw base-axis form. So `density : Density = 5 kg` errors as
+  // "expected Density" rather than "expected Mass·Length⁻³".
+  if (dimAliases) {
+    const alias = lookupDimAlias(dimExpr, dimAliases);
+    if (alias) return alias;
+  }
   const parts = [];
   for (const k in dimExpr.base) {
     const r = dimExpr.base[k];
@@ -55,6 +63,43 @@ export function formatDim(dimExpr) {
     parts.push('$' + k + formatExp(r));
   }
   return parts.join('·') || 'Scalar';
+}
+
+// Canonical-string for a DimExpr — stable key for reverse lookup.
+// Only base dims (no dim-vars) participate; aliases are only meaningful
+// for fully-resolved concrete dims.
+function dimExprCanonical(dimExpr) {
+  if (Object.keys(dimExpr.vars).length > 0) return null;
+  const entries = Object.entries(dimExpr.base)
+    .filter(([, r]) => !ratIsZero(r))
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return '';
+  return entries.map(([k, r]) => `${k}^${r.n}/${r.d}`).join('·');
+}
+
+function lookupDimAlias(dimExpr, aliases) {
+  const key = dimExprCanonical(dimExpr);
+  if (key === null) return null;
+  return aliases.get(key) ?? null;
+}
+
+// Build a {canonical-string → name} map from an env's dims registry.
+// Walks the env chain so inherited dims show up. When two dim names
+// share a canonical form, last-seen wins (deterministic given map
+// iteration order).
+export function buildDimAliases(env) {
+  const m = new Map();
+  for (let e = env; e; e = e.parent) {
+    for (const [name, dimMap] of e.dims) {
+      // dimMap is the runtime shape {axis: integerExponent}. Lift to a
+      // DimExpr-equivalent and canonicalize.
+      const fake = { base: {}, vars: {} };
+      for (const k in dimMap) fake.base[k] = { n: dimMap[k], d: 1 };
+      const key = dimExprCanonical(fake);
+      if (key !== null && key !== '' && !m.has(key)) m.set(key, name);
+    }
+  }
+  return m;
 }
 
 export function formatTypePretty(t) {

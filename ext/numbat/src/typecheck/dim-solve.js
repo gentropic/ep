@@ -22,7 +22,7 @@ import { applyDimExpr, extendDimVar, UnifyError } from './subst.js';
 import { dimExprDiv, dimExprPow, dimExprIsScalar } from './types.js';
 import { formatDim } from './errors.js';
 
-export function solveDimEq(a, b, subst, span, context) {
+export function solveDimEq(a, b, subst, span, context, dimAliases) {
   const aR = applyDimExpr(a, subst);
   const bR = applyDimExpr(b, subst);
   const c  = dimExprDiv(aR, bR);
@@ -31,7 +31,7 @@ export function solveDimEq(a, b, subst, span, context) {
   if (Object.keys(c.vars).length === 0) {
     if (dimExprIsScalar(c)) return subst;
     const where = context ? ` in ${context}` : '';
-    throw new UnifyError(`dimension mismatch${where}: expected ${formatDim(aR)}, got ${formatDim(bR)}`, span);
+    throw new UnifyError(`dimension mismatch${where}: expected ${formatDim(aR, dimAliases)}, got ${formatDim(bR, dimAliases)}`, span);
   }
 
   // Pick a var to solve for. Heuristic: prefer the one whose coefficient

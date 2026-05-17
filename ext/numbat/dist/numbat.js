@@ -2505,7 +2505,15 @@ function formatExp(rat) {
   return `^(${ratFormat(rat)})`;
 }
 
-function formatDim(dimExpr) {
+function formatDim(dimExpr, dimAliases = null) {
+  // When an alias map is provided and the canonical form matches a
+  // registered dim name, surface the user-facing name instead of the
+  // raw base-axis form. So `density : Density = 5 kg` errors as
+  // "expected Density" rather than "expected Mass·Length⁻³".
+  if (dimAliases) {
+    const alias = lookupDimAlias(dimExpr, dimAliases);
+    if (alias) return alias;
+  }
   const parts = [];
   for (const k in dimExpr.base) {
     const r = dimExpr.base[k];
@@ -2518,6 +2526,43 @@ function formatDim(dimExpr) {
     parts.push('$' + k + formatExp(r));
   }
   return parts.join('·') || 'Scalar';
+}
+
+// Canonical-string for a DimExpr — stable key for reverse lookup.
+// Only base dims (no dim-vars) participate; aliases are only meaningful
+// for fully-resolved concrete dims.
+function dimExprCanonical(dimExpr) {
+  if (Object.keys(dimExpr.vars).length > 0) return null;
+  const entries = Object.entries(dimExpr.base)
+    .filter(([, r]) => !ratIsZero(r))
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return '';
+  return entries.map(([k, r]) => `${k}^${r.n}/${r.d}`).join('·');
+}
+
+function lookupDimAlias(dimExpr, aliases) {
+  const key = dimExprCanonical(dimExpr);
+  if (key === null) return null;
+  return aliases.get(key) ?? null;
+}
+
+// Build a {canonical-string → name} map from an env's dims registry.
+// Walks the env chain so inherited dims show up. When two dim names
+// share a canonical form, last-seen wins (deterministic given map
+// iteration order).
+function buildDimAliases(env) {
+  const m = new Map();
+  for (let e = env; e; e = e.parent) {
+    for (const [name, dimMap] of e.dims) {
+      // dimMap is the runtime shape {axis: integerExponent}. Lift to a
+      // DimExpr-equivalent and canonicalize.
+      const fake = { base: {}, vars: {} };
+      for (const k in dimMap) fake.base[k] = { n: dimMap[k], d: 1 };
+      const key = dimExprCanonical(fake);
+      if (key !== null && key !== '' && !m.has(key)) m.set(key, name);
+    }
+  }
+  return m;
 }
 
 function formatTypePretty(t) {
@@ -2662,7 +2707,7 @@ function didYouMeanSuffix(target, candidates) {
 // Rational exponents throughout — the solver handles `sqrt`-style ops
 // correctly (`Length^(1/2) = D` → D := Length^(1/2)).
 
-function solveDimEq(a, b, subst, span, context) {
+function solveDimEq(a, b, subst, span, context, dimAliases) {
   const aR = applyDimExpr(a, subst);
   const bR = applyDimExpr(b, subst);
   const c  = dimExprDiv(aR, bR);
@@ -2671,7 +2716,7 @@ function solveDimEq(a, b, subst, span, context) {
   if (Object.keys(c.vars).length === 0) {
     if (dimExprIsScalar(c)) return subst;
     const where = context ? ` in ${context}` : '';
-    throw new UnifyError(`dimension mismatch${where}: expected ${formatDim(aR)}, got ${formatDim(bR)}`, span);
+    throw new UnifyError(`dimension mismatch${where}: expected ${formatDim(aR, dimAliases)}, got ${formatDim(bR, dimAliases)}`, span);
   }
 
   // Pick a var to solve for. Heuristic: prefer the one whose coefficient
@@ -2712,7 +2757,7 @@ function solveDimEq(a, b, subst, span, context) {
 // Throws UnifyError with the constraint's source span attached so
 // phase-5 error reporting can point at the right line.
 
-function unify(t1, t2, subst, span, context) {
+function unify(t1, t2, subst, span, context, dimAliases) {
   const a = applyType(t1, subst);
   const b = applyType(t2, subst);
   if (typeEq(a, b)) return subst;
@@ -2721,7 +2766,7 @@ function unify(t1, t2, subst, span, context) {
   if (b.kind === 'TVar') return extendTVar(subst, b.id, a);
 
   if (a.kind === 'TDim' && b.kind === 'TDim') {
-    return solveDimEq(a.dim, b.dim, subst, span, context);
+    return solveDimEq(a.dim, b.dim, subst, span, context, dimAliases);
   }
 
   const where = context ? ` in ${context}` : '';
@@ -2731,12 +2776,12 @@ function unify(t1, t2, subst, span, context) {
       throw new UnifyError(`function arity mismatch${where}: expected ${a.params.length}, got ${b.params.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span, context);
-    return unify(a.result, b.result, s, span, context);
+    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span, context, dimAliases);
+    return unify(a.result, b.result, s, span, context, dimAliases);
   }
 
   if (a.kind === 'TList' && b.kind === 'TList') {
-    return unify(a.elem, b.elem, subst, span, context);
+    return unify(a.elem, b.elem, subst, span, context, dimAliases);
   }
 
   if (a.kind === 'TTuple' && b.kind === 'TTuple') {
@@ -2744,7 +2789,7 @@ function unify(t1, t2, subst, span, context) {
       throw new UnifyError(`tuple arity mismatch${where}: expected ${a.elems.length}, got ${b.elems.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span, context);
+    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span, context, dimAliases);
     return s;
   }
 
@@ -2753,7 +2798,7 @@ function unify(t1, t2, subst, span, context) {
     let s = subst;
     for (const k in a.fields) {
       if (!(k in b.fields)) throw new UnifyError(`struct ${a.name}: field ${k} missing on other side`, span);
-      s = unify(a.fields[k], b.fields[k], s, span, context);
+      s = unify(a.fields[k], b.fields[k], s, span, context, dimAliases);
     }
     return s;
   }
@@ -2813,7 +2858,8 @@ function instantiate(scheme) {
 // pass produces no changes and constraints remain, they're unresolvable
 // and we surface as errors.
 
-function solve(constraintSet) {
+function solve(constraintSet, opts) {
+  const dimAliases = opts?.dimAliases ?? null;
   let subst = makeSubst();
   const errors = [];
   let deferred = constraintSet.items.slice();
@@ -2832,7 +2878,7 @@ function solve(constraintSet) {
     for (const c of deferred) {
       try {
         if (c.kind === 'Equal') {
-          subst = unify(c.t1, c.t2, subst, c.span, c.context);
+          subst = unify(c.t1, c.t2, subst, c.span, c.context, dimAliases);
         } else if (c.kind === 'IsDType') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TDim') continue;            // satisfied
@@ -2852,7 +2898,7 @@ function solve(constraintSet) {
             if (!(c.name in r.fields)) {
               throw new UnifyError(`struct ${r.name}: no field '${c.name}'`, c.span);
             }
-            subst = unify(c.fieldType, r.fields[c.name], subst, c.span);
+            subst = unify(c.fieldType, r.fields[c.name], subst, c.span, c.context, dimAliases);
           } else if (r.kind === 'TVar') {
             next.push(c);
           } else {
@@ -3232,6 +3278,7 @@ function structRecordToScheme(rec, tcEnv) {
 // to interleave typecheck with per-statement runtime eval.
 function typecheckStatement(ast, tcEnv) {
   const errors = [];
+  const dimAliases = buildDimAliases(tcEnv);
   for (const decl of ast.decls) {
     const ctx = { cs: makeConstraintSet(), errors: [], generics: new Map() };
     try {
@@ -3244,7 +3291,7 @@ function typecheckStatement(ast, tcEnv) {
       errors.push(...ctx.errors);
       continue;
     }
-    const { subst, errors: solveErrs } = solve(ctx.cs);
+    const { subst, errors: solveErrs } = solve(ctx.cs, { dimAliases });
     errors.push(...solveErrs);
     if (solveErrs.length) continue;
     finalizeDecl(decl, tcEnv, subst, errors);
@@ -3261,6 +3308,7 @@ function typecheckStatement(ast, tcEnv) {
 // call site would pin α to a concrete type, breaking polymorphic use.
 function typecheckModule(ast, runtimeEnv) {
   const env = buildTypeEnv(runtimeEnv);
+  const dimAliases = buildDimAliases(env);
   const errors = [];
   const allSubst = makeSubst();
   for (const decl of ast.decls) {
@@ -3275,7 +3323,7 @@ function typecheckModule(ast, runtimeEnv) {
       errors.push(...ctx.errors);
       continue;
     }
-    const { subst, errors: solveErrs } = solve(ctx.cs);
+    const { subst, errors: solveErrs } = solve(ctx.cs, { dimAliases });
     errors.push(...solveErrs);
     if (solveErrs.length) continue;
     // Merge into the running subst — useful for hosts that want to

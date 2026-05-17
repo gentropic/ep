@@ -19,6 +19,7 @@ import { checkModule, checkDecl, evalTypeAnno } from './check.js';
 import { solve } from './solve.js';
 import { applyType, makeSubst } from './subst.js';
 import { makeConstraintSet } from './constraints.js';
+import { buildDimAliases } from './errors.js';
 
 // ── Hand-rolled schemes for BUILTIN_FNS ───────────────────────────
 //
@@ -363,6 +364,7 @@ function structRecordToScheme(rec, tcEnv) {
 // to interleave typecheck with per-statement runtime eval.
 export function typecheckStatement(ast, tcEnv) {
   const errors = [];
+  const dimAliases = buildDimAliases(tcEnv);
   for (const decl of ast.decls) {
     const ctx = { cs: makeConstraintSet(), errors: [], generics: new Map() };
     try {
@@ -375,7 +377,7 @@ export function typecheckStatement(ast, tcEnv) {
       errors.push(...ctx.errors);
       continue;
     }
-    const { subst, errors: solveErrs } = solve(ctx.cs);
+    const { subst, errors: solveErrs } = solve(ctx.cs, { dimAliases });
     errors.push(...solveErrs);
     if (solveErrs.length) continue;
     finalizeDecl(decl, tcEnv, subst, errors);
@@ -392,6 +394,7 @@ export function typecheckStatement(ast, tcEnv) {
 // call site would pin α to a concrete type, breaking polymorphic use.
 export function typecheckModule(ast, runtimeEnv) {
   const env = buildTypeEnv(runtimeEnv);
+  const dimAliases = buildDimAliases(env);
   const errors = [];
   const allSubst = makeSubst();
   for (const decl of ast.decls) {
@@ -406,7 +409,7 @@ export function typecheckModule(ast, runtimeEnv) {
       errors.push(...ctx.errors);
       continue;
     }
-    const { subst, errors: solveErrs } = solve(ctx.cs);
+    const { subst, errors: solveErrs } = solve(ctx.cs, { dimAliases });
     errors.push(...solveErrs);
     if (solveErrs.length) continue;
     // Merge into the running subst — useful for hosts that want to

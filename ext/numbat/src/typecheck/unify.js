@@ -19,7 +19,7 @@ import { applyType, extendTVar, UnifyError } from './subst.js';
 import { solveDimEq } from './dim-solve.js';
 import { formatTypePretty } from './errors.js';
 
-export function unify(t1, t2, subst, span, context) {
+export function unify(t1, t2, subst, span, context, dimAliases) {
   const a = applyType(t1, subst);
   const b = applyType(t2, subst);
   if (typeEq(a, b)) return subst;
@@ -28,7 +28,7 @@ export function unify(t1, t2, subst, span, context) {
   if (b.kind === 'TVar') return extendTVar(subst, b.id, a);
 
   if (a.kind === 'TDim' && b.kind === 'TDim') {
-    return solveDimEq(a.dim, b.dim, subst, span, context);
+    return solveDimEq(a.dim, b.dim, subst, span, context, dimAliases);
   }
 
   const where = context ? ` in ${context}` : '';
@@ -38,12 +38,12 @@ export function unify(t1, t2, subst, span, context) {
       throw new UnifyError(`function arity mismatch${where}: expected ${a.params.length}, got ${b.params.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span, context);
-    return unify(a.result, b.result, s, span, context);
+    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span, context, dimAliases);
+    return unify(a.result, b.result, s, span, context, dimAliases);
   }
 
   if (a.kind === 'TList' && b.kind === 'TList') {
-    return unify(a.elem, b.elem, subst, span, context);
+    return unify(a.elem, b.elem, subst, span, context, dimAliases);
   }
 
   if (a.kind === 'TTuple' && b.kind === 'TTuple') {
@@ -51,7 +51,7 @@ export function unify(t1, t2, subst, span, context) {
       throw new UnifyError(`tuple arity mismatch${where}: expected ${a.elems.length}, got ${b.elems.length}`, span);
     }
     let s = subst;
-    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span, context);
+    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span, context, dimAliases);
     return s;
   }
 
@@ -60,7 +60,7 @@ export function unify(t1, t2, subst, span, context) {
     let s = subst;
     for (const k in a.fields) {
       if (!(k in b.fields)) throw new UnifyError(`struct ${a.name}: field ${k} missing on other side`, span);
-      s = unify(a.fields[k], b.fields[k], s, span, context);
+      s = unify(a.fields[k], b.fields[k], s, span, context, dimAliases);
     }
     return s;
   }
