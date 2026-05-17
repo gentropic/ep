@@ -59,6 +59,10 @@ body {
   background: var(--sw-bg);
   border-left: 1px solid var(--sw-border);
   border-right: 1px solid var(--sw-border);
+  /* When content (many chips, long source view, …) exceeds 100vh, scroll
+   * the whole app rather than clipping. CM6's body keeps its own internal
+   * scroll for its content; this kicks in only at the outer boundary. */
+  overflow-y: auto;
 }
 
 /* Switchboard-themed scrollbars. Webkit-only (no scrollbar-width/color)
@@ -86,7 +90,10 @@ body {
   height: 0 !important;
 }
 
-/* Header */
+/* Header — sticky against the .app scroll container so it stays visible
+ * when the user scrolls past long content (many chips, expanded source
+ * view, etc.). z-index 30 keeps it above the result-gutter overlay (4)
+ * and scenarios strip but below the drawer (60) and panel sheets. */
 .hdr {
   padding: 9px 12px;
   background: var(--sw-bg-raised);
@@ -96,6 +103,9 @@ body {
   justify-content: space-between;
   flex: 0 0 auto;
   gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
 }
 .hdr-left {
   display: flex;
