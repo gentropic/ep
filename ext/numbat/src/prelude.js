@@ -31,6 +31,8 @@ export function loadPrelude(registry) {
   registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, aliases: ['millimeters', 'millimetre', 'millimetres'], shortAliases: ['mm'] });
   registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, aliases: ['centimeters', 'centimetre', 'centimetres'], shortAliases: ['cm'] });
   registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  aliases: ['kilometers', 'kilometre', 'kilometres'], shortAliases: ['km'] });
+  registry.define('micrometer', { dim: {length: 1}, mul: 1e-6, aliases: ['micrometers', 'micrometre', 'micrometres', 'micron', 'microns'], shortAliases: ['µm', 'μm', 'um'] });
+  registry.define('nanometer',  { dim: {length: 1}, mul: 1e-9, aliases: ['nanometers', 'nanometre', 'nanometres'], shortAliases: ['nm'] });
 
   registry.define('second',      { dim: {time: 1}, aliases: ['seconds'], shortAliases: ['s']  });
   registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, aliases: ['milliseconds'], shortAliases: ['ms'] });

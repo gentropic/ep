@@ -360,9 +360,28 @@ What's still genuinely undecided. Items answered by the implementation have been
 - **Output pin UI.** Currently you toggle a binding into the output panel by adding/removing the `@output` decorator above its definition. A pin icon on each binding row to toggle that decorator visually is the natural gesture but isn't implemented.
 - **Error message quality.** numbat-js produces single-line errors with location info. Numbat upstream sets a higher bar (multi-line traces with both operands' dimensions, span pointers). ep could improve this when token spans get wired into the gutter.
 - **Multi-tab consistency.** IDB writes from one tab don't propagate to another tab's in-memory cache. A `BroadcastChannel('ep')` listener that invalidates the cache (or merges deltas) is the natural fix; not implemented because nobody's hit it yet.
-- **Module discovery.** numbat-js has all 62 upstream modules vendored, but ep's line classifier doesn't yet recognize `use module::path` to bring them into scope. Could surface them via a "modules" section in the drawer, or just auto-import the math + physics constants set into every program.
+- **Module discovery.** numbat-js has all 62 upstream modules vendored and `use module::path` works, but users have no way to browse what modules exist or what they provide. A "modules" section in the drawer (or autocomplete after `use `) would surface them.
 
 ---
+
+## Numbat conformance
+
+`test/conformance.test.js` is the compatibility surface — a curated corpus of ~80 numbat programs with expected outputs (canonical values, dims, strings, errors). Every entry asserts what `evaluate()` should return for that program. Anything that changes ep's evaluator output for one of these programs has to be an explicit decision: update the expected, or revert.
+
+Coverage: numeric literals (incl. hex / octal / binary / underscore-sep / scientific), arithmetic + precedence + unicode operators, units (SI base, imperial, compound), conversions (`->` / `to`), constants (`pi`, `tau`, `e`, `NaN`, `inf`), transcendentals (`sin`, `cos`, `sqrt`, `ln`, `log10`, `exp`, `abs`, `mod`, `max`, `min`), `let` bindings with type annotations, `fn` declarations including generics and `where`/`and` clauses, pipe operator (`|>`), `if/then/else` (inline + multi-line in fn bodies), `dimension` / `unit` / `struct` declarations, ep-specific helpers (DCDMA cores, sieve mesh, `sample_mass`), error classes, `type()` returns.
+
+Expected values come from first principles or from cross-reference against the upstream numbat CLI / playground. The corpus is the source of truth — if ep diverges from numbat on a real program, add it to the corpus and align.
+
+### Future: live cross-validation against numbat-wasm
+
+The corpus pins behavior but doesn't catch drift in upstream numbat itself. A complementary harness would:
+
+1. Vendor `numbat-wasm` (the same WASM bundle numbat.dev's playground uses) under `ext/numbat-upstream/`.
+2. Boot it in the Node test runtime alongside ep's evaluator.
+3. Run the corpus through both. Compare values numerically (with the same tolerance ep uses), dims structurally, errors by class.
+4. Any divergence is either an ep bug or a deliberate ep extension (decorator decorators, the gutter machinery, etc.) — flag it for review.
+
+Cost: ~1 day plus the WASM dep (likely 1–2 MB committed under `ext/`). The dep is dev-only — runtime ep doesn't load it. Pays back if ep's evaluator diverges from upstream silently between releases. Not implemented; revisit when the conformance corpus catches less drift than it should.
 
 ## File layout
 

@@ -1205,6 +1205,7 @@ const BUILTIN_FNS = {
   acos(q){ mustBeDimensionless(q, 'acos');return new Quantity(Math.acos(q.value), {}); },
   atan(q){ mustBeDimensionless(q, 'atan');return new Quantity(Math.atan(q.value), {}); },
   log(q) { mustBeDimensionless(q, 'log'); return new Quantity(Math.log10(q.value), {}); },
+  log10(q){mustBeDimensionless(q, 'log10');return new Quantity(Math.log10(q.value), {}); },
   log2(q){ mustBeDimensionless(q, 'log2');return new Quantity(Math.log2(q.value), {}); },
   ln(q)  { mustBeDimensionless(q, 'ln');  return new Quantity(Math.log(q.value), {}); },
   exp(q) { mustBeDimensionless(q, 'exp'); return new Quantity(Math.exp(q.value), {}); },
@@ -1269,6 +1270,27 @@ const BUILTIN_PROCS = {
   // accept the call but no-op (returns 0). Hosts can override BUILTIN_PROCS.
   print(args) {
     return new Quantity(0, {});
+  },
+  // max(a, b, ...) / min(a, b, ...): variadic. All args must share the
+  // same dimension. Useful as a top-level fn even though upstream
+  // numbat defines them inside core::functions via fold.
+  max(args) {
+    if (!args.length) throw new Error('max: expected at least 1 arg');
+    let best = args[0];
+    for (let i = 1; i < args.length; i++) {
+      if (!dimEq(args[i].dim, best.dim)) throw new Error(`max: dim mismatch at arg ${i}`);
+      if (args[i].value > best.value) best = args[i];
+    }
+    return best;
+  },
+  min(args) {
+    if (!args.length) throw new Error('min: expected at least 1 arg');
+    let best = args[0];
+    for (let i = 1; i < args.length; i++) {
+      if (!dimEq(args[i].dim, best.dim)) throw new Error(`min: dim mismatch at arg ${i}`);
+      if (args[i].value < best.value) best = args[i];
+    }
+    return best;
   },
   // type(value): return a human-readable description of the value's
   // dimension. Matches numbat's `type` builtin used as a REPL aid
@@ -2135,6 +2157,8 @@ function loadPrelude(registry) {
   registry.define('millimeter', { dim: {length: 1}, mul: 1e-3, aliases: ['millimeters', 'millimetre', 'millimetres'], shortAliases: ['mm'] });
   registry.define('centimeter', { dim: {length: 1}, mul: 1e-2, aliases: ['centimeters', 'centimetre', 'centimetres'], shortAliases: ['cm'] });
   registry.define('kilometer',  { dim: {length: 1}, mul: 1e3,  aliases: ['kilometers', 'kilometre', 'kilometres'], shortAliases: ['km'] });
+  registry.define('micrometer', { dim: {length: 1}, mul: 1e-6, aliases: ['micrometers', 'micrometre', 'micrometres', 'micron', 'microns'], shortAliases: ['µm', 'μm', 'um'] });
+  registry.define('nanometer',  { dim: {length: 1}, mul: 1e-9, aliases: ['nanometers', 'nanometre', 'nanometres'], shortAliases: ['nm'] });
 
   registry.define('second',      { dim: {time: 1}, aliases: ['seconds'], shortAliases: ['s']  });
   registry.define('millisecond', { dim: {time: 1}, mul: 1e-3, aliases: ['milliseconds'], shortAliases: ['ms'] });
