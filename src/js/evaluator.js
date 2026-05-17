@@ -132,7 +132,7 @@ export function parseEpBody(source) {
     const decorators = [];
     let startLine = tokens[i].span.line;
     while (i < tokens.length && tokens[i].type === 'dec') {
-      const dec = readDecorator(tokens, i);
+      const dec = readDecorator(tokens, i, source);
       decorators.push(dec.value);
       i = dec.next;
     }
@@ -200,34 +200,51 @@ export function parseEpBody(source) {
 // Decorator: `@<name>` optionally followed by `(<arg>, ...)`. Args are
 // identifiers or strings. Multi-line args are fine — paren balance
 // drives end detection. Returns { value: {name, args}, next: tokenIdx }.
-function readDecorator(tokens, i) {
+function readDecorator(tokens, i, source) {
   const dec = tokens[i];
   const name = dec.name;
   let next = i + 1;
   const args = [];
   if (next < tokens.length && tokens[next].type === 'op' && tokens[next].op === '(') {
     next++;
+    // Group tokens between commas into one arg. Each group is sliced
+    // verbatim from the source (using token spans) so compound forms
+    // like `m^3`, `kg/m^2`, `ft*lb` survive intact. String args use
+    // the parsed string value directly; modifier-suffixed name args
+    // (`length: short`) strip the modifier.
+    let groupStart = -1;   // token index of the first token in the current group
+    let groupEnd   = -1;   // token index of the last  token in the current group (inclusive)
+    let strValue   = null; // when a group is a single string literal, hold its parsed value
+    const flush = () => {
+      if (groupStart < 0) return;
+      if (strValue !== null) { args.push(strValue); strValue = null; groupStart = -1; groupEnd = -1; return; }
+      const startOff = tokens[groupStart].span.offset;
+      const endOff   = tokens[groupEnd].span.end;
+      args.push(source.slice(startOff, endOff).trim());
+      groupStart = -1; groupEnd = -1;
+    };
     while (next < tokens.length) {
       const t = tokens[next];
-      if (t.type === 'op' && t.op === ')') { next++; break; }
-      if (t.type === 'op' && t.op === ',') { next++; continue; }
-      // Arg: identifier, keyword (e.g. `let` mis-used as a name), or string
-      if (t.type === 'id' || t.type === 'kw') {
-        args.push(t.name);
-        next++;
-        // Tolerate `name: modifier` numbat syntax — swallow modifier silently
-        if (next < tokens.length && tokens[next].type === 'op' && tokens[next].op === ':') {
-          next++;
-          if (next < tokens.length && tokens[next].type === 'id') next++;
-        }
+      if (t.type === 'op' && t.op === ')') { flush(); next++; break; }
+      if (t.type === 'op' && t.op === ',') { flush(); next++; continue; }
+      // Modifier syntax `name: short` — drop the `:short` suffix from
+      // the group; treat the head as the arg. Only triggers when the
+      // group starts with an id/kw and is immediately followed by `:`.
+      if (t.type === 'op' && t.op === ':' && groupStart >= 0 && groupStart === groupEnd
+          && (tokens[groupStart].type === 'id' || tokens[groupStart].type === 'kw')) {
+        next++;   // skip ':'
+        if (next < tokens.length && (tokens[next].type === 'id' || tokens[next].type === 'kw')) next++;
         continue;
       }
-      if (t.type === 'str') {
-        args.push(t.value);
+      if (t.type === 'str' && groupStart < 0) {
+        strValue = t.value;
+        groupStart = next; groupEnd = next;
         next++;
         continue;
       }
-      // Unrecognized token inside decorator args — bail out gracefully.
+      // Extend or start the current group span.
+      if (groupStart < 0) groupStart = next;
+      groupEnd = next;
       next++;
     }
   }
