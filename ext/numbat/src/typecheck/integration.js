@@ -11,11 +11,11 @@
 // the typechecker already proved — and surfaces dim mismatches at
 // parse/check time instead of at first-execution-of-the-bad-branch.
 
-import { tDim, tBool, tString, tFn, tList, freshTDimVar, dimExprFromMap, dimExprFromVar, dimExprPow, T_SCALAR } from './types.js';
+import { tDim, tBool, tString, tFn, tList, tStruct, freshTVar, freshTDimVar, dimExprFromMap, dimExprFromVar, dimExprPow, T_SCALAR } from './types.js';
 import { ratOf } from './rat.js';
 import { generalize } from './scheme.js';
-import { makeTypeEnv, typeEnvBindValue, typeEnvBindDim, typeEnvBindFn } from './env.js';
-import { checkModule } from './check.js';
+import { makeTypeEnv, typeEnvBindValue, typeEnvBindDim, typeEnvBindFn, typeEnvBindStruct } from './env.js';
+import { checkModule, evalTypeAnno } from './check.js';
 import { solve } from './solve.js';
 
 // ── Hand-rolled schemes for BUILTIN_FNS ───────────────────────────
@@ -122,21 +122,75 @@ export function buildTypeEnv(runtimeEnv) {
     }
   }
 
-  // User-declared fns from previous loadModule passes: we don't have AST
-  // available here, so we punt. The typecheck pass operates on the
-  // module being loaded — user fns from THAT module register themselves
-  // via checkFnDecl. Earlier-loaded user fns (e.g. from `use`-imported
-  // modules) would need their schemes round-tripped through the typed
-  // env, which is a follow-up. For now, log to ctx.errors if a call
-  // references one.
+  // Lift user structs — those declared via earlier loadModule passes
+  // are stored in runtimeEnv.structs as { name, generics, fields }.
+  // Convert each into a TScheme(TStruct) so type annotations referencing
+  // these structs resolve.
+  if (runtimeEnv.structs) {
+    for (const [name, rec] of runtimeEnv.structs) {
+      if (!tcEnv.structs.has(name)) {
+        typeEnvBindStruct(tcEnv, name, structRecordToScheme(rec, tcEnv));
+      }
+    }
+  }
+
+  // Lift user fns. Runtime stores { generics, params, body, returnType, ... }.
+  // We build a TScheme directly without re-running body inference —
+  // hosts that want body validation should re-run checkModule.
+  if (runtimeEnv.fns) {
+    for (const [name, rec] of runtimeEnv.fns) {
+      if (!tcEnv.fns.has(name)) {
+        typeEnvBindFn(tcEnv, name, fnRecordToScheme(rec, tcEnv));
+      }
+    }
+  }
 
   // BUILTINs: math primitives get hand-rolled schemes so user code can
-  // call sqrt/sin/etc. and typecheck cleanly.
+  // call sqrt/sin/etc. and typecheck cleanly. Last so user-declared fns
+  // and structs take priority (a user's `fn sin` overrides the BUILTIN).
   for (const [name, mkScheme] of Object.entries(BUILTIN_FN_SCHEMES)) {
     if (!tcEnv.fns.has(name)) typeEnvBindFn(tcEnv, name, mkScheme());
   }
 
   return tcEnv;
+}
+
+// ── Lifting helpers ───────────────────────────────────────────────
+
+function fnRecordToScheme(rec, tcEnv) {
+  const generics = new Map();
+  const dimVars  = [];
+  for (const g of rec.generics || []) {
+    if (g.kind && g.kind !== 'Dim') continue;   // skip non-Dim generics for now
+    const tdv = freshTDimVar();
+    generics.set(g.name, tdv);
+    dimVars.push(tdv);
+  }
+  const ctx = { generics };
+  const paramTypes = (rec.params || []).map(p =>
+    p.typeExpr ? evalTypeAnno(p.typeExpr, tcEnv, ctx) : freshTVar(),
+  );
+  const returnType = rec.returnType
+    ? evalTypeAnno(rec.returnType, tcEnv, ctx)
+    : freshTVar();
+  return generalize(tFn(paramTypes, returnType), [], dimVars);
+}
+
+function structRecordToScheme(rec, tcEnv) {
+  const generics = new Map();
+  const dimVars  = [];
+  for (const g of rec.generics || []) {
+    if (g.kind && g.kind !== 'Dim') continue;
+    const tdv = freshTDimVar();
+    generics.set(g.name, tdv);
+    dimVars.push(tdv);
+  }
+  const ctx = { generics };
+  const fields = {};
+  for (const f of rec.fields || []) {
+    fields[f.name] = evalTypeAnno(f.type, tcEnv, ctx);
+  }
+  return generalize(tStruct(rec.name, fields), [], dimVars);
 }
 
 // One-shot: parse + check + solve, return diagnostics. Hosts that want

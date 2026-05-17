@@ -53,6 +53,16 @@ function tryFoldConst(node) {
         case '-': return ratSub(l, r);
         case '*': return ratMul(l, r);
         case '/': return r.n === 0 ? null : ratDiv(l, r);
+        case '^': {
+          // Integer exponent only — fractional powers on rationals
+          // (e.g. (1/2)^(1/3)) need real-number exponentiation we don't
+          // want to muddle exact arithmetic with.
+          if (r.d !== 1) return null;
+          let acc = ratOf(1);
+          const e = Math.abs(r.n);
+          for (let i = 0; i < e; i++) acc = ratMul(acc, l);
+          return r.n < 0 ? ratDiv(ratOf(1), acc) : acc;
+        }
         default: return null;
       }
     }
@@ -143,6 +153,10 @@ function spanOf(node) {
     default:          return null;
   }
 }
+
+// Public for the integration layer, which uses it to lift already-
+// loaded user fn/struct declarations from the runtime env.
+export { evalTypeAnno };
 
 // TypeApp: `List<D>`, `Box<Length>`, `Pair<Length, Mass>`. Looks up the
 // head as a struct/list constructor and substitutes the explicit args
@@ -240,6 +254,14 @@ function checkFnDecl(decl, env, ctx) {
   }
   const returnType = decl.returnType ? evalTypeAnno(decl.returnType, env, ctx) : freshTVar();
 
+  // Bind the fn's own scheme into env BEFORE body inference so recursive
+  // references resolve. The scheme will be replaced with the final
+  // version below — using the same scheme object means the recursive
+  // call site instantiates with fresh dim-vars per call.
+  const fnTypeForRecursion = tFn(paramTypes, returnType);
+  const recursionScheme = generalize(fnTypeForRecursion, [], dimVarsForGenerics);
+  typeEnvBindFn(env, decl.name, recursionScheme);
+
   // If body is null, this is an extern decl — nothing to check internally.
   if (decl.body !== null) {
     const bodyEnv = typeEnvExtend(env);
@@ -259,13 +281,9 @@ function checkFnDecl(decl, env, ctx) {
   }
 
   ctx.generics = savedGenerics;
-
-  // Generalize: the dim-vars introduced for this fn's generics become its
-  // scheme binders. Tvars list stays empty — Numbat fn generics are all
-  // Dim-kinded; if we ever add non-Dim generics, they'd populate the
-  // first slot.
-  const fnType = tFn(paramTypes, returnType);
-  typeEnvBindFn(env, decl.name, generalize(fnType, [], dimVarsForGenerics));
+  // Final scheme — already bound above for recursion; rebind to ensure
+  // the env points at the same scheme object (no functional change).
+  typeEnvBindFn(env, decl.name, recursionScheme);
 }
 
 function checkDimensionDecl(decl, env, ctx) {
@@ -300,23 +318,31 @@ function dimExprToMap(d, span) {
 }
 
 function checkUnitDecl(decl, env, ctx) {
-  // For typecheck purposes a unit's dim is what matters. Two forms:
+  // Three forms:
   //   `unit name: DimExpr` — dim from annotation
   //   `unit name = ValueExpr` — dim from inferring the value
-  let dim;
+  //   `unit name: DimExpr = ValueExpr` — annotated AND defined; cross-check.
+  let annoT = null, exprT = null;
   if (decl.dim) {
-    const t = evalTypeAnno(decl.dim, env, ctx);
-    if (t.kind !== 'TDim') throw withSpan(new Error(`unit annotation must be a dim type`), decl.span);
-    dim = dimExprToMap(t.dim, decl.span);
-  } else if (decl.expr) {
-    const t = inferExpr(decl.expr, env, ctx);
-    if (t.kind !== 'TDim') throw withSpan(new Error(`unit value must be a dim quantity`), decl.span);
-    dim = dimExprToMap(t.dim, decl.span);
-  } else {
-    // `unit name` with no body — a base unit, dim auto-generated.
-    dim = { [decl.name]: 1 };
+    annoT = evalTypeAnno(decl.dim, env, ctx);
+    if (annoT.kind !== 'TDim') throw withSpan(new Error(`unit annotation must be a dim type`), decl.span);
   }
-  typeEnvBindValue(env, decl.name, tDim(dimExprFromMap(dim)));
+  if (decl.expr) {
+    exprT = inferExpr(decl.expr, env, ctx);
+    if (exprT.kind !== 'TDim') throw withSpan(new Error(`unit value must be a dim quantity`), decl.span);
+  }
+  if (annoT && exprT) {
+    // Cross-check: annotated dim must match expression's dim. Surfaces
+    // `unit my_c: C = a` (A != C).
+    cAdd(ctx.cs, cEqual(annoT, exprT, spanOf(decl.expr)));
+  }
+  const t = annoT ?? exprT;
+  if (t) {
+    typeEnvBindValue(env, decl.name, t);
+  } else {
+    // `unit name` with no body — base unit, dim auto-generated.
+    typeEnvBindValue(env, decl.name, tDim(dimExprFromMap({ [decl.name]: 1 })));
+  }
 }
 
 function checkStructDecl(decl, env, ctx) {
