@@ -9,7 +9,7 @@
 // Mixing them in one space makes the dim solver harder. Upstream splits the
 // same way (Type::TVar vs DType::TypeVariable).
 
-import { ratOf, ratIsZero, ratEq, ratFormat, RAT_ZERO } from './rat.js';
+import { ratOf, ratIsZero, ratEq, ratFormat, ratAdd, ratSub, ratNeg, ratMul, RAT_ZERO } from './rat.js';
 
 let _nextTVar    = 0;
 let _nextTDimVar = 0;
@@ -67,9 +67,59 @@ export function dimExprEq(a, b) {
 
 export function dimExprIsConcrete(d) { return Object.keys(d.vars).length === 0; }
 export function dimExprIsScalar(d) {
-  if (!dimExprIsConcrete(d)) return false;
   for (const k in d.base) if (!ratIsZero(d.base[k])) return false;
+  for (const k in d.vars) if (!ratIsZero(d.vars[k])) return false;
   return true;
+}
+
+// ── DimExpr arithmetic (multiplicative) ───────────────────────────
+//
+// Shared by check.js (constraint generation), subst.js (substitution
+// composition), and dim-solve.js (the dim equation solver). Lives here
+// so the flat-scope build doesn't see duplicate helpers.
+
+function cleanDimExprFor(base, vars) {
+  const b = {};
+  for (const k in base) if (!ratIsZero(base[k])) b[k] = base[k];
+  const v = {};
+  for (const k in vars) if (!ratIsZero(vars[k])) v[k] = vars[k];
+  return freezeDimExpr(b, v);
+}
+
+export function dimExprMul(a, b) {
+  const base = { ...a.base };
+  for (const k in b.base) base[k] = base[k] ? ratAdd(base[k], b.base[k]) : b.base[k];
+  const vars = { ...a.vars };
+  for (const k in b.vars) vars[k] = vars[k] ? ratAdd(vars[k], b.vars[k]) : b.vars[k];
+  return cleanDimExprFor(base, vars);
+}
+
+export function dimExprDiv(a, b) {
+  const base = { ...a.base };
+  for (const k in b.base) base[k] = base[k] ? ratSub(base[k], b.base[k]) : ratNeg(b.base[k]);
+  const vars = { ...a.vars };
+  for (const k in b.vars) vars[k] = vars[k] ? ratSub(vars[k], b.vars[k]) : ratNeg(b.vars[k]);
+  return cleanDimExprFor(base, vars);
+}
+
+export function dimExprPow(d, r) {
+  if (ratIsZero(r)) return dimExprEmpty();
+  const base = {};
+  for (const k in d.base) base[k] = ratMul(d.base[k], r);
+  const vars = {};
+  for (const k in d.vars) vars[k] = ratMul(d.vars[k], r);
+  return cleanDimExprFor(base, vars);
+}
+
+// Inverse-substitute one dim-var inside a DimExpr (var `id` → `repl`).
+// Used when extending the substitution with a new dim-var binding so
+// previously-stored values get the new resolution.
+export function dimExprSubstVar(d, id, repl) {
+  if (!(id in d.vars)) return d;
+  const exp = d.vars[id];
+  const v = { ...d.vars }; delete v[id];
+  const stripped = freezeDimExpr({ ...d.base }, v);
+  return dimExprMul(stripped, dimExprPow(repl, exp));
 }
 
 export function dimExprFormat(d) {

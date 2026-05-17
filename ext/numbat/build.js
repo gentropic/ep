@@ -26,6 +26,10 @@ const SRC_FILES = [
   'typecheck/env.js',
   'typecheck/constraints.js',
   'typecheck/check.js',
+  'typecheck/subst.js',
+  'typecheck/dim-solve.js',
+  'typecheck/unify.js',
+  'typecheck/solve.js',
   'load.js',
   'vendored.js',   // generated; safe to concat (only declares VENDORED_MODULES)
   'prelude.js',

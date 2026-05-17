@@ -10,7 +10,7 @@
 // just placeholders awaiting substitution.
 
 import { ratOf, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero } from './rat.js';
-import { freshTVar, freshTDimVar, tDim, tBool, tString, tFn, tList, tStruct, tTuple, tScheme, T_SCALAR, dimExprEmpty, dimExprFromMap, dimExprFromVar, formatType } from './types.js';
+import { freshTVar, freshTDimVar, tDim, tBool, tString, tFn, tList, tStruct, tTuple, tScheme, T_SCALAR, dimExprEmpty, dimExprFromMap, dimExprFromVar, dimExprMul, dimExprDiv, dimExprPow, formatType } from './types.js';
 import { typeEnvExtend, typeEnvBindValue, typeEnvBindFn, typeEnvBindDim, typeEnvBindStruct, typeEnvLookupValue, typeEnvLookupFn, typeEnvLookupDim, typeEnvLookupStruct } from './env.js';
 import { cEqual, cIsDType, cHasField, cAdd, makeConstraintSet } from './constraints.js';
 
@@ -23,45 +23,6 @@ export function checkModule(ast, env) {
     catch (e) { ctx.errors.push({ message: e.message, span: e.span || null }); }
   }
   return { constraints: ctx.cs, errors: ctx.errors, env };
-}
-
-// ── DimExpr helpers (multiply, divide, power) ─────────────────────
-//
-// These work over the rational-base + dim-vars representation. Used by
-// both inferExpr (for runtime expressions like `x * y`) and evalTypeAnno
-// (for annotations like `Length / Time`).
-
-function dimExprMul(a, b) {
-  const base = { ...a.base };
-  for (const k in b.base) base[k] = base[k] ? ratAdd(base[k], b.base[k]) : b.base[k];
-  const vars = { ...a.vars };
-  for (const k in b.vars) vars[k] = vars[k] ? ratAdd(vars[k], b.vars[k]) : b.vars[k];
-  return cleanDimExpr(base, vars);
-}
-
-function dimExprDiv(a, b) {
-  const base = { ...a.base };
-  for (const k in b.base) base[k] = base[k] ? ratSub(base[k], b.base[k]) : ratNeg(b.base[k]);
-  const vars = { ...a.vars };
-  for (const k in b.vars) vars[k] = vars[k] ? ratSub(vars[k], b.vars[k]) : ratNeg(b.vars[k]);
-  return cleanDimExpr(base, vars);
-}
-
-function dimExprPow(a, r) {
-  if (ratIsZero(r)) return dimExprEmpty();
-  const base = {};
-  for (const k in a.base) base[k] = ratMul(a.base[k], r);
-  const vars = {};
-  for (const k in a.vars) vars[k] = ratMul(a.vars[k], r);
-  return cleanDimExpr(base, vars);
-}
-
-function cleanDimExpr(base, vars) {
-  const b = {};
-  for (const k in base) if (!ratIsZero(base[k])) b[k] = base[k];
-  const v = {};
-  for (const k in vars) if (!ratIsZero(vars[k])) v[k] = vars[k];
-  return Object.freeze({ base: Object.freeze(b), vars: Object.freeze(v) });
 }
 
 // ── Const evaluator for ^ exponents ───────────────────────────────

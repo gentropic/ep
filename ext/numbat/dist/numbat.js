@@ -1245,9 +1245,59 @@ function dimExprEq(a, b) {
 
 function dimExprIsConcrete(d) { return Object.keys(d.vars).length === 0; }
 function dimExprIsScalar(d) {
-  if (!dimExprIsConcrete(d)) return false;
   for (const k in d.base) if (!ratIsZero(d.base[k])) return false;
+  for (const k in d.vars) if (!ratIsZero(d.vars[k])) return false;
   return true;
+}
+
+// ── DimExpr arithmetic (multiplicative) ───────────────────────────
+//
+// Shared by check.js (constraint generation), subst.js (substitution
+// composition), and dim-solve.js (the dim equation solver). Lives here
+// so the flat-scope build doesn't see duplicate helpers.
+
+function cleanDimExprFor(base, vars) {
+  const b = {};
+  for (const k in base) if (!ratIsZero(base[k])) b[k] = base[k];
+  const v = {};
+  for (const k in vars) if (!ratIsZero(vars[k])) v[k] = vars[k];
+  return freezeDimExpr(b, v);
+}
+
+function dimExprMul(a, b) {
+  const base = { ...a.base };
+  for (const k in b.base) base[k] = base[k] ? ratAdd(base[k], b.base[k]) : b.base[k];
+  const vars = { ...a.vars };
+  for (const k in b.vars) vars[k] = vars[k] ? ratAdd(vars[k], b.vars[k]) : b.vars[k];
+  return cleanDimExprFor(base, vars);
+}
+
+function dimExprDiv(a, b) {
+  const base = { ...a.base };
+  for (const k in b.base) base[k] = base[k] ? ratSub(base[k], b.base[k]) : ratNeg(b.base[k]);
+  const vars = { ...a.vars };
+  for (const k in b.vars) vars[k] = vars[k] ? ratSub(vars[k], b.vars[k]) : ratNeg(b.vars[k]);
+  return cleanDimExprFor(base, vars);
+}
+
+function dimExprPow(d, r) {
+  if (ratIsZero(r)) return dimExprEmpty();
+  const base = {};
+  for (const k in d.base) base[k] = ratMul(d.base[k], r);
+  const vars = {};
+  for (const k in d.vars) vars[k] = ratMul(d.vars[k], r);
+  return cleanDimExprFor(base, vars);
+}
+
+// Inverse-substitute one dim-var inside a DimExpr (var `id` → `repl`).
+// Used when extending the substitution with a new dim-var binding so
+// previously-stored values get the new resolution.
+function dimExprSubstVar(d, id, repl) {
+  if (!(id in d.vars)) return d;
+  const exp = d.vars[id];
+  const v = { ...d.vars }; delete v[id];
+  const stripped = freezeDimExpr({ ...d.base }, v);
+  return dimExprMul(stripped, dimExprPow(repl, exp));
 }
 
 function dimExprFormat(d) {
@@ -1493,45 +1543,6 @@ function checkModule(ast, env) {
     catch (e) { ctx.errors.push({ message: e.message, span: e.span || null }); }
   }
   return { constraints: ctx.cs, errors: ctx.errors, env };
-}
-
-// ── DimExpr helpers (multiply, divide, power) ─────────────────────
-//
-// These work over the rational-base + dim-vars representation. Used by
-// both inferExpr (for runtime expressions like `x * y`) and evalTypeAnno
-// (for annotations like `Length / Time`).
-
-function dimExprMul(a, b) {
-  const base = { ...a.base };
-  for (const k in b.base) base[k] = base[k] ? ratAdd(base[k], b.base[k]) : b.base[k];
-  const vars = { ...a.vars };
-  for (const k in b.vars) vars[k] = vars[k] ? ratAdd(vars[k], b.vars[k]) : b.vars[k];
-  return cleanDimExpr(base, vars);
-}
-
-function dimExprDiv(a, b) {
-  const base = { ...a.base };
-  for (const k in b.base) base[k] = base[k] ? ratSub(base[k], b.base[k]) : ratNeg(b.base[k]);
-  const vars = { ...a.vars };
-  for (const k in b.vars) vars[k] = vars[k] ? ratSub(vars[k], b.vars[k]) : ratNeg(b.vars[k]);
-  return cleanDimExpr(base, vars);
-}
-
-function dimExprPow(a, r) {
-  if (ratIsZero(r)) return dimExprEmpty();
-  const base = {};
-  for (const k in a.base) base[k] = ratMul(a.base[k], r);
-  const vars = {};
-  for (const k in a.vars) vars[k] = ratMul(a.vars[k], r);
-  return cleanDimExpr(base, vars);
-}
-
-function cleanDimExpr(base, vars) {
-  const b = {};
-  for (const k in base) if (!ratIsZero(base[k])) b[k] = base[k];
-  const v = {};
-  for (const k in vars) if (!ratIsZero(vars[k])) v[k] = vars[k];
-  return Object.freeze({ base: Object.freeze(b), vars: Object.freeze(v) });
 }
 
 // ── Const evaluator for ^ exponents ───────────────────────────────
@@ -2014,6 +2025,314 @@ function inferFactorial(node, env, ctx) {
   const t = inferExpr(node.expr, env, ctx);
   cAdd(ctx.cs, cEqual(t, T_SCALAR, node.expr.span));
   return T_SCALAR;
+}
+
+// ─── typecheck/subst.js ────────────────────────────────
+// Substitutions and type-application for the typechecker.
+//
+// A substitution has two parts (mirrors the two var spaces from types.js):
+//
+//   { tvars:   Map<TVarId,    Type>,
+//     dimVars: Map<TDimVarId, DimExpr> }
+//
+// The invariant we maintain is **idempotence**: after applying `subst` to
+// a type, no further `apply(subst, ...)` makes a difference. To preserve
+// idempotence as we add bindings, we always apply the current substitution
+// to the new value FIRST (so it's fully resolved) and then walk all
+// existing entries replacing the new var. This is the "compose" trick from
+// standard HM, just inlined into extend().
+
+function makeSubst() {
+  return { tvars: new Map(), dimVars: new Map() };
+}
+
+// ── apply: walk a type, resolving all bound vars ──────────────────
+
+function applyType(t, subst) {
+  switch (t.kind) {
+    case 'TVar': {
+      if (subst.tvars.has(t.id)) return applyType(subst.tvars.get(t.id), subst);
+      return t;
+    }
+    case 'TDim':    return tDim(applyDimExpr(t.dim, subst));
+    case 'TFn':     return tFn(t.params.map(p => applyType(p, subst)), applyType(t.result, subst));
+    case 'TList':   return tList(applyType(t.elem, subst));
+    case 'TTuple':  return tTuple(t.elems.map(e => applyType(e, subst)));
+    case 'TStruct': {
+      const f = {};
+      for (const k in t.fields) f[k] = applyType(t.fields[k], subst);
+      return tStruct(t.name, f);
+    }
+    default: return t;   // TBool, TString, TNever, TDimVar (bare — shouldn't normally appear)
+  }
+}
+
+// Apply subst to every DimExpr in a Type, but only the dim half — used
+// when extending dim-var bindings and we need to push the new mapping
+// into already-stored TVar→Type entries.
+function applyDimVarSubstToType(t, dimVarId, repl) {
+  switch (t.kind) {
+    case 'TDim':    return tDim(dimExprSubstVar(t.dim, dimVarId, repl));
+    case 'TFn':     return tFn(t.params.map(p => applyDimVarSubstToType(p, dimVarId, repl)), applyDimVarSubstToType(t.result, dimVarId, repl));
+    case 'TList':   return tList(applyDimVarSubstToType(t.elem, dimVarId, repl));
+    case 'TTuple':  return tTuple(t.elems.map(e => applyDimVarSubstToType(e, dimVarId, repl)));
+    case 'TStruct': {
+      const f = {};
+      for (const k in t.fields) f[k] = applyDimVarSubstToType(t.fields[k], dimVarId, repl);
+      return tStruct(t.name, f);
+    }
+    default: return t;
+  }
+}
+
+// applyDimExpr: walk a DimExpr, resolving each var via the substitution.
+// Bounded iteration — each pass strictly removes one resolvable var (or
+// makes no change, signaling we're done).
+function applyDimExpr(d, subst) {
+  let cur = d;
+  while (true) {
+    let resolved = false;
+    let acc = Object.freeze({ base: Object.freeze({ ...cur.base }), vars: Object.freeze({}) });
+    for (const k in cur.vars) {
+      const id = Number(k);
+      const exp = cur.vars[k];
+      if (subst.dimVars.has(id)) {
+        acc = dimExprMul(acc, dimExprPow(subst.dimVars.get(id), exp));
+        resolved = true;
+      } else {
+        const v = { ...acc.vars };
+        v[k] = v[k] ? ratAdd(v[k], exp) : exp;
+        acc = Object.freeze({ base: acc.base, vars: Object.freeze(v) });
+      }
+    }
+    if (!resolved) return acc;
+    cur = acc;
+  }
+}
+
+// ── extend with occurs check ──────────────────────────────────────
+
+class UnifyError extends Error {
+  constructor(message, span) { super(message); this.name = 'UnifyError'; this.span = span || null; }
+}
+
+// Bind α := τ. τ must already be fully-resolved (caller's responsibility:
+// apply current subst before calling). Throws UnifyError on occurs.
+function extendTVar(subst, id, type) {
+  if (occursTVar(id, type)) {
+    throw new UnifyError(`occurs check: 'a${id} appears in its own binding`);
+  }
+  const newTVars   = new Map();
+  const newDimVars = new Map();
+  for (const [k, v] of subst.tvars)   newTVars.set(k,   applyType(v, { tvars: new Map([[id, type]]), dimVars: new Map() }));
+  for (const [k, v] of subst.dimVars) newDimVars.set(k, v);   // dim-var values don't contain TVars
+  newTVars.set(id, type);
+  return { tvars: newTVars, dimVars: newDimVars };
+}
+
+// Bind $id := dimExpr. dimExpr must already be fully-resolved.
+function extendDimVar(subst, id, dimExpr) {
+  if (id in dimExpr.vars) {
+    throw new UnifyError(`occurs check: $${id} appears in its own binding`);
+  }
+  const newDimVars = new Map();
+  for (const [k, v] of subst.dimVars) newDimVars.set(k, dimExprSubstVar(v, id, dimExpr));
+  newDimVars.set(id, dimExpr);
+  const newTVars = new Map();
+  for (const [k, v] of subst.tvars)   newTVars.set(k, applyDimVarSubstToType(v, id, dimExpr));
+  return { tvars: newTVars, dimVars: newDimVars };
+}
+
+function occursTVar(id, t) {
+  switch (t.kind) {
+    case 'TVar':    return t.id === id;
+    case 'TFn':     return t.params.some(p => occursTVar(id, p)) || occursTVar(id, t.result);
+    case 'TList':   return occursTVar(id, t.elem);
+    case 'TTuple':  return t.elems.some(e => occursTVar(id, e));
+    case 'TStruct': for (const k in t.fields) if (occursTVar(id, t.fields[k])) return true; return false;
+    default:        return false;
+  }
+}
+
+// ─── typecheck/dim-solve.js ────────────────────────────
+// Dim-equation solver.
+//
+// Given a constraint `TDim(a) ~ TDim(b)`, find a substitution σ such that
+// σ(a) = σ(b) as dim expressions. We work incrementally — each call
+// extends the substitution by one variable binding (or by zero if the
+// constraint is already satisfied) and returns the new substitution.
+//
+// Incremental form (rather than batched matrix reduction): every dim
+// constraint is `a · b⁻¹ = 1`. After resolving with the current subst:
+//
+//   - If c = a·b⁻¹ has no dim-vars, its base part must be all-zero
+//     (else it's a hard dim mismatch).
+//   - If c has dim-vars, pick one ($k with coefficient e) and solve:
+//       $k = (c without $k) raised to (-1/e)
+//     Extend the subst with that binding.
+//
+// Rational exponents throughout — the solver handles `sqrt`-style ops
+// correctly (`Length^(1/2) = D` → D := Length^(1/2)).
+
+function solveDimEq(a, b, subst, span) {
+  const aR = applyDimExpr(a, subst);
+  const bR = applyDimExpr(b, subst);
+  const c  = dimExprDiv(aR, bR);
+
+  // No vars to bind — the equation must already hold.
+  if (Object.keys(c.vars).length === 0) {
+    if (dimExprIsScalar(c)) return subst;
+    throw new UnifyError(`dimension mismatch: ${dimExprFormat(aR)} != ${dimExprFormat(bR)}`, span);
+  }
+
+  // Pick a var to solve for. Heuristic: prefer the one whose coefficient
+  // is ±1 (clean substitution); fall back to first.
+  const varIds = Object.keys(c.vars).map(Number);
+  let pickId = varIds[0];
+  for (const id of varIds) {
+    const r = c.vars[id];
+    if (r.d === 1 && (r.n === 1 || r.n === -1)) { pickId = id; break; }
+  }
+  const coef = c.vars[pickId];
+
+  // Build "c without pickId", negate, then raise to 1/coef → the solution.
+  const restVars = { ...c.vars };
+  delete restVars[pickId];
+  const rest = Object.freeze({ base: Object.freeze({ ...c.base }), vars: Object.freeze(restVars) });
+  // pickId^coef · rest = 1  →  pickId = rest^(-1/coef)
+  const negInvCoef = ratDiv(ratOf(-1), coef);
+  const solution   = dimExprPow(rest, negInvCoef);
+
+  return extendDimVar(subst, pickId, solution);
+}
+
+// ─── typecheck/unify.js ────────────────────────────────
+// Main unifier — `unify(t1, t2, subst) → subst'`.
+//
+// Cases:
+//   - typeEq after applying current subst → subst unchanged
+//   - TVar on either side → bind (occurs check)
+//   - TDim ~ TDim → delegate to dim solver
+//   - TFn ~ TFn (same arity) → unify each param + result
+//   - TList ~ TList → unify elem
+//   - TTuple ~ TTuple (same arity) → unify each
+//   - TStruct ~ TStruct (same name) → unify each field
+//   - TBool / TString / TNever ~ self → trivial
+//   - anything else → throw UnifyError
+//
+// Throws UnifyError with the constraint's source span attached so
+// phase-5 error reporting can point at the right line.
+
+function unify(t1, t2, subst, span) {
+  const a = applyType(t1, subst);
+  const b = applyType(t2, subst);
+  if (typeEq(a, b)) return subst;
+
+  if (a.kind === 'TVar') return extendTVar(subst, a.id, b);
+  if (b.kind === 'TVar') return extendTVar(subst, b.id, a);
+
+  if (a.kind === 'TDim' && b.kind === 'TDim') {
+    return solveDimEq(a.dim, b.dim, subst, span);
+  }
+
+  if (a.kind === 'TFn' && b.kind === 'TFn') {
+    if (a.params.length !== b.params.length) {
+      throw new UnifyError(`function arity mismatch: expected ${a.params.length}, got ${b.params.length}`, span);
+    }
+    let s = subst;
+    for (let i = 0; i < a.params.length; i++) s = unify(a.params[i], b.params[i], s, span);
+    return unify(a.result, b.result, s, span);
+  }
+
+  if (a.kind === 'TList' && b.kind === 'TList') {
+    return unify(a.elem, b.elem, subst, span);
+  }
+
+  if (a.kind === 'TTuple' && b.kind === 'TTuple') {
+    if (a.elems.length !== b.elems.length) {
+      throw new UnifyError(`tuple arity mismatch: expected ${a.elems.length}, got ${b.elems.length}`, span);
+    }
+    let s = subst;
+    for (let i = 0; i < a.elems.length; i++) s = unify(a.elems[i], b.elems[i], s, span);
+    return s;
+  }
+
+  if (a.kind === 'TStruct' && b.kind === 'TStruct') {
+    if (a.name !== b.name) throw new UnifyError(`struct mismatch: ${a.name} vs ${b.name}`, span);
+    let s = subst;
+    for (const k in a.fields) {
+      if (!(k in b.fields)) throw new UnifyError(`struct ${a.name}: field ${k} missing on other side`, span);
+      s = unify(a.fields[k], b.fields[k], s, span);
+    }
+    return s;
+  }
+
+  throw new UnifyError(`cannot unify ${formatType(a)} with ${formatType(b)}`, span);
+}
+
+// ─── typecheck/solve.js ────────────────────────────────
+// Top-level constraint solver — walks the constraint set from check.js,
+// applies unification, and returns (subst, errors). Handles Equal
+// directly via unify; defers IsDType and HasField until the relevant
+// type is concrete enough to discharge.
+//
+// IsDType and HasField are simple shape predicates — we keep deferring
+// them across passes as long as progress is being made elsewhere. If a
+// pass produces no changes and constraints remain, they're unresolvable
+// and we surface as errors.
+
+function solve(constraintSet) {
+  let subst = makeSubst();
+  const errors = [];
+  let deferred = constraintSet.items.slice();
+  let prevLen = -1;
+  let prevSubstSize = -1;
+
+  while (deferred.length > 0) {
+    const curSubstSize = subst.tvars.size + subst.dimVars.size;
+    // Termination: if no constraints were discharged AND no new subst
+    // entries this round, we're stuck.
+    if (deferred.length === prevLen && curSubstSize === prevSubstSize) break;
+    prevLen = deferred.length;
+    prevSubstSize = curSubstSize;
+
+    const next = [];
+    for (const c of deferred) {
+      try {
+        if (c.kind === 'Equal') {
+          subst = unify(c.t1, c.t2, subst, c.span);
+        } else if (c.kind === 'IsDType') {
+          const r = applyType(c.t, subst);
+          if (r.kind === 'TDim') continue;            // satisfied
+          if (r.kind === 'TVar') { next.push(c); continue; }  // defer
+          throw new UnifyError(`expected dimension type, got ${formatType(r)}`, c.span);
+        } else if (c.kind === 'HasField') {
+          const r = applyType(c.t, subst);
+          if (r.kind === 'TStruct') {
+            if (!(c.name in r.fields)) {
+              throw new UnifyError(`struct ${r.name}: no field '${c.name}'`, c.span);
+            }
+            subst = unify(c.fieldType, r.fields[c.name], subst, c.span);
+          } else if (r.kind === 'TVar') {
+            next.push(c);
+          } else {
+            throw new UnifyError(`field access on non-struct: ${formatType(r)}`, c.span);
+          }
+        }
+      } catch (e) {
+        if (e instanceof UnifyError) errors.push({ message: e.message, span: e.span });
+        else throw e;
+      }
+    }
+    deferred = next;
+  }
+
+  // Any constraints still deferred are genuinely unresolvable.
+  for (const c of deferred) {
+    errors.push({ message: `unresolvable constraint: ${c.kind}`, span: c.span });
+  }
+
+  return { subst, errors };
 }
 
 // ─── load.js ───────────────────────────────────────────
