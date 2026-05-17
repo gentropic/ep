@@ -194,7 +194,10 @@ function build() {
   const vendorStripped = VENDORS.map(v => {
     const raw = readFileSync(join(ROOT, v.dist), 'utf8');
     let src = stripModules(raw, v.dist, { allowExportBlock: true });
-    if (v.wrap) src = v.wrap.replace('/* CONTENT */', src);
+    // Use a callback so `$` sequences in src (e.g. ``${n}$`` inside the
+    // temporal polyfill's template literals) aren't interpreted as
+    // String.replace's replacement-string specials (`$&`, `$\``, etc.).
+    if (v.wrap) src = v.wrap.replace('/* CONTENT */', () => src);
     return { name: v.dist, src };
   });
 
