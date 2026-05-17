@@ -110,17 +110,20 @@ self.addEventListener('message', (event) => {
     return;
   }
   if (msg.type === 'ep:check-now') {
-    // Run a revalidation against the navigation root and reply with
-    // the timestamp so the UI can show "last checked".
-    caches.open(CACHE).then(async (cache) => {
+    // Run a revalidation against the navigation root and reply on the
+    // MessagePort the caller transferred in (event.ports[0]) — NOT on
+    // event.source. event.source is the window's regular client channel;
+    // the main thread is listening on its own MessageChannel, so a
+    // reply there never reaches the resolver.
+    const replyPort = event.ports && event.ports[0];
+    event.waitUntil((async () => {
+      const cache = await caches.open(CACHE);
       const root = new Request(new URL('./', self.location.href).toString());
       const cached = await cache.match(root, { ignoreSearch: true });
       if (cached) await revalidate(root, cache, cached);
       else { try { const r = await fetch(root); if (r.ok) await cache.put(root, r.clone()); } catch {} }
-      event.source && event.source.postMessage({
-        type: 'ep:check-complete', at: Date.now(),
-      });
-    });
+      if (replyPort) replyPort.postMessage({ type: 'ep:check-complete', at: Date.now() });
+    })());
     return;
   }
 });
