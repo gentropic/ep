@@ -723,16 +723,23 @@ body {
  *   ▪ suspect (rendered separately via ::after, see below)
  *   ✕ error
  * Triangles via CSS borders so they render crisply at small sizes. */
+/* Triangle sizing: 9-wide × 8-tall — slightly larger than the previous
+ * dots (6×6) for better visual weight at 12px gutter text. The
+ * negative top tweak compensates for vertical-align:middle aligning
+ * the bounding BOX center, not the triangle's visual center (a ▲
+ * triangle's mass sits at the bottom of its box, a ▼ at the top). */
 .ep-gutter-result.binding::before {
   content: '';
   display: inline-block;
   width: 0;
   height: 0;
-  border-left:   3.5px solid transparent;
-  border-right:  3.5px solid transparent;
-  border-bottom: 6px   solid var(--sw-orange);
+  border-left:   4.5px solid transparent;
+  border-right:  4.5px solid transparent;
+  border-bottom: 8px   solid var(--sw-orange);
   margin-right: 6px;
   vertical-align: middle;
+  position: relative;
+  top: -1px;
   opacity: 0.85;
 }
 .ep-gutter-result.output::before {
@@ -740,11 +747,13 @@ body {
   display: inline-block;
   width: 0;
   height: 0;
-  border-left:  3.5px solid transparent;
-  border-right: 3.5px solid transparent;
-  border-top:   6px   solid var(--sw-teal);
+  border-left:  4.5px solid transparent;
+  border-right: 4.5px solid transparent;
+  border-top:   8px   solid var(--sw-teal);
   margin-right: 6px;
   vertical-align: middle;
+  position: relative;
+  top: -1px;
 }
 
 /* §4.2 error pinpoint — red wavy underline on the offending range in the
