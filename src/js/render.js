@@ -139,18 +139,17 @@ function mountCm6() {
 
   // Inline-error block widget — renders BELOW the offending line so the
   // full message has room to breathe. The gutter is too narrow for
-  // dim-mismatch + did-you-mean style messages.
+  // dim-mismatch + did-you-mean style messages. `kind` is 'error' (red)
+  // for runtime/typecheck failures or 'warn' (amber) for blame-trace
+  // suspect annotations.
   class EpErrorWidget extends WidgetType {
-    constructor(message, col) { super(); this.message = message; this.col = col; }
-    eq(other) { return other.message === this.message && other.col === this.col; }
+    constructor(message, col, kind) { super(); this.message = message; this.col = col; this.kind = kind || 'error'; }
+    eq(other) { return other.message === this.message && other.col === this.col && other.kind === this.kind; }
     toDOM() {
       const el = document.createElement('div');
-      el.className = 'cm-ep-error-block';
+      el.className = 'cm-ep-error-block ' + (this.kind === 'warn' ? 'cm-ep-warn-block' : '');
       const pad = document.createElement('span');
       pad.className = 'cm-ep-error-block-pad';
-      // Approximate column alignment via a CSS variable — the editor's
-      // ch unit matches the monospace cell width. Leading bar drops down
-      // from the caret position.
       pad.style.setProperty('--ep-err-col', String(Math.max(0, this.col - 1)));
       const msg = document.createElement('span');
       msg.className = 'cm-ep-error-block-msg';
@@ -304,10 +303,12 @@ function mountCm6() {
           const from = line.from + fromCol;
           const to   = line.to;
           if (from >= to) continue;
+          const kind = it.kind || 'error';
           // Inline mark for the underline (also keeps the title attribute
-          // as a fallback for screen readers / quick hover).
+          // as a fallback for screen readers / quick hover). Warn rows
+          // get a softer amber underline.
           decos.push(Decoration.mark({
-            class: 'cm-ep-error',
+            class: kind === 'warn' ? 'cm-ep-warn' : 'cm-ep-error',
             attributes: { title: it.message || '' },
           }).range(from, to));
           // Block widget on the line AFTER, with the full message.
@@ -316,7 +317,7 @@ function mountCm6() {
           // re-read the coordinates.
           const cleanMsg = (it.message || '').replace(/^[^:]*:\d+:\d+:\s*/, '');
           decos.push(Decoration.widget({
-            widget: new EpErrorWidget(cleanMsg, fromCol + 1),
+            widget: new EpErrorWidget(cleanMsg, fromCol + 1, kind),
             block: true,
             side: 1,
           }).range(line.to));
@@ -651,19 +652,21 @@ function applyErrorMarks() {
   const items = [];
   for (let i = 0; i < state.body.length; i++) {
     const row = state.body[i];
-    if (!row.error) continue;
-    const message = row.error;
-    let col = 0;
-    const m = message.match(/^[^:]*:1:(\d+):/);   // numbat formats as "src:1:col: …"
-    if (m) {
-      // The col in the message is already in row.src coordinates —
-      // typecheckStatementSrc subtracts the wrap prefix before tagging.
-      // Runtime errors that bubble up with the older "let __ep__ = "
-      // wrap are off by ~13; we accept some misalignment there until
-      // runtime is upgraded to match.
-      col = parseInt(m[1], 10);
+    if (row.error) {
+      const message = row.error;
+      let col = 0;
+      const m = message.match(/^[^:]*:1:(\d+):/);
+      if (m) col = parseInt(m[1], 10);
+      items.push({ line: i + 1, col, message, kind: 'error' });
     }
-    items.push({ line: i + 1, col, message });
+    // Suspect annotation from the @output blame walker: the binding on
+    // this row was implicated by a downstream output's dim mismatch.
+    // Rendered in amber as a warning, not red as an error, since the
+    // binding itself isn't broken — it just doesn't fit what some
+    // OTHER row expected.
+    if (row.suspect && !row.error) {
+      items.push({ line: i + 1, col: 0, message: row.suspect, kind: 'warn' });
+    }
   }
   cmView.dispatch({ effects: _errorEffect.of(items) });
 }

@@ -761,6 +761,27 @@ body {
   border-left-color: #ff8a82;
 }
 
+/* Warn-style variant for blame-trace SUSPECT rows. Amber instead of
+ * red — the binding isn't broken, it's just implicated. */
+.body .cm-content .cm-ep-warn-block {
+  color: var(--sw-amber);
+  background: rgba(142, 101, 24, 0.08);
+  border-left-color: var(--sw-amber);
+}
+[data-theme="dark"] .body .cm-content .cm-ep-warn-block {
+  color: #d8b261;
+  background: rgba(216, 178, 97, 0.08);
+  border-left-color: #d8b261;
+}
+.body .cm-content .cm-ep-warn {
+  text-decoration: underline wavy var(--sw-amber);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+[data-theme="dark"] .body .cm-content .cm-ep-warn {
+  text-decoration-color: #d8b261;
+}
+
 /* ─── Unit picker bottom sheet ─────────────────────────────────────
  * Slides up from the bottom; mobile-friendly thumb reach. Scrim above
  * dims the rest of the app. The sheet is below the settings panel

@@ -662,9 +662,17 @@ export function evaluate(body) {
   // error is dropped.
   const tcEnv = buildTypeEnv(host());
   const tcErrorsByLine = new Map();
+  // Map binding-name → body row index. Used by the @output blame
+  // pass to annotate the SUSPECT row (the binding being blamed) with
+  // a back-reference, so the inline-warn block can render there too.
+  const bindingRowByName = new Map();
+  // Suspect annotations to apply after the main eval loop. Each entry:
+  // { rowIdx, message } — message is the formatted warn text to land
+  // on that row.
+  const suspects = [];
   const params = [];
   const outputs = [];
-  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
+  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, suspect: null, outputs: null, inParams: false}));
 
   for (const stmt of statements) {
     const isInput   = stmt.decorators.some(d => d.name === 'input');
@@ -724,20 +732,33 @@ export function evaluate(body) {
             // blame. Parse the expression ONCE for the walker (cheap;
             // already tokenized for evalExprText so the AST is small).
             let blameSuffix = '';
+            let blame = null;
             try {
               const ast = parse(tokenize(`let __ep__ = ${c.expr}`, '<line>'), '<line>');
               const expr = ast.decls[0].expr;
-              const blame = traceBlame(expr, spec.dim, env);
+              blame = traceBlame(expr, spec.dim, env);
               if (blame) {
                 blameSuffix = ` — '${blame.name}' has [${fmtDim(blame.actual)}] but the chain needs [${fmtDim(blame.expected)}]`;
               }
             } catch { /* fall through without blame */ }
             err = `<row>:1:1: @output(${outputUnit}) wants [${fmtDim(spec.dim)}] but value is [${fmtDim(q.dim)}]${blameSuffix}`;
+            // Queue a suspect annotation on the row that defines the
+            // blamed binding, so the inline warn block renders there
+            // too. Forward-only: we can only annotate bindings we've
+            // already evaluated.
+            if (blame && bindingRowByName.has(blame.name)) {
+              const suspectIdx = bindingRowByName.get(blame.name);
+              suspects.push({
+                rowIdx: suspectIdx,
+                message: `suspect for '${name}': has [${fmtDim(blame.actual)}], the chain wants [${fmtDim(blame.expected)}]`,
+              });
+            }
           }
         } catch (e) {
           err = `@output(${outputUnit}): ${e.message}`;
         }
       }
+      bindingRowByName.set(name, ownerIdx);
       row.result = q;
       row.error  = err;
       // Supplementary typecheck — re-form the binding as a numbat let-decl.
@@ -824,6 +845,13 @@ export function evaluate(body) {
     if (rows[i].error && tcErrorsByLine.has(i)) {
       rows[i].error = tcErrorsByLine.get(i);
     }
+  }
+  // Apply suspect annotations from the @output blame pass. A row may
+  // be implicated by multiple downstream outputs — accumulate.
+  for (const s of suspects) {
+    const r = rows[s.rowIdx];
+    if (!r) continue;
+    r.suspect = r.suspect ? r.suspect + '\n' + s.message : s.message;
   }
 
   // Convert the values Map to a plain object — render.js does `state._scope[name]`.
