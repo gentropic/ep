@@ -144,11 +144,46 @@ const BUILTIN_PROCS = {
     if (typeof msg !== 'string') throw new Error('error: argument must be a string');
     throw new Error(msg);
   },
-  // print(value): would emit to a host-provided output stream. For v0.4 we
-  // accept the call but no-op (returns 0). Hosts can override BUILTIN_PROCS.
+  // print(value): emit to the host-provided output sink (set via
+  // setPrintSink). Defaults to no-op so ep's UI doesn't surface print
+  // output until it explicitly wires a panel. Tests can capture by
+  // calling setPrintSink(buf => …).
   print(args) {
+    const text = args.map(v => {
+      if (v instanceof Quantity) {
+        if (typeof _quantityFormatter === 'function') {
+          const p = _quantityFormatter(v);
+          return p.unit ? `${p.num} ${p.unit}` : p.num;
+        }
+        return String(v.value);
+      }
+      if (typeof v === 'string') return v;
+      if (typeof v === 'boolean') return v ? 'true' : 'false';
+      if (Array.isArray(v)) return JSON.stringify(v);
+      return String(v);
+    }).join(' ');
+    if (typeof _printSink === 'function') _printSink(text);
     return new Quantity(0, {});
   },
+  println(args) { return BUILTIN_PROCS.print(args); },
+  // String helpers — implementations for upstream's `extern fn …`
+  // declarations under core::strings. Match upstream signatures.
+  str_length(args)  { return new Quantity(String(args[0] ?? '').length, {}); },
+  str_eq(args)      { return String(args[0] ?? '') === String(args[1] ?? ''); },
+  str_slice(args)   {
+    const start = args[0] instanceof Quantity ? args[0].value : args[0];
+    const end   = args[1] instanceof Quantity ? args[1].value : args[1];
+    return String(args[2] ?? '').slice(start, end);
+  },
+  str_append(args)  { return String(args[0] ?? '') + String(args[1] ?? ''); },
+  chr(args)         {
+    const n = args[0] instanceof Quantity ? args[0].value : args[0];
+    return String.fromCodePoint(n);
+  },
+  ord(args)         { return new Quantity(String(args[0] ?? '').codePointAt(0) || 0, {}); },
+  lowercase(args)   { return String(args[0] ?? '').toLowerCase(); },
+  uppercase(args)   { return String(args[0] ?? '').toUpperCase(); },
+
   // max(a, b, ...) / min(a, b, ...): variadic. All args must share the
   // same dimension. Useful as a top-level fn even though upstream
   // numbat defines them inside core::functions via fold.
@@ -310,10 +345,164 @@ const BUILTIN_PROCS = {
 
 const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 
+// ── String interpolation ─────────────────────────────────────────
+//
+// Numbat-script strings like `"value is {x:.3} {unit}"` are parsed as
+// plain string literals by the tokenizer; substitution happens at
+// evaluation time. `{{` and `}}` are literal braces. Inside a `{...}`
+// segment, an optional `:<spec>` tail picks a format:
+//   .N        → N significant digits (default 6)
+//   nN        → N decimal places, fixed notation
+//   e         → scientific notation
+//   s         → raw string (default for non-Quantity values)
+// Everything before the `:` is parsed as a normal expression against
+// the current env. Quantity results format with their auto-scaled unit
+// suffix; bool / string / list results format as their JS toString.
+function interpolateString(template, env) {
+  if (typeof template !== 'string') return template;
+  if (template.indexOf('{') < 0 && template.indexOf('}') < 0) return template;
+
+  let out = '';
+  let i = 0;
+  while (i < template.length) {
+    const c = template[i];
+    if (c === '{' && template[i + 1] === '{') { out += '{'; i += 2; continue; }
+    if (c === '}' && template[i + 1] === '}') { out += '}'; i += 2; continue; }
+    if (c === '{') {
+      let depth = 1;
+      let j = i + 1;
+      while (j < template.length && depth > 0) {
+        const cj = template[j];
+        if (cj === '{') depth++;
+        else if (cj === '}') { depth--; if (depth === 0) break; }
+        j++;
+      }
+      if (depth !== 0) throw new Error(`unclosed '{' in string template`);
+      const inner = template.slice(i + 1, j);
+      const colonIdx = findFormatColon(inner);
+      const exprText = (colonIdx < 0 ? inner : inner.slice(0, colonIdx)).trim();
+      const fmtSpec  = colonIdx < 0 ? null  : inner.slice(colonIdx + 1).trim();
+      let value;
+      try { value = evalInterpExpr(exprText, env); }
+      catch (e) { throw new Error(`in string interpolation \`{${inner}}\`: ${e.message}`); }
+      out += formatInterpValue(value, fmtSpec);
+      i = j + 1;
+      continue;
+    }
+    if (c === '}') throw new Error(`unexpected '}' in string template (use '}}' for a literal brace)`);
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+// `:` separates expression from format spec. Inside the expression, `:`
+// might appear in dim annotations (`x : Length`) or struct literals;
+// don't treat those as the spec separator. Heuristic: only the LAST
+// top-level `:` counts, and it must be followed by a short alpha/dot/
+// digit format-spec form (no spaces).
+function findFormatColon(s) {
+  let depth = 0;
+  for (let i = s.length - 1; i >= 0; i--) {
+    const c = s[i];
+    if (c === ')' || c === ']' || c === '}') depth++;
+    else if (c === '(' || c === '[' || c === '{') depth--;
+    else if (depth === 0 && c === ':') {
+      const after = s.slice(i + 1).trim();
+      if (/^[.a-zA-Z0-9]+$/.test(after)) return i;
+    }
+  }
+  return -1;
+}
+
+function formatInterpValue(value, fmtSpec) {
+  if (value instanceof Quantity) {
+    if (fmtSpec) {
+      const num = formatNumberSpec(value.value, fmtSpec);
+      // For dimensionless Quantity with a format spec, omit the empty
+      // unit suffix. For dimensional, include the auto-scaled unit.
+      if (dimEmpty(value.dim)) return num;
+      // Defer to the formatter's unit picker by sliding the formatted
+      // number into the auto-scale output's unit position.
+      const auto = formatQuantity(value);
+      return num + ' ' + (auto.unit || '');
+    }
+    const auto = formatQuantity(value);
+    return auto.unit ? `${auto.num} ${auto.unit}` : auto.num;
+  }
+  if (typeof value === 'string')  return value;
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (Array.isArray(value)) return '[' + value.map(v => formatInterpValue(v, null)).join(', ') + ']';
+  if (value == null) return '';
+  return String(value);
+}
+
+// Numeric format mini-language matching upstream numbat:
+//   .N → toPrecision(N)
+//   nN → toFixed(N)
+//   e  → toExponential()
+//   default → toPrecision(6)
+function formatNumberSpec(n, spec) {
+  if (!spec) return String(n);
+  const s = spec.trim();
+  if (s.startsWith('.')) {
+    const N = parseInt(s.slice(1), 10);
+    if (Number.isFinite(N) && N > 0) {
+      return parseFloat(n.toPrecision(N)).toString();
+    }
+  }
+  if (s.startsWith('n')) {
+    const N = parseInt(s.slice(1), 10);
+    if (Number.isFinite(N) && N >= 0) return n.toFixed(N);
+  }
+  if (s === 'e') return n.toExponential();
+  if (s === 's') return String(n);
+  return String(n);
+}
+
+// Tokenize, parse, and evaluate a single expression from a string
+// template. We wrap it as `let __ep_interp__ = <expr>` to reuse the
+// existing top-level parser; then pluck the expression AST. Throws on
+// any parse / eval error; caller wraps the error.
+function evalInterpExpr(text, env) {
+  // The parser expects top-level decls. Wrap as `let __interp__ = <expr>`
+  // to reuse the existing entry point, then pluck the RHS AST. Skipping
+  // the bare-expression parse attempt because numbat's parser throws on
+  // anything that doesn't start with a declaration keyword.
+  const tokens = tokenize(`let __ep_interp__ = ${text}`, '<interp>');
+  const ast = parse(tokens, '<interp>');
+  if (!ast.decls.length || ast.decls[0].type !== 'LetDecl') {
+    throw new Error('expected an expression');
+  }
+  return evalValueExpr(ast.decls[0].expr, env);
+}
+
+// Format a quantity through the host's number formatter, returning
+// {num, unit}. We avoid importing format.js from here by reusing the
+// caller-side Numbat instance via `globalThis._numbatHost` set by
+// host(). For environments without that hook, fall back to a plain
+// value rendering with no unit picker.
+function formatQuantity(q) {
+  // Without access to a registry, render value as-is. Hosts (ep)
+  // can override interpolation by replacing this function via
+  // `setQuantityFormatter`.
+  if (typeof _quantityFormatter === 'function') return _quantityFormatter(q);
+  return { num: String(q.value), unit: dimEmpty(q.dim) ? '' : '[?]' };
+}
+let _quantityFormatter = null;
+export function setQuantityFormatter(fn) { _quantityFormatter = fn; }
+
+// Print sink: hosts (or tests) set a callback that receives each
+// `print(args)` call's rendered text. ep leaves this null in production
+// (no output panel yet); the conformance corpus sets it to a buffer to
+// assert on what programs print.
+let _printSink = null;
+export function setPrintSink(fn) { _printSink = fn; }
+
 export function evalValueExpr(node, env) {
   if (node.type === 'Num')  return new Quantity(node.value, {});
   if (node.type === 'Bool') return node.value;   // JS boolean
-  if (node.type === 'Str')  return node.value;   // JS string
+  if (node.type === 'Str')  return interpolateString(node.value, env);
   if (node.type === 'If') {
     const cond = evalValueExpr(node.cond, env);
     if (typeof cond !== 'boolean') {

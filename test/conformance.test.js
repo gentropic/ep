@@ -22,6 +22,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 globalThis.INITIAL_STATE = { name: 'test', body: [], ui: {} };
 const { evaluate } = await import('../src/js/evaluator.js');
+const { setPrintSink } = await import('../ext/numbat/dist/numbat.js');
 
 const CORPUS = [
   // ─── 1. Numeric literals + basic arithmetic ─────────────────────
@@ -140,6 +141,27 @@ const CORPUS = [
   { name: 'type: velocity',              source: 'type(2 m/s)',       text: /Length.*Time\^-1/ },
   { name: 'type: mass',                  source: 'type(5 kg)',        text: 'Mass' },
   { name: 'type: scalar',                source: 'type(42)',          text: 'Scalar' },
+
+  // ─── 11. String interpolation ───────────────────────────────────
+  { name: 'interp: bare value',          source: 'let x = 42\n"answer is {x}"', text: 'answer is 42' },
+  { name: 'interp: arith',               source: '"{2 + 3 * 4}"',     text: '14' },
+  { name: 'interp: double-brace literal',source: '"{{not interp}}"',  text: '{not interp}' },
+  // 60 mph canonicalizes to ~26.8 m/s; the formatter auto-scales to
+  // the SI base when no disp tag is set. Single-unit `-> name` sets disp.
+  { name: 'interp: quantity auto-scaled', source: 'let v = 60 mph\n"v = {v}"',         text: /v = .*m\/s/ },
+  { name: 'interp: inline conversion',    source: 'let h = 500 m\n"h = {h -> ft}"',    text: /h = .* ft/ },
+  { name: 'interp: format .3',           source: '"pi = {pi:.3}"',    text: 'pi = 3.14' },
+  { name: 'interp: format n2',           source: '"x = {1/3:n2}"',    text: 'x = 0.33' },
+  { name: 'interp: str_append uses interp', source: 'use core::strings\nstr_append("foo", "bar")', text: 'foobar' },
+
+  // ─── 12. String functions (core::strings) ───────────────────────
+  { name: 'str: length',                 source: 'use core::strings\nstr_length("hello")', value: 5 },
+  { name: 'str: slice',                  source: 'use core::strings\nstr_slice(0, 3, "hello")', text: 'hel' },
+  { name: 'str: uppercase',              source: 'use core::strings\nuppercase("foo")', text: 'FOO' },
+  { name: 'str: chr 65',                 source: 'use core::strings\nchr(65)', text: 'A' },
+  { name: 'str: ord A',                  source: 'use core::strings\nord("A")', value: 65 },
+  { name: 'str: eq same',                source: 'use core::strings\nstr_eq("a","a")', bool: true },
+  { name: 'str: eq diff',                source: 'use core::strings\nstr_eq("a","b")', bool: false },
 ];
 
 // ── helpers ────────────────────────────────────────────────────────
@@ -161,6 +183,36 @@ function dimEqual(a, b) {
 }
 
 // ── run ────────────────────────────────────────────────────────────
+
+// print sink — tests can swap in a buffer to capture print output. ep's
+// production code leaves the sink unset (print is a silent no-op until
+// a UI panel is wired).
+test('print: settable sink captures output (not wired in ep yet)', () => {
+  const out = [];
+  setPrintSink(text => out.push(text));
+  try {
+    const r = evaluate([{src: 'print("hello world")'}, {src: 'print("foo", " ", "bar")'}]);
+    for (const row of r.rows) assert.equal(row.error, null);
+    assert.deepEqual(out, ['hello world', 'foo   bar']);
+  } finally {
+    setPrintSink(null);   // restore — don't leak into other tests
+  }
+});
+
+test('print: with interpolation', () => {
+  const out = [];
+  setPrintSink(text => out.push(text));
+  try {
+    const r = evaluate([
+      {src: 'let n = 42'},
+      {src: 'print("answer: {n}")'},
+    ]);
+    for (const row of r.rows) assert.equal(row.error, null);
+    assert.deepEqual(out, ['answer: 42']);
+  } finally {
+    setPrintSink(null);
+  }
+});
 
 for (const c of CORPUS) {
   test('conformance: ' + c.name, () => {

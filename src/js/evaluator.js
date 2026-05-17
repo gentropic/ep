@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts } from '../../ext/numbat/dist/numbat.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
 // Uses the v0.1 prelude: ep's existing ore-body-shaped unit table. The
@@ -70,6 +70,14 @@ function host() {
     for (const [path, source] of Object.entries(VENDORED_MODULES)) {
       _host.registerModule(path, source);
     }
+  }
+
+  // String interpolation needs a unit-formatter to render `"{v}"` as
+  // "60 mph" rather than "26.8224 [?]". formatParts is module-scoped to
+  // load.js by default; the load.js exposes setQuantityFormatter so
+  // hosts can plug their own. We hand it the host's registry.
+  if (typeof setQuantityFormatter === 'function' && typeof formatParts === 'function') {
+    setQuantityFormatter(q => formatParts(q, _host.registry));
   }
 
   // ep prelude fn library — gcu/units parity for the most common

@@ -36,6 +36,14 @@ const PUBLIC_API = [
   // source loading without going through the Numbat class.
   'tokenize', 'parse', 'loadSource', 'loadModule', 'makeEnv',
   'evalDimExpr', 'evalValueExpr',
+  // String-interpolation hook: hosts can supply a Quantity → {num, unit}
+  // formatter so `"speed: {v}"` renders as "speed: 60 mph" instead of
+  // "speed: <canonical-value> [?]". setPrintSink does the same for
+  // `print` — useful for tests that capture output.
+  'setQuantityFormatter', 'setPrintSink',
+  // formatParts is exposed so the unit-picker logic in ep can be
+  // reused inside the interpolation hook.
+  'formatParts',
   // Bundled vendored .nbt modules (v0.2) — Numbat.loadVendoredPrelude uses this.
   'VENDORED_MODULES',
 ];
