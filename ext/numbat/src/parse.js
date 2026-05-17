@@ -209,23 +209,37 @@ export function parse(tokens, sourceName = '<input>') {
   }
 
   // Type expression: parseAddExpr followed by optional generic-type-args
-  // `<...>` or function-type args `[(A) -> B]`. v0.5 discards the contents —
-  // structs will properly typecheck them in a later version. This lets us
-  // parse upstream signatures using `List<String>`, `Fn[(X) -> Y]`, etc.,
-  // without failing the file.
+  // `<...>` (captured as TypeApp) or function-type args `[(A) -> B]`
+  // (still discarded — Fn-type parsing is a follow-up). Capturing the
+  // angle-bracket args lets the typechecker see generic-struct and
+  // List/<D> applications.
   function parseTypeExpr() {
-    const t = parseAddExpr();
+    let t = parseAddExpr();
     while (atOp('<') || atOp('[')) {
-      const open  = atOp('<') ? '<' : '[';
-      const close = open === '<' ? '>' : ']';
-      eat();
-      let depth = 1;
-      while (depth > 0 && peek()) {
-        if (atOp(open))       { depth++; eat(); }
-        else if (atOp(close)) { depth--; eat(); if (depth === 0) break; }
-        else                  { eat(); }
+      const open = peek().op;
+      if (open === '<') {
+        eat();
+        const args = [];
+        if (!atOp('>')) {
+          args.push(parseTypeExpr());
+          while (atOp(',')) { eat(); args.push(parseTypeExpr()); }
+        }
+        if (!atOp('>')) throw err(peek(), `expected '>' to close type-arg bracket`);
+        eat();
+        t = { type: 'TypeApp', base: t, args, span: t.span };
+      } else {
+        // `[...]` is still discarded — fn-type args (Fn[(A) -> B]) aren't
+        // typechecked yet, and the bracket contents may include nested
+        // `<...>` and `->` which we don't want to half-parse.
+        eat();
+        let depth = 1;
+        while (depth > 0 && peek()) {
+          if (atOp('['))      { depth++; eat(); }
+          else if (atOp(']')) { depth--; eat(); if (depth === 0) break; }
+          else                { eat(); }
+        }
+        if (depth !== 0) throw err(peek(), `expected ']' to close type-arg bracket`);
       }
-      if (depth !== 0) throw err(peek(), `expected '${close}' to close type-arg bracket`);
     }
     return t;
   }

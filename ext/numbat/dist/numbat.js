@@ -800,23 +800,37 @@ function parse(tokens, sourceName = '<input>') {
   }
 
   // Type expression: parseAddExpr followed by optional generic-type-args
-  // `<...>` or function-type args `[(A) -> B]`. v0.5 discards the contents —
-  // structs will properly typecheck them in a later version. This lets us
-  // parse upstream signatures using `List<String>`, `Fn[(X) -> Y]`, etc.,
-  // without failing the file.
+  // `<...>` (captured as TypeApp) or function-type args `[(A) -> B]`
+  // (still discarded — Fn-type parsing is a follow-up). Capturing the
+  // angle-bracket args lets the typechecker see generic-struct and
+  // List/<D> applications.
   function parseTypeExpr() {
-    const t = parseAddExpr();
+    let t = parseAddExpr();
     while (atOp('<') || atOp('[')) {
-      const open  = atOp('<') ? '<' : '[';
-      const close = open === '<' ? '>' : ']';
-      eat();
-      let depth = 1;
-      while (depth > 0 && peek()) {
-        if (atOp(open))       { depth++; eat(); }
-        else if (atOp(close)) { depth--; eat(); if (depth === 0) break; }
-        else                  { eat(); }
+      const open = peek().op;
+      if (open === '<') {
+        eat();
+        const args = [];
+        if (!atOp('>')) {
+          args.push(parseTypeExpr());
+          while (atOp(',')) { eat(); args.push(parseTypeExpr()); }
+        }
+        if (!atOp('>')) throw err(peek(), `expected '>' to close type-arg bracket`);
+        eat();
+        t = { type: 'TypeApp', base: t, args, span: t.span };
+      } else {
+        // `[...]` is still discarded — fn-type args (Fn[(A) -> B]) aren't
+        // typechecked yet, and the bracket contents may include nested
+        // `<...>` and `->` which we don't want to half-parse.
+        eat();
+        let depth = 1;
+        while (depth > 0 && peek()) {
+          if (atOp('['))      { depth++; eat(); }
+          else if (atOp(']')) { depth--; eat(); if (depth === 0) break; }
+          else                { eat(); }
+        }
+        if (depth !== 0) throw err(peek(), `expected ']' to close type-arg bracket`);
       }
-      if (depth !== 0) throw err(peek(), `expected '${close}' to close type-arg bracket`);
     }
     return t;
   }
@@ -1587,7 +1601,8 @@ function tryFoldConst(node) {
 function evalTypeAnno(node, env, ctx) {
   if (!node) return T_SCALAR;
   switch (node.type) {
-    case 'Paren': return evalTypeAnno(node.expr, env, ctx);
+    case 'Paren':   return evalTypeAnno(node.expr, env, ctx);
+    case 'TypeApp': return evalTypeApp(node, env, ctx);
     case 'Ident': {
       const name = node.name;
       if (ctx.generics.has(name)) return tDim(dimExprFromVar(ctx.generics.get(name)));
@@ -1597,7 +1612,7 @@ function evalTypeAnno(node, env, ctx) {
       const dim = typeEnvLookupDim(env, name);
       if (dim) return tDim(dimExprFromMap(dim));
       const struct = typeEnvLookupStruct(env, name);
-      if (struct) return struct;
+      if (struct) return instantiate(struct);   // generic struct in type position
       throw withSpan(new Error(`unknown type: ${name}`), node.span);
     }
     case 'Num': {
@@ -1640,6 +1655,40 @@ function evalTypeAnno(node, env, ctx) {
 }
 
 function withSpan(err, span) { err.span = span || null; return err; }
+
+// TypeApp: `List<D>`, `Box<Length>`, `Pair<Length, Mass>`. Looks up the
+// head as a struct/list constructor and substitutes the explicit args
+// for the constructor's bound dim-vars. Note: we DON'T call instantiate
+// here — the explicit args provide the renaming directly.
+function evalTypeApp(node, env, ctx) {
+  if (node.base.type !== 'Ident') {
+    throw withSpan(new Error('type application head must be a name'), node.span);
+  }
+  const name = node.base.name;
+
+  if (name === 'List') {
+    if (node.args.length !== 1) throw withSpan(new Error(`List takes 1 type arg, got ${node.args.length}`), node.span);
+    return tList(evalTypeAnno(node.args[0], env, ctx));
+  }
+
+  const scheme = typeEnvLookupStruct(env, name);
+  if (scheme && scheme.kind === 'TScheme') {
+    if (node.args.length !== scheme.dimVars.length) {
+      throw withSpan(new Error(`${name} expects ${scheme.dimVars.length} type args, got ${node.args.length}`), node.span);
+    }
+    const sub = makeSubst();
+    for (let i = 0; i < scheme.dimVars.length; i++) {
+      const argT = evalTypeAnno(node.args[i], env, ctx);
+      if (argT.kind !== 'TDim') {
+        throw withSpan(new Error(`${name} type arg ${i} must be a dimension type, got ${formatType(argT)}`), node.span);
+      }
+      sub.dimVars.set(scheme.dimVars[i].id, argT.dim);
+    }
+    return applyType(scheme.body, sub);
+  }
+
+  throw withSpan(new Error(`unknown type constructor: ${name}`), node.span);
+}
 
 // ── Decl-level checks ─────────────────────────────────────────────
 
@@ -1723,11 +1772,12 @@ function checkFnDecl(decl, env, ctx) {
 
   ctx.generics = savedGenerics;
 
-  // Store the (not-yet-generalized) scheme. Phase 4 turns the dim-vars in
-  // dimVarsForGenerics into proper scheme binders after the solver runs.
+  // Generalize: the dim-vars introduced for this fn's generics become its
+  // scheme binders. Tvars list stays empty — Numbat fn generics are all
+  // Dim-kinded; if we ever add non-Dim generics, they'd populate the
+  // first slot.
   const fnType = tFn(paramTypes, returnType);
-  const scheme = tScheme([], dimVarsForGenerics, fnType);
-  typeEnvBindFn(env, decl.name, scheme);
+  typeEnvBindFn(env, decl.name, generalize(fnType, [], dimVarsForGenerics));
 }
 
 function checkDimensionDecl(decl, env, ctx) {
@@ -1782,12 +1832,29 @@ function checkUnitDecl(decl, env, ctx) {
 }
 
 function checkStructDecl(decl, env, ctx) {
+  // Generic struct: fresh TDimVars for each generic param, exposed in
+  // ctx.generics for field-type annotation resolution. Mirrors fn-decl's
+  // handling.
+  const savedGenerics = ctx.generics;
+  ctx.generics = new Map(savedGenerics);
+  const dimVarsForGenerics = [];
+  for (const g of decl.generics || []) {
+    if (g.kind !== 'Dim') {
+      ctx.generics = savedGenerics;
+      throw withSpan(new Error(`generic kind '${g.kind}' not yet supported (only 'Dim')`), decl.span);
+    }
+    const tdv = freshTDimVar();
+    ctx.generics.set(g.name, tdv);
+    dimVarsForGenerics.push(tdv);
+  }
   const fields = {};
   for (const f of decl.fields) {
     fields[f.name] = evalTypeAnno(f.type, env, ctx);
   }
-  const s = tStruct(decl.name, fields);
-  typeEnvBindStruct(env, decl.name, s);
+  ctx.generics = savedGenerics;
+  // Always store as a scheme so lookups are uniform (empty binders for
+  // non-generic structs).
+  typeEnvBindStruct(env, decl.name, generalize(tStruct(decl.name, fields), [], dimVarsForGenerics));
 }
 
 // ── Expression-level inference ────────────────────────────────────
@@ -1816,45 +1883,8 @@ function inferIdent(node, env, ctx) {
   const v = typeEnvLookupValue(env, node.name);
   if (v) return v;
   const fn = typeEnvLookupFn(env, node.name);
-  if (fn) return instantiateNaive(fn);   // higher-order use — phase 4 polishes
+  if (fn) return instantiate(fn);   // higher-order use
   throw withSpan(new Error(`unknown identifier: ${node.name}`), node.span);
-}
-
-// Phase-2 instantiation: replace scheme's dim-vars with fresh ones. Real
-// generalization comes in phase 4. Good enough for the tests in this
-// phase that don't actually solve.
-function instantiateNaive(scheme) {
-  if (scheme.kind !== 'TScheme') return scheme;
-  if (scheme.tvars.length === 0 && scheme.dimVars.length === 0) return scheme.body;
-  const sub = { tvars: new Map(), dimVars: new Map() };
-  for (const v of scheme.tvars)    sub.tvars.set(v.id, freshTVar());
-  for (const v of scheme.dimVars)  sub.dimVars.set(v.id, freshTDimVar());
-  return substTypeNaive(scheme.body, sub);
-}
-
-function substTypeNaive(t, sub) {
-  switch (t.kind) {
-    case 'TVar':    return sub.tvars.get(t.id) ?? t;
-    case 'TDimVar': return sub.dimVars.get(t.id) ?? t;
-    case 'TDim': {
-      const vars = {};
-      for (const k in t.dim.vars) {
-        const nv = sub.dimVars.get(Number(k));
-        const newKey = nv ? nv.id : Number(k);
-        vars[newKey] = t.dim.vars[k];
-      }
-      return tDim(Object.freeze({ base: t.dim.base, vars: Object.freeze(vars) }));
-    }
-    case 'TFn':     return tFn(t.params.map(p => substTypeNaive(p, sub)), substTypeNaive(t.result, sub));
-    case 'TList':   return tList(substTypeNaive(t.elem, sub));
-    case 'TTuple':  return tTuple(t.elems.map(e => substTypeNaive(e, sub)));
-    case 'TStruct': {
-      const f = {};
-      for (const k in t.fields) f[k] = substTypeNaive(t.fields[k], sub);
-      return tStruct(t.name, f);
-    }
-    default: return t;
-  }
 }
 
 function inferUnary(node, env, ctx) {
@@ -1955,8 +1985,7 @@ function inferCall(node, env, ctx) {
     if (v && v.kind === 'TFn') return inferDirectFnCall(v, node, env, ctx);
     throw withSpan(new Error(`unknown function: ${node.name}`), node.span);
   }
-  const fnT = instantiateNaive(scheme);
-  return inferDirectFnCall(fnT, node, env, ctx);
+  return inferDirectFnCall(instantiate(scheme), node, env, ctx);
 }
 
 function inferDirectFnCall(fnT, node, env, ctx) {
@@ -2006,8 +2035,11 @@ function inferField(node, env, ctx) {
 }
 
 function inferStructInit(node, env, ctx) {
-  const s = typeEnvLookupStruct(env, node.name);
-  if (!s) throw withSpan(new Error(`unknown struct: ${node.name}`), node.span);
+  const scheme = typeEnvLookupStruct(env, node.name);
+  if (!scheme) throw withSpan(new Error(`unknown struct: ${node.name}`), node.span);
+  // Instantiate at each use — fresh dim-vars per construction site so
+  // separate `Pair { ... }` exprs don't accidentally share generics.
+  const s = instantiate(scheme);
   const seen = new Set();
   for (const f of node.fields) {
     if (!(f.name in s.fields)) throw withSpan(new Error(`struct ${node.name} has no field '${f.name}'`), node.span);
@@ -2268,6 +2300,40 @@ function unify(t1, t2, subst, span) {
   }
 
   throw new UnifyError(`cannot unify ${formatType(a)} with ${formatType(b)}`, span);
+}
+
+// ─── typecheck/scheme.js ───────────────────────────────
+// Polymorphism — TScheme construction (generalize) and use (instantiate).
+//
+// A TScheme is `∀(tvars, dimVars). body` — the body is a Type that may
+// reference the bound vars. instantiate() makes fresh vars at each use
+// site so two calls to the same generic fn don't accidentally share
+// dim-var ids. generalize() packages a body + explicit binder list into
+// a scheme — used by check.js when finalizing a fn-decl or struct-decl.
+//
+// `generalize` takes explicit binders here (rather than computing free
+// vars and subtracting the env's free set) because Numbat requires
+// explicit generic params on fn-decls — there's no inferred polymorphism
+// for un-annotated fns the way ML/Haskell have.
+
+// Wrap (body, tvars, dimVars) into a scheme. Body is taken as-is — the
+// caller is responsible for applying any pending substitution first.
+function generalize(body, tvars, dimVars) {
+  return tScheme(tvars, dimVars, body);
+}
+
+// Replace scheme's bound vars with fresh ones, return the renamed body.
+// Non-scheme inputs pass through (useful where env.fns is consulted but
+// the entry might not be a scheme yet during partial construction).
+function instantiate(scheme) {
+  if (scheme.kind !== 'TScheme') return scheme;
+  if (scheme.tvars.length === 0 && scheme.dimVars.length === 0) return scheme.body;
+
+  const sub = makeSubst();
+  for (const v of scheme.tvars)   sub.tvars.set(v.id,   freshTVar());
+  for (const v of scheme.dimVars) sub.dimVars.set(v.id, dimExprFromVar(freshTDimVar()));
+
+  return applyType(scheme.body, sub);
 }
 
 // ─── typecheck/solve.js ────────────────────────────────

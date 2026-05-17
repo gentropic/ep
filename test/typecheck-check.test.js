@@ -341,16 +341,18 @@ test('checkModule: DimensionDecl registers in env.dims', () => {
   assert.deepEqual(env.dims.get('Foo'), { foo: 1 });
 });
 
-test('checkModule: StructDecl registers struct', () => {
+test('checkModule: StructDecl registers struct as scheme', () => {
   resetTypeIds();
   const env = freshEnv();
   const ast = parseModule('struct Pair { x: Length, y: Mass }');
   const r = checkModule(ast, env);
   assert.equal(r.errors.length, 0);
-  const s = env.structs.get('Pair');
-  assert.equal(s.kind, 'TStruct');
-  assert.equal(typeFormat(s.fields.x), 'length');
-  assert.equal(typeFormat(s.fields.y), 'mass');
+  const scheme = env.structs.get('Pair');
+  assert.equal(scheme.kind, 'TScheme');
+  assert.equal(scheme.dimVars.length, 0);   // non-generic
+  assert.equal(scheme.body.kind, 'TStruct');
+  assert.equal(typeFormat(scheme.body.fields.x), 'length');
+  assert.equal(typeFormat(scheme.body.fields.y), 'mass');
 });
 
 test('checkModule: UnitDecl with dim annotation binds value type', () => {
