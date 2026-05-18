@@ -64,6 +64,18 @@ function resultMarkerHtml(lineIdx) {
     }
     return null;
   }
+  // Bare `print(...)` line: the expression returns Quantity(0, {})
+  // (Numbat's void sentinel) but the user wrote it for side-effect, not
+  // value. Suppress the `0` in the gutter — the inline info block below
+  // the line already shows the captured output. Only applies when the
+  // row is a bare expression; let-bindings and @output rows still show
+  // their (incidental) zero so users see what they explicitly named.
+  if (r.kind === 'expr' && r.print
+      && typeof r.result === 'object'
+      && r.result.value === 0
+      && r.result.dim && Object.keys(r.result.dim).length === 0) {
+    return null;
+  }
   // Non-Quantity values (Bool / String / fn-ref / struct) reach this
   // path when a binding's RHS evaluates to something other than a
   // dimensioned number. fmt() expects a Quantity; show a typed
