@@ -4,7 +4,9 @@
 
 The language ep-script is **Numbat-shaped** — syntax inspired by [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT) — with deliberate simplifications and three form-builder decorators (`@input`, `@output`, `@options`) original to ep.
 
-**Status:** 0.2 shipped. The full Phase 1–3 plan landed (source-split build, CM6 editor, numbat-js evaluator co-located under `ext/numbat/`, multi-program persistence, sharing, examples, scenarios, viewer-only export), plus the v0.2 syntax migration to decorator form (`@input`/`@output`/`@options`), a token-based parser, an idempotent formatter with width-aware breaking, `@gcu/pointer` adoption for the sharing layer, IndexedDB backend for programs and snapshots, snapshots/history (§7.4), and PWA wiring (manifest + icons + service worker). Sections below are annotated with **Shipped** / **Future** where useful.
+**Status:** 0.2 shipped. The full Phase 1–3 plan landed (source-split build, CM6 editor, numbat-js evaluator co-located under `ext/numbat/`, multi-program persistence, sharing, examples, scenarios, viewer-only export), plus the v0.2 syntax migration to decorator form (`@input`/`@output`/`@options`), a token-based parser, an idempotent formatter with width-aware breaking, `@gcu/pointer` adoption for the sharing layer, IndexedDB backend for programs and snapshots, snapshots/history (§7.4), PWA wiring (manifest + icons + service worker), a full HM-style dimension-aware typechecker under `ext/numbat/src/typecheck/`, inline-block error/info widgets with bidirectional blame walking, and shape-distinct gutter markers. Sections below are annotated with **Shipped** / **Future** where useful.
+
+A separate forward-looking design doc — [`SPEC-DATASETS.md`](./SPEC-DATASETS.md) — covers the planned lazy-collections / block-model extension. That work is not implemented; the core SPEC (this document) covers what's in the artifact today.
 
 **Working artifact:** `index.html` at the repo root is the deployed program (~1.45 MB single file — most of that is the inlined CM6, numbat-js, and the embedded viewer template). Built by `build.js` from `src/` and `ext/`. Read alongside this doc; when it disagrees with the doc, the code wins. The Enhancements roadmap section at the bottom remains the primary source for design rationale on individual features.
 
@@ -186,20 +188,22 @@ A real incremental DAG (re-evaluate only the transitive downstream set of a chan
 
 ### Errors
 
-All errors carry line and column. Three categories:
+All errors carry line and column. Four categories:
 
 **Parse errors** — bad syntax. Reported at the offending token.
 
-**Name errors** — referenced binding doesn't exist, forward-referenced (cycle), or referenced output name has no binding.
+**Name errors** — referenced binding doesn't exist, forward-referenced (cycle), or referenced output name has no binding. Surfaced with a Levenshtein-based did-you-mean suggestion when a similar name is in scope (`unknown identifier 'denisty' — did you mean 'density'?`).
 
-**Dimension errors** — type mismatch in arithmetic, conversion to incompatible dimension, or annotation mismatch:
+**Type / dimension errors** — caught by the HM-style typechecker (`ext/numbat/src/typecheck/`) at pre-evaluation. Includes generic-instantiation failures, free-var consistency violations across a fn body, dim mismatches in arithmetic, conversion to incompatible dimension, annotation mismatch:
 
 ```
 density : Density = 2.7 g
   annotated Density but got [mass]
 ```
 
-Errors halt evaluation of the affected binding but don't crash the script. Independent bindings continue evaluating. The errored binding shows its error inline (red text in the result margin).
+**`@output` mismatch with blame** — when an `@output(unit)` decorator's dimension disagrees with the value's dimension, the blame walker (`src/js/blame.js`) traces back through the expression and names the most likely culprit input (`'thickness' has [time] but the chain needs [length]`). The blamed binding's gutter gets an amber square marker. See §4.2.
+
+Errors halt evaluation of the affected binding but don't crash the script. Independent bindings continue evaluating. The errored row shows its error in an inline block widget below the source line (red for errors, amber for warnings, neutral gray for `print()` info), with the offending token underlined in red. See §4.2 for the full surfacing model.
 
 ---
 
@@ -297,13 +301,15 @@ The Phase 1–3 plan from earlier versions of this doc has all landed:
 
 - **Source split + build script** — `src/template.html`, `src/style.css`, `src/js/*.js`, plus a second `src/viewer-template.html` for the export artifact. Zero-deps `build.js` at the repo root concatenates them into `index.html`. Two vendor builds run as prerequisites (`ext/numbat/build.js`, `ext/qrcode/build.js`) and a third (`ext/cm6/build.js`) produces the CM6 bundle from npm-installed sources on demand. `node_modules/` is gitignored under `ext/cm6/`; the prebuilt `cm6.min.js` is committed.
 - **CodeMirror 6 editor** — vendored from auditable's pattern, ~597 KB IIFE bundle. Syntax highlighting via a StreamLanguage for ep-script (comments, `@decorators`, keywords, type names, constants, operators). Bracket matching + auto-close. `EditorView.lineWrapping` so long lines don't trigger horizontal scroll.
-- **numbat-js** — full port under `ext/numbat/`, drives expression evaluation. All 62 upstream Numbat modules vendored as strings; 345+ tests pass. ep's own evaluator is now ~180 LOC: classify the line, route through numbat-js's tokenize + parse + evalValueExpr.
+- **numbat-js** — full port under `ext/numbat/`, drives expression evaluation. All 62 upstream Numbat modules vendored as strings; the full test corpus passes (typecheck + integration + conformance + upstream-port = 749 tests at the ep level, plus the per-module suites under `ext/numbat/test/`). ep's own evaluator (`src/js/evaluator.js`, ~900 LOC) classifies each row, drives the per-statement typecheck via `typecheckStatement`, evaluates the runtime, integrates the blame walker for `@output` mismatches, and routes `print()` output to per-row info widgets.
+
+- **Static typechecker** — full HM-style dimension-aware checker under `ext/numbat/src/typecheck/` (12 files, ~2,150 LOC). Handles type variables (`TVar`) and dimension variables (`TDimVar`) separately, with rational-exponent dim arithmetic (`rat.js` for normalized `Rat`), unrestricted generics with proper let-generalization, polymorphic zero, IsDType promotion of type variables to dim variables on demand, and free-var consistency checks across function bodies. Errors include Levenshtein did-you-mean for unknown names, context strings (`in the argument of fn foo`), and a snippet builder that points at the offending token. ~102 upstream tests ported from `numbat`'s `type_checking.rs` and parts of `type_inference.rs`. Every ep row runs through `typecheckStatement` before evaluation; type errors surface through the same inline-block path as runtime errors (see §4.2).
 
 Things deferred to "when use cases pull":
 
 - **Incremental DAG reactivity** — see Performance section below.
 - **`iter` / `solve` / `root` / `integrate` primitives** — numbat-js doesn't have these upstream; would need to add. Out of scope until calculator-scale programs hit walls.
-- **Lists + `map`/`filter`/`reduce`** — numbat-js has these via the upstream `core::lists` module. Surfacing them needs `use core::lists` wired in the host.
+- **Dataset-shaped values** — lazy collections, masks, block models. Designed in `SPEC-DATASETS.md`; not built. The typechecker's `TList` and `TStruct` already support the type-level shape, so the open work is surface syntax (`where`-overload, masks, backtick column names) + runtime (view chains, materialization, reductions).
 
 ---
 
@@ -358,8 +364,8 @@ If a feature here turns out to be load-bearing, that's a signal ep isn't the rig
 What's still genuinely undecided. Items answered by the implementation have been removed; see the Enhancements roadmap below for everything else marked **Future**.
 
 - **Output pin UI.** Currently you toggle a binding into the output panel by adding/removing the `@output` decorator above its definition. A pin icon on each binding row to toggle that decorator visually is the natural gesture but isn't implemented.
-- **Error message quality.** numbat-js produces single-line errors with location info. Numbat upstream sets a higher bar (multi-line traces with both operands' dimensions, span pointers). ep could improve this when token spans get wired into the gutter.
 - **Multi-tab consistency.** IDB writes from one tab don't propagate to another tab's in-memory cache. A `BroadcastChannel('ep')` listener that invalidates the cache (or merges deltas) is the natural fix; not implemented because nobody's hit it yet.
+- **Inline error block dismissal.** Block widgets are always visible while the error stands. A click-to-dismiss (with restoration on next error change) might reduce vertical-space pressure on long error messages.
 - **Module discovery.** numbat-js has all 62 upstream modules vendored and `use module::path` works, but users have no way to browse what modules exist or what they provide. A "modules" section in the drawer (or autocomplete after `use `) would surface them.
 
 ---
@@ -418,8 +424,9 @@ ep/
       viewer-main.js       ← viewer entry point
       state.js             ← state singleton + evaluateAll()
       units.js             ← adapter re-exporting numbat-js primitives
-      evaluator.js         ← classify + parseAnno + evaluate()
-      render.js            ← chip + CM6 editor rendering
+      evaluator.js         ← classify + parseAnno + evaluate() + typecheck wiring
+      blame.js             ← bidirectional blame walker for @output dim mismatches
+      render.js            ← chip + CM6 editor rendering + inline block widgets
       storage.js           ← persistence + autosave + draft slot + ephemeral
       share.js             ← URL share encode/decode + QR rendering
       dialogs.js           ← in-app epConfirm / epPrompt
@@ -439,9 +446,12 @@ ep/
       entry.mjs            ← rollup entry — exports the symbols ep uses
       build.js / package.json / rollup.config.mjs
     numbat/                ← co-located numbat-js (full port + 62 upstream modules)
-      src/, dist/, test/, vendor/numbat/modules/, build.js
+      src/                 ← Quantity/dim runtime, parser, evaluator, prelude
+      src/typecheck/       ← HM dim-aware typechecker (12 files, ~2,150 LOC)
+      dist/, test/, vendor/numbat/modules/, build.js
     qrcode/                ← vendored ISO/IEC 18004 QR encoder
       qrcode.js, dist/, test/, build.js
+    temporal/              ← Temporal polyfill (Safari/Node fallback, vendored)
 
   test/
     units.test.js          ← ep adapter tests
@@ -703,9 +713,25 @@ Token categories to color:
 
 Numbat's VS Code extension has a tmGrammar file at `vscode-extension/syntaxes/numbat.tmLanguage.json` in the upstream repo. The token regex set there is a good starting point; just port the patterns to CM6's language definition format.
 
-### 4.2 Error pinpoint — **Shipped** (S)
+### 4.2 Error pinpoint + inline block widgets + blame — **Shipped** (M)
 
-When evaluation produces an error, the offending row is underlined in red within the editor (CM6 `Decoration.mark` via a small `StateField`/`StateEffect` pair in `render.js`). When the underlying numbat parse error carries a `line:col` position, the underline starts at the offending token (translated from RHS-snippet coordinates to source-line coordinates); otherwise it spans from leading-whitespace end to end-of-line. The full error text remains visible in the gutter result cell + a native `title` tooltip on the marked span.
+Errors surface in three coordinated places:
+
+**Token-span underline.** Same mechanism as v0.1 — `Decoration.mark` via a `StateField`/`StateEffect` pair in `render.js`. When the underlying error carries a `line:col`, the underline starts at the offending token (with shifts for the `name = ` / `let name = ` prefix accounted for); otherwise it spans from leading-whitespace end to end-of-line.
+
+**Inline block widgets.** Below the offending line, a block-decoration widget (CM6 `Decoration.widget({block: true, side: 1})`) renders the full error message in a colored panel — red for errors, amber for warnings, neutral gray for `print()` output. Three kinds share the `EpErrorWidget` class: `error`, `warn`, `info`. Replaces the earlier "truncate the error in the gutter" approach (the gutter couldn't fit long messages). The gutter's background is rendered transparent (`.cm-gutters-after`) so the block extends visually across the full editor width.
+
+**Gutter shape markers.** Per-line result markers use shape *and* color for accessibility:
+- Orange `▲` (CSS-border triangle) for `@input`-tagged bindings
+- Teal `▼` for `@output`-tagged bindings
+- Amber `▪` square for bindings flagged as the blame suspect (see below)
+- Red `✕` (text symbol) for errors
+
+**Bidirectional blame.** When an `@output(unit)` annotation mismatches the resulting dimension, `src/js/blame.js` walks the expression tree looking for a multiplicative chain of `Ident` leaves (handling `*`, `/`, `^n`, `->`, unary `-`, and `Paren`; bails on `+` / `-` / `Call` / anything non-linear). For each leaf it computes the required dimension that would make the output annotation correct, and picks the leaf whose required dim has the *lowest complexity* — that's the most likely culprit. The error message names it: `'thickness' has [time] but the chain needs [length]`. The suspect's binding row gets the amber square marker via a parallel `suspects` queue threaded back through `evaluate()`.
+
+**Pre-evaluation typechecking.** Errors don't only surface from runtime — every statement now passes through the HM typechecker (`ext/numbat/src/typecheck/integration.js#typecheckStatement`) before evaluation. Type errors carry context strings (`in the argument of fn foo`, `in the binding of x`) and include did-you-mean Levenshtein suggestions for unknown identifier names. Type errors render through the same inline-block path as runtime errors.
+
+The full error text remains visible as a native `title` tooltip on the marked span as well, in case the block widget is dismissed (currently always visible — dismissibility is **Future**).
 
 ### 4.3 Auto-pair brackets/braces — **Shipped** (S)
 
@@ -863,7 +889,7 @@ When a user writes `density = 2.7 g/cm3`, the inferred dimension is `Mass / Volu
 
 Pedagogically useful — teaches users the dimension type names without forcing them.
 
-Logic: after evaluation, scan unannotated bindings. For each, check if the inferred dimension exactly matches a named dimension in the table. If yes and no annotation present, offer the fixup.
+Logic: after evaluation, scan unannotated bindings; the HM typechecker (`ext/numbat/src/typecheck/`) already computes inferred types for every binding, so this is now mostly a UX wire-up — for each binding, check if the inferred dimension exactly matches a named dimension in the table; if yes and no annotation present, offer the fixup. The typechecker landed since the original spec — the "infer dimension" prereq is no longer the blocker.
 
 ### 7.4 Snapshots / history — **Shipped** (M)
 

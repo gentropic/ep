@@ -2,7 +2,7 @@
 
 A JavaScript implementation of the Numbat-script language ([upstream](https://github.com/sharkdp/numbat), David Peter, MIT/Apache-2.0). Targets full Numbat compatibility for v1.0, shipped as a single-file no-deps library that ep and other browser-first tools inline.
 
-**Status:** pre-0.1. Expect drift during implementation.
+**Status:** v0.5 in progress. v0.1–v0.4 shipped (runtime, `.nbt` parser, vendored modules, full evaluator with generics, HM-style dimension-aware typechecker). The shape below is the original trajectory; "Implemented" markers added per slice. The typechecker landed as `src/typecheck/` — a 12-file subtree (~2,150 LOC) rather than the single `src/typecheck.js` the original layout assumed.
 
 See [`README.md`](README.md) for the elevator pitch and credit terms.
 
@@ -39,7 +39,7 @@ These are decisions we lock in before code so v0.1 isn't a guess.
 
 Each slice is independently shippable, with its own LOC budget and what ep gets to delete.
 
-### v0.1 — units library
+### v0.1 — units library — **Shipped**
 
 Scope: the runtime-and-formatter layer, with a hand-crafted prelude. No parsing of Numbat source yet.
 
@@ -54,7 +54,7 @@ Scope: the runtime-and-formatter layer, with a hand-crafted prelude. No parsing 
 **LOC budget:** ~800 LOC src + ~400 LOC test.
 **ep delete:** the entire `UNITS` table, the `Q` class, `lit/qAdd/qSub/qMul/qDiv/qPow/qConvert`, `fmt/fmtNum`. `units.js` becomes a re-export from `ext/numbat/dist/numbat.js`.
 
-### v0.2 — `.nbt` mini-parser for the declarative subset
+### v0.2 — `.nbt` mini-parser for the declarative subset — **Shipped**
 
 Scope: parse upstream's unit and dimension definition files. No expressions yet.
 
@@ -64,13 +64,13 @@ Scope: parse upstream's unit and dimension definition files. No expressions yet.
   - `unit X = expr` / `unit X: D = expr` (with `@metric_prefixes`, `@aliases`)
   - `use path::to::module`
 - Module loader: synchronously resolves `use` statements against a bundled module map
-- Vendor `numbat/modules/{core/dimensions, units/si, units/partsperx, units/time, units/imperial, math/constants}.nbt` under `vendor/numbat/`
+- Vendored upstream `.nbt` standard library: all 62 modules under `vendor/numbat/modules/` (core, math, physics, chemistry, units, datetime, plot, numerics, extra)
 
 **LOC budget:** ~600 LOC src + ~300 LOC test + vendored .nbt files.
 **ep delete:** the hand-crafted v0.1 prelude in numbat-js (replaced by loading vendored `.nbt`).
-**Compat target:** parses upstream's prelude.nbt without error.
+**Compat target:** parses upstream's prelude.nbt without error. **Met.**
 
-### v0.3 — expressions, bindings, monomorphic functions
+### v0.3 — expressions, bindings, monomorphic functions — **Shipped** (plus generics — see v0.4)
 
 Scope: evaluate Numbat-script programs *without* generics.
 
@@ -81,37 +81,53 @@ Scope: evaluate Numbat-script programs *without* generics.
 
 **LOC budget:** ~1,000 LOC src + ~600 LOC test.
 **ep delete:** `tokenize`, `parseExpr`, `applyFn`, most of `evaluator.js` (the directive layer — `@params` / `@outputs` — stays in ep).
-**Compat target:** passes upstream's `examples/numbat_basic.nbt` and similar non-generic examples.
+**Compat target:** passes upstream's `examples/numbat_basic.nbt` and similar non-generic examples. **Met.**
 
-### v0.4 — dimension generics + type inference
+### v0.4 — dimension generics + full HM typechecker — **Shipped**
 
-Scope: the typechecker that makes `fn my_sqrt<T: Dim>(q: T^2) -> T` work.
+Scope: the typechecker that makes `fn my_sqrt<T: Dim>(q: T^2) -> T` work — and a whole lot more.
 
-- Type variables, kinds (`Dim`, regular)
-- Unification over dimension expressions (free-abelian-group algebra)
-- Constraint solving for single-variable cases; multi-variable cases marked with TODO until needed
-- Generic instantiation at call sites; monomorphization
-- Error messages with spans, both sides of the mismatch displayed
+The original plan called for "unification over dimension expressions" in a single `src/typecheck.js`. The reality grew larger and ships as a 12-file subtree under `src/typecheck/` (~2,150 LOC, ~50% of upstream's typechecker LOC):
 
-**LOC budget:** ~1,000 LOC src + ~500 LOC test.
-**Compat target:** passes upstream's `examples/numbat_syntax.nbt` and most of the math/* modules.
+- `rat.js` (51 LOC) — normalized rational arithmetic for dim exponents
+- `types.js` (285 LOC) — `TVar` / `TDimVar` / `TDim` / `TBool` / `TString` / `TNever` / `TFn` / `TList` / `TStruct` / `TTuple` / `TScheme` constructors, `DimExpr` arithmetic over rational-base + dim-vars
+- `env.js` (66 LOC) — scoped typed env
+- `constraints.js` (19 LOC) — `cEqual` / `cIsDType` / `cHasField` constraint shapes with context strings
+- `subst.js` (128 LOC) — substitution shape, `applyType`, `applyDimExpr`, `extendTVar` / `extendDimVar`, `UnifyError`
+- `unify.js` (69 LOC) — main unifier with context strings
+- `dim-solve.js` (56 LOC) — incremental dim-equation solver
+- `solve.js` (77 LOC) — top-level solver with IsDType promotion of TVars
+- `scheme.js` (42 LOC) — `generalize` + `instantiate` (proper HM let-generalization)
+- `errors.js` (225 LOC) — `formatDim` with dim aliases, `didYouMean` (Levenshtein), snippet builder
+- `check.js` (720 LOC) — `inferExpr` + `checkModule` + `evalTypeAnno` + `tryFoldConst` + blame entry hook
+- `integration.js` (480 LOC) — `typecheckStatement` + `buildTypeEnv` + `BUILTIN_FN` / `BUILTIN_PROC` schemes (sqrt, sin, max, mod, type, head / tail / cons / len, str_*, assert_eq variadic, etc.) + `finalizeDecl` with free-var consistency check
 
-### v0.5 — lists, strings, structs, decorators
+Highlights beyond the original sketch:
+- **Unrestricted generics** with proper let-generalization across declarations
+- **Polymorphic zero**, **rational dim exponents** (so `T^(1/2)` works), **IsDType promotion** of type variables to dim variables on demand
+- **Free-var consistency check** post-solve, **context strings** propagated into error messages
+- **Levenshtein did-you-mean** for unknown identifiers
+- **Test corpus** — ~102 upstream tests ported from `numbat`'s `type_checking.rs` + `type_inference.rs` (`test/typecheck-upstream.test.js` in the ep host)
 
-- List literals `[1, 2, 3]`, list type `List<A>`, native primitives (`head`, `tail`, `cons`, `cons_end`, `len`, `is_empty`)
-- String type, interpolation, basic methods
-- `struct Foo { … }` definitions, field access, struct generics (`struct Vec2<D: Dim>`)
-- `@aliases`, `@description`, `@example`, `@url`, `@name` decorators
-- Most of upstream's `core/`, `math/`, `physics/`, `chemistry/`, `units/` modules now load
+**Compat target:** passes upstream's `examples/numbat_syntax.nbt` and most of the math / physics / chemistry stdlib. **Met for the corpus we've ported.**
+
+### v0.5 — lists, strings, structs, decorators — **In progress**
+
+- List literals `[1, 2, 3]`, list type `List<A>`, native primitives (`head`, `tail`, `cons`, `cons_end`, `len`, `is_empty`) — **Shipped**
+- String type, basic methods — **Shipped** (full interpolation pending)
+- `struct Foo { … }` definitions, field access, struct generics (`struct Vec2<D: Dim>`) — **Shipped**
+- `@aliases`, `@description`, `@example`, `@url`, `@name` decorators — **Shipped**
+- Most of upstream's `core/`, `math/`, `physics/`, `chemistry/`, `units/` modules now load — **Shipped** (all 62 vendored modules under `vendor/numbat/modules/`)
+- Higher-order functions, `mod` / `random` / `cosh` builtins, trailing commas, `x -> fn` application, datetime/currency stubs — **Shipped** (see commits `8f28ab0`, `a809e5f`)
 
 **LOC budget:** ~800 LOC src + ~500 LOC test.
 **Compat target:** passes upstream's stdlib tests for the modules we've loaded.
 
 ### v1.0 — datetime, plot, currency
 
-- Datetime type (use `Temporal` if available, fallback to `Date`); calendar/timezone primitives
-- Plot module — ASCII line/bar charts; small enough we can port directly
-- Currency — **offline snapshot bundled at build time** from a stable free source (Frankfurter.app or ECB's daily XML feed). An optional `Numbat.refreshRates(fetchFn)` API; ep can wire a "refresh" button. No background fetches.
+- Datetime type — `Temporal`-backed (vendored polyfill for Safari / Node fallback under `ext/temporal/`). Parsing and strftime-style format strings shipped on the ep side; calendar-aware arithmetic (`+ 1 month` with variable-length months) remains future work.
+- Plot module — ASCII line/bar charts; small enough we can port directly. Vendored upstream module loads; runtime is a stub.
+- Currency — **offline snapshot bundled at build time** from a stable free source (Frankfurter.app or ECB's daily XML feed). Stub in place; no active rates yet. Optional `Numbat.refreshRates(fetchFn)` API; ep can wire a "refresh" button. No background fetches.
 - Final pass on upstream-example corpus, declare compat percentage in README
 
 **LOC budget:** ~700 LOC src + ~400 LOC test.
@@ -127,30 +143,34 @@ ext/numbat/
   SPEC.md            ← this document
   LICENSE            ← MIT (vendored .nbt retain upstream MIT/Apache)
   build.js           ← concat src/ → dist/numbat.js, zero deps
-  package.json       ← optional; only for npm scripts
+  package.json       ← only for npm scripts
   dist/
-    numbat.js        ← built artifact (ep inlines this)
+    numbat.js        ← built artifact (~5,000 LOC concatenated; ep inlines this)
   src/
     quantity.js      ← Quantity class + arithmetic
     dimensions.js    ← dimension vector primitives + base registry
     units.js         ← unit registry + prefix system
-    prelude.js       ← v0.1 hand-crafted prelude (removed once v0.2 lands)
+    prelude.js       ← initial hand-crafted bootstrap (mostly superseded by vendored .nbt)
     format.js        ← Quantity → string formatter (auto-scale + disp)
-    tokenize.js      ← v0.2+ — tokenizer for Numbat-script
-    parse.js         ← v0.2+ — parser; outputs AST
-    ast.js           ← v0.2+ — AST node definitions
-    typecheck.js     ← v0.3+ — type checking; v0.4+ for full inference + generics
-    eval.js          ← v0.3+ — tree-walking evaluator
-    modules.js       ← v0.2+ — module loader, namespace resolution
+    tokenize.js      ← tokenizer for Numbat-script
+    parse.js         ← parser; outputs AST
+    load.js          ← module loader, namespace resolution
+    vendored.js      ← vendored module loading
     api.js           ← public surface: `Numbat` class
+    typecheck/       ← HM-style dim-aware typechecker (12 files, ~2,150 LOC) — see v0.4 above
+      rat.js, types.js, env.js, constraints.js,
+      subst.js, unify.js, dim-solve.js, solve.js,
+      scheme.js, errors.js, check.js, integration.js
   vendor/
     numbat/
-      modules/       ← v0.2+ — vendored upstream .nbt files
+      modules/       ← 62 vendored upstream .nbt files (core / math / physics /
+                       chemistry / units / datetime / plot / numerics / extra)
       LICENSE        ← upstream MIT/Apache
   test/
     *.test.js        ← per-module tests
-    corpus/          ← v0.3+ — upstream example programs with expected stdout
 ```
+
+The host (ep) keeps its own typecheck-side tests under `ep/test/typecheck-*.test.js` — including the ~102 ported upstream tests in `typecheck-upstream.test.js` — since the host owns the integration glue.
 
 ---
 

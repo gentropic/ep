@@ -149,12 +149,16 @@ Your saved programs (including snapshot history) live in your browser's local st
 
 ## Status
 
-Honest take, written 2026-05-16:
+Honest take, written 2026-05-17:
 
 **What's working:**
 
-- Full numbat-script evaluator (functions, generics, dimension/unit declarations, the standard math library, `if`/`then`/`else`).
+- Full numbat-script evaluator (functions, generics, dimension/unit declarations, the standard math library, `if`/`then`/`else`, lists, structs, where clauses, multi-line fn bodies).
 - Token-based parser with multi-line expressions and decorators (paren / bracket continuation just works).
+- **HM-style dimension-aware typechecker** under `ext/numbat/src/typecheck/` (~2,150 LOC across 12 files). Pre-evaluation pass; surfaces dim mismatches, generic-instantiation failures, free-var consistency errors, and unknown-name errors with did-you-mean (Levenshtein) suggestions.
+- **Inline error blocks** in the editor — when a row errors, a red/amber/info block widget renders directly below the offending line (no more gutter truncation). Same widget mechanism powers `print()` output (neutral gray info block).
+- **Output blame** — when an `@output(unit)` mismatches the resulting dimension, ep traces backward through the expression to identify the culprit input. Error message names the suspect (`'thickness' has [time] but the chain needs [length]`) and the suspect's row gets an amber square marker in the gutter.
+- **Shape-distinct gutter markers** — orange `▲` for inputs, teal `▼` for outputs, amber `▪` for blamed bindings, red `✕` for errors. Accessibility-friendly without relying solely on color.
 - Three-layer formatter: whitespace normalization, decorator stacking, line-width-aware breaking (function calls, `@options(...)` lists, and long arithmetic expressions wrapped in parens). Idempotent. `Shift+Alt+F` or the drawer "format document" entry.
 - DCDMA + Tyler/ASTM helpers, drill / sieve fns, ~25 derived unit names beyond the SI base.
 - Single-file export in four shapes (file, viewer, link, QR). Share URLs use the `@gcu/pointer` Phase-1 grammar (fragment-based, `#i:d…` for links / `#q:d…` for QR).
@@ -164,14 +168,14 @@ Honest take, written 2026-05-16:
 - Light/dark theme toggle, configurable sig digits + format width, configurable bottom palette + new-file template, auto-hide of empty input/output panels.
 - Mobile-friendly: floating result gutter (doesn't push body width), unit-picker bottom sheet, touch-friendly tap targets.
 - Viewer artifact polish: program subtitle from first comment, accent-highlighted outputs panel, single-column on narrow screens, "modify this calculation" footer link that round-trips back to the editor via pointer.
-- 391 tests for the pure layers (units / parser / evaluator / formatter / pointer / snapshot retention); the DOM layers are exercised by manual browser testing only.
+- **749 tests** for the pure layers (units / parser / evaluator / typechecker / formatter / pointer / snapshot retention / conformance corpus); the DOM layers are exercised by manual browser testing only.
 
 **What's not yet:**
 
 - The "scenarios" feature (named presets of input values) ships but its UX is rough.
 - No incremental DAG evaluation. Every keystroke re-evaluates the whole program. Fast enough for typical programs (sub-millisecond on the demo).
 - No automated UI tests. JSDOM or Playwright would be nice when there's specific behavior worth pinning.
-- `ext/numbat/` and `ext/qrcode/` don't have their own READMEs (they're our forks/builds; documenting them is a TODO).
+- Dataset-shaped values (lazy collections, masks, block models) — designed in `SPEC-DATASETS.md`, not built.
 - `@gcu/pointer` Phase 2 reference loaders (`gh:` / `gist:` / `rentry:` / `url:`) aren't implemented — pointers using those schemes fall through to `EUNKNOWN`, which is the conforming graceful-degradation path per the spec.
 - Multi-tab consistency — IDB writes from one tab don't propagate to another tab's in-memory cache. `BroadcastChannel` install is the natural fix when it bites.
 
@@ -195,7 +199,7 @@ cd ep
 
 ```sh
 node build.js            # rebuild index.html + dist/viewer.html from src/
-node --test              # run the test suite (391 tests, no deps)
+node --test              # run the test suite (749 tests, no deps)
 ```
 
 Zero npm dependencies for the main build. `ext/cm6/` does use npm + rollup to produce the CodeMirror bundle, but the resulting `cm6.min.js` is committed so you don't need to rebuild it unless you're upgrading CM6 itself.
@@ -210,18 +214,23 @@ build.js          ← Node, zero deps; concatenates src/ → index.html
 src/
   template.html   ← head, body markup, STATE markers
   style.css       ← Switchboard tokens + ep-specific
-  js/             ← parser, evaluator, formatter, render, settings, …
+  js/             ← parser, evaluator, formatter, render, blame, settings, …
 ext/
-  numbat/         ← co-located JS port of Numbat
+  numbat/
+    src/          ← Quantity/dim runtime, parser, evaluator, prelude
+    src/typecheck/← HM dim-aware typechecker (12 files, ~2,150 LOC)
+    vendor/numbat/modules/  ← 62 vendored upstream .nbt modules
   cm6/            ← CodeMirror 6 bundle (vendored + built)
   qrcode/         ← QR encoder (ISO/IEC 18004)
+  temporal/       ← Temporal polyfill (Safari/Node fallback)
 test/             ← Node-builtin test runner; pure-logic suite
 dist/
   viewer.html     ← purpose-built viewer artifact (built from src/viewer-template.html)
 SPEC.md           ← design spec; load-bearing for syntax + semantics
+SPEC-DATASETS.md  ← forward-looking design for lazy collections / block models (not implemented)
 ```
 
-See `SPEC.md` for the full design rationale, decisions, and roadmap. CLAUDE.md is local working-context for the AI assistant used during development and is gitignored.
+See `SPEC.md` for the full design rationale, decisions, and roadmap, and `SPEC-DATASETS.md` for the planned dataset/block-model extension. CLAUDE.md is local working-context for the AI assistant used during development and is gitignored.
 
 ---
 
