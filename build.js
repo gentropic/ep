@@ -34,6 +34,27 @@ const ROOT   = dirname(fileURLToPath(import.meta.url));
 const SRC    = join(ROOT, 'src');
 const JS_DIR = join(SRC, 'js');
 
+// Derive a build-stamp version string from git. Falls back to 'unknown'
+// when git isn't available. Format: `YYYY-MM-DD (sha[+dirty])` — chosen
+// because hyper's "last updated N ago" display is the primary use case,
+// so the commit date is more useful than a synthetic semver.
+function epVersion() {
+  function git(args) {
+    const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(r.stderr || `git ${args.join(' ')} failed`);
+    return r.stdout.trim();
+  }
+  try {
+    const sha   = git(['rev-parse', '--short', 'HEAD']);
+    const date  = git(['log', '-1', '--format=%cd', '--date=short']);
+    let dirty = '';
+    try { if (git(['status', '--porcelain'])) dirty = '+dirty'; } catch {}
+    return `${date} (${sha}${dirty})`;
+  } catch {
+    return 'unknown';
+  }
+}
+
 // Co-located libraries: each entry has a build script and the resulting dist
 // file. ep's build invokes the build script then concatenates the dist into
 // the final index.html before its own sources.
@@ -98,6 +119,7 @@ const JS_FILES = [
   'export.js',
   'io.js',
   'settings.js',
+  'gcu-announce.js',
   'main.js',
 ];
 
@@ -203,10 +225,17 @@ function build() {
     return { name: v.dist, src };
   });
 
-  // Strip ep's own sources (strict).
+  // Strip ep's own sources (strict). gcu-announce.js gets its
+  // `__EP_VERSION__` placeholder substituted with the git-derived
+  // version stamp at build time.
+  const epVer = epVersion();
   const srcStripped = JS_FILES.map(name => {
     const raw = readFileSync(join(JS_DIR, name), 'utf8');
-    return { name, src: stripModules(raw, name) };
+    let src = stripModules(raw, name);
+    if (name === 'gcu-announce.js') {
+      src = src.replace("'__EP_VERSION__'", () => JSON.stringify(epVer));
+    }
+    return { name, src };
   });
 
   // Cross-file top-level-name collision check across everything.

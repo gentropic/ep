@@ -17,6 +17,7 @@ import './dialogs.js';
 import './ctxmenu.js';
 import { applySettings } from './settings.js';
 import { formatCurrentProgram } from './format-cmd.js';
+import './gcu-announce.js';
 
 function defaultBoot() {
   // Apply user settings BEFORE the first evaluate/render so sig digits
