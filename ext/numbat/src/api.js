@@ -98,14 +98,28 @@ export class Numbat {
     loadSource(text, sourceName, env, opts);
   }
 
+  // Register every vendored .nbt module bundled at build time without
+  // loading any of them. Useful when the host wants to keep its own
+  // (v0.1) unit prelude but selectively `use` upstream function
+  // modules — `core::strings` for hex/bin/oct and the str_* family,
+  // `core::lists` for list primitives beyond what's already in scope,
+  // `math::statistics` for mean/median/etc.
+  //
+  // Idempotent: calling twice doesn't re-register or re-load anything,
+  // and after this call any later `use('core::strings')` resolves
+  // against the bundled source.
+  registerAllVendoredModules() {
+    for (const [path, source] of Object.entries(VENDORED_MODULES)) {
+      this.registerModule(path, source);
+    }
+  }
+
   // Register every vendored .nbt module bundled at build time, then load
   // the SI and partsperx modules (which transitively pull in core::dimensions,
   // core::scalar, and math::constants). Provides a Numbat-compatible
   // standard-library subset without a hand-crafted JS prelude.
   loadVendoredPrelude() {
-    for (const [path, source] of Object.entries(VENDORED_MODULES)) {
-      this.registerModule(path, source);
-    }
+    this.registerAllVendoredModules();
     this.use('units::si');
     this.use('units::partsperx');
   }

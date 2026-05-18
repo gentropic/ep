@@ -5,6 +5,10 @@
 
 import { Numbat, Quantity, dimEq, dimMul, dimDiv, dimEmpty, dimFormat, formatNumber } from '../../ext/numbat/dist/numbat.js';
 
+// This Numbat instance is only used here for formatting (formatParts)
+// and the unit registry Proxy below — NOT for evaluation. The
+// evaluator has its own host() singleton in evaluator.js where the
+// vendored `core::strings` module (hex/bin/oct/str_*) is layered in.
 const N = new Numbat();
 
 // Quantity class — ep historically referred to it as `Q`.

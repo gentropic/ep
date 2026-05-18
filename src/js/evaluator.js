@@ -41,6 +41,19 @@ function host() {
   if (_host) return _host;
   _host = new Numbat({ prelude: 'v0.1' });
 
+  // Layer the vendored Numbat function modules on top of v0.1's curated
+  // unit table. registerAllVendoredModules() only makes the .nbt sources
+  // resolvable via `use` — it doesn't load any of them. We then `use`
+  // the function libraries we want available out of the box, while
+  // leaving the unit registry as v0.1 set it up (with ep-specific
+  // additions like sieve mesh and DCDMA cores intact).
+  //
+  // core::strings — hex / bin / oct / base + str_* family. Transitively
+  //   pulls in core::scalar / core::functions / core::error.
+  _host.registerAllVendoredModules();
+  try { _host.use('core::strings'); }
+  catch (e) { console.warn('ep: core::strings load failed:', e && e.message || e); }
+
   // Seed math constants. These were hardcoded in ep's old parser; replicate
   // here so existing programs keep working after the numbat-js migration.
   _host.values.set('pi',  new Quantity(Math.PI,     {}));
