@@ -316,6 +316,17 @@
     </div>
 
     <div class="settings-section">
+      <div class="settings-section-hdr">GCU integration</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>discoverable by hyper</div>
+          <div class="settings-row-hint">when on, ep writes a small descriptor (<code>gcu:tool:ep</code>) and a 50-entry boot timeline (<code>gcu:log:ep</code>) to localStorage so the GCU hyper inspector (<a href="https://gentropic.org/hyper/" target="_blank" rel="noopener">gentropic.org/hyper</a>) can identify ep's storage and help recover a bricked PWA. Nothing leaves your browser. Turn off if you'd rather ep stay anonymous.</div>
+        </div>
+        <div class="settings-row-control" id="gcuShareControl"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-section-hdr">tools</div>
       <div class="settings-row">
         <div class="settings-row-label">

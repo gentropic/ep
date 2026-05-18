@@ -65,6 +65,7 @@ const resetBtn          = document.getElementById('settingsResetBtn');
 const autoCheckControl  = document.getElementById('autoCheckControl');
 const checkUpdateBtn    = document.getElementById('settingsCheckUpdateBtn');
 const updateLastCheckedHint = document.getElementById('updateLastCheckedHint');
+const gcuShareControl   = document.getElementById('gcuShareControl');
 
 export function openSettings() {
   if (!panel) return;
@@ -175,6 +176,22 @@ function renderControls() {
       renderControls();
     });
   updateLastCheckedLabel();
+
+  // GCU hyper integration toggle. When turned OFF, removes any
+  // gcu:tool:ep / gcu:log:ep entries previously written so the user's
+  // opt-out is immediate, not just "stops writing new ones." When
+  // turned back ON, gcu-announce.js's next call (on reload) re-creates
+  // both. Default: ON.
+  renderPillRow(gcuShareControl, ON_OFF,
+    getSetting('gcuShare', true) ? 'on' : 'off', v => {
+      const on = v === 'on';
+      setSetting('gcuShare', on);
+      if (!on) {
+        try { localStorage.removeItem('gcu:tool:ep'); } catch {}
+        try { localStorage.removeItem('gcu:log:ep'); } catch {}
+      }
+      renderControls();
+    });
 
   renderPillRow(sortControl, SORT_OPTIONS, getSetting('sort', 'recent'), v => {
     setSetting('sort', v);

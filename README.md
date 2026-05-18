@@ -147,6 +147,35 @@ Your saved programs (including snapshot history) live in your browser's local st
 
 ---
 
+## What ep writes to your browser
+
+ep is local-only — no analytics, no telemetry server, no account, no network calls beyond the initial app load. Everything ep persists stays on your device. For transparency, here's the full list of what ends up in your browser's storage:
+
+**IndexedDB** (`ep` database, `programs` store)
+- Your saved programs and their snapshot history. Keyed by program name.
+
+**localStorage** (the `ep:*` namespace)
+- `ep:current` — name of the program currently open
+- `ep:settings` — your settings (theme, sig digits, format width, etc.)
+- `ep:draft` — in-flight ephemeral state for unsaved programs
+- `ep:installedAt` — first-run timestamp (used by the about section)
+- `ep:tutorialDone` — flag so the first-run tutorial doesn't replay
+- `ep:updateLastCheck` — last time the service worker checked for app updates
+
+**Cache Storage** (`ep-shell-v1`)
+- The cached `index.html` + a few static assets so ep loads instantly + works offline. The service worker manages this; you'll be prompted to reload when a new version is available.
+
+**GCU integration markers** (`gcu:tool:ep`, `gcu:log:ep`)
+- A small self-descriptor (~500 bytes) so the [GCU hyper inspector](https://gentropic.org/hyper/) — a recovery tool for when a GCU PWA bricks itself — can identify ep's storage and offer targeted cleanup. Includes ep's name, version, install/boot timestamps, and the storage-key namespaces above.
+- A bounded 50-entry boot timeline (~3.5 KB max) recording when ep was last opened, with the build version. No user content, no error messages, no payloads — purely a recovery breadcrumb.
+- **Opt-out:** Settings → GCU integration → "discoverable by hyper" → off. When you turn it off, both markers are removed immediately and won't be re-written on subsequent boots.
+
+Nothing here leaves your browser. The GCU markers are readable by other GCU tools on the same origin (that's how hyper finds ep), but they're not transmitted anywhere — they're just localStorage entries on your device.
+
+To inspect everything ep has stored: open your browser's DevTools → Application/Storage tab. Or open `gentropic.org/hyper/` (when it exists) for the friendly view.
+
+---
+
 ## Status
 
 Honest take, written 2026-05-17:
