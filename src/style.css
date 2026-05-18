@@ -813,6 +813,24 @@ body {
   background: rgba(216, 178, 97, 0.08);
   border-left-color: #d8b261;
 }
+
+/* Info-style variant for captured print() output. Neutral text-mid
+ * color and a subtle border — reads as "here's what print() said",
+ * not as an error or warning. White-space pre-wrap so multi-line
+ * print output renders with intentional line breaks preserved. */
+.body .cm-content .cm-ep-info-block {
+  color: var(--sw-text-mid);
+  background: rgba(125, 125, 125, 0.06);
+  border-left-color: var(--sw-text-soft);
+}
+.body .cm-content .cm-ep-info-block .cm-ep-error-block-msg {
+  white-space: pre-wrap;
+}
+[data-theme="dark"] .body .cm-content .cm-ep-info-block {
+  color: var(--sw-text-mid);
+  background: rgba(200, 200, 200, 0.05);
+  border-left-color: var(--sw-text-soft);
+}
 .body .cm-content .cm-ep-warn {
   text-decoration: underline wavy var(--sw-amber);
   text-decoration-thickness: 1.5px;

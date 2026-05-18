@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
 import { traceBlame } from './blame.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
@@ -670,9 +670,19 @@ export function evaluate(body) {
   // { rowIdx, message } — message is the formatted warn text to land
   // on that row.
   const suspects = [];
+  // Captured print() output, accumulated per row. Set up a fresh sink
+  // that routes to printsByRow[currentRowIdx]. Restore the previous
+  // sink at end-of-evaluate so unrelated callers aren't disrupted.
+  const printsByRow = new Map();
+  let currentRowIdx = -1;
+  setPrintSink(text => {
+    if (currentRowIdx < 0) return;
+    const prev = printsByRow.get(currentRowIdx);
+    printsByRow.set(currentRowIdx, prev ? prev + '\n' + text : text);
+  });
   const params = [];
   const outputs = [];
-  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, suspect: null, outputs: null, inParams: false}));
+  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, suspect: null, print: null, outputs: null, inParams: false}));
 
   for (const stmt of statements) {
     const isInput   = stmt.decorators.some(d => d.name === 'input');
@@ -684,6 +694,7 @@ export function evaluate(body) {
     const wantsChip = isInput || !!decoratorOptions;
 
     const ownerIdx = stmt.bindingLine - 1;
+    currentRowIdx = ownerIdx;
     const c = classify(stmt.bodyText);
     const row = rows[ownerIdx] || {kind: null, name: null, result: null, error: null, outputs: null, inParams: false};
     row.kind = c.kind;
@@ -853,6 +864,16 @@ export function evaluate(body) {
     if (!r) continue;
     r.suspect = r.suspect ? r.suspect + '\n' + s.message : s.message;
   }
+  // Surface captured print() output as a per-row `print` field. The
+  // render layer turns this into an inline info-block widget below the
+  // line — same mechanism as error/suspect, just a neutral color.
+  for (const [idx, text] of printsByRow) {
+    if (rows[idx]) rows[idx].print = text;
+  }
+  // Tear down the print sink so subsequent unrelated callers don't see
+  // our captures.
+  currentRowIdx = -1;
+  setPrintSink(null);
 
   // Convert the values Map to a plain object — render.js does `state._scope[name]`.
   // Exclude host-seeded names (pi/tau/e/…) so the returned scope reflects

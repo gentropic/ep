@@ -36,6 +36,7 @@ export function evaluateAll() {
     dest.result   = src.result;
     dest.error    = src.error;
     dest.suspect  = src.suspect;
+    dest.print    = src.print;
     dest.outputs  = src.outputs;
     dest.inParams = src.inParams;
   }

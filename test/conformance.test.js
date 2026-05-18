@@ -202,34 +202,30 @@ function dimEqual(a, b) {
 
 // ── run ────────────────────────────────────────────────────────────
 
-// print sink — tests can swap in a buffer to capture print output. ep's
-// production code leaves the sink unset (print is a silent no-op until
-// a UI panel is wired).
-test('print: settable sink captures output (not wired in ep yet)', () => {
-  const out = [];
-  setPrintSink(text => out.push(text));
-  try {
-    const r = evaluate([{src: 'print("hello world")'}, {src: 'print("foo", " ", "bar")'}]);
-    for (const row of r.rows) assert.equal(row.error, null);
-    assert.deepEqual(out, ['hello world', 'foo   bar']);
-  } finally {
-    setPrintSink(null);   // restore — don't leak into other tests
-  }
+// print sink — ep's evaluator now wires its own per-row capture into
+// row.print, used by the inline info-block widget in render.js.
+test('print: per-row capture lands in row.print', () => {
+  const r = evaluate([{src: 'print("hello world")'}, {src: 'print("foo", " ", "bar")'}]);
+  for (const row of r.rows) assert.equal(row.error, null);
+  assert.equal(r.rows[0].print, 'hello world');
+  assert.equal(r.rows[1].print, 'foo   bar');
 });
 
 test('print: with interpolation', () => {
-  const out = [];
-  setPrintSink(text => out.push(text));
-  try {
-    const r = evaluate([
-      {src: 'let n = 42'},
-      {src: 'print("answer: {n}")'},
-    ]);
-    for (const row of r.rows) assert.equal(row.error, null);
-    assert.deepEqual(out, ['answer: 42']);
-  } finally {
-    setPrintSink(null);
-  }
+  const r = evaluate([
+    {src: 'let n = 42'},
+    {src: 'print("answer: {n}")'},
+  ]);
+  for (const row of r.rows) assert.equal(row.error, null);
+  assert.equal(r.rows[1].print, 'answer: 42');
+});
+
+test('print: multiple prints on one row accumulate', () => {
+  // `1 + print("a") + print("b")` — both fire on the same expr.
+  // Both should attach to the same row, separated by newlines.
+  const r = evaluate([{src: 'print("a") + print("b")'}]);
+  assert.equal(r.rows[0].error, null);
+  assert.equal(r.rows[0].print, 'a\nb');
 });
 
 for (const c of CORPUS) {

@@ -158,7 +158,9 @@ function mountCm6() {
     eq(other) { return other.message === this.message && other.col === this.col && other.kind === this.kind; }
     toDOM() {
       const el = document.createElement('div');
-      el.className = 'cm-ep-error-block ' + (this.kind === 'warn' ? 'cm-ep-warn-block' : '');
+      el.className = 'cm-ep-error-block'
+        + (this.kind === 'warn' ? ' cm-ep-warn-block' : '')
+        + (this.kind === 'info' ? ' cm-ep-info-block' : '');
       const pad = document.createElement('span');
       pad.className = 'cm-ep-error-block-pad';
       pad.style.setProperty('--ep-err-col', String(Math.max(0, this.col - 1)));
@@ -317,11 +319,15 @@ function mountCm6() {
           const kind = it.kind || 'error';
           // Inline mark for the underline (also keeps the title attribute
           // as a fallback for screen readers / quick hover). Warn rows
-          // get a softer amber underline.
-          decos.push(Decoration.mark({
-            class: kind === 'warn' ? 'cm-ep-warn' : 'cm-ep-error',
-            attributes: { title: it.message || '' },
-          }).range(from, to));
+          // get a softer amber underline; info (print output) rows skip
+          // the underline entirely — they're not flagging a problem,
+          // they're just surfacing captured output.
+          if (kind !== 'info') {
+            decos.push(Decoration.mark({
+              class: kind === 'warn' ? 'cm-ep-warn' : 'cm-ep-error',
+              attributes: { title: it.message || '' },
+            }).range(from, to));
+          }
           // Block widget on the line AFTER, with the full message.
           // Strip the upstream `<src>:line:col:` prefix when present —
           // the caret already positions it, the user doesn't need to
@@ -677,6 +683,12 @@ function applyErrorMarks() {
     // OTHER row expected.
     if (row.suspect && !row.error) {
       items.push({ line: i + 1, col: 0, message: row.suspect, kind: 'warn' });
+    }
+    // print(...) output captured during evaluation. Rendered in a
+    // neutral info block below the line — same mechanism as
+    // error/suspect, distinct color.
+    if (row.print) {
+      items.push({ line: i + 1, col: 0, message: row.print, kind: 'info' });
     }
   }
   cmView.dispatch({ effects: _errorEffect.of(items) });
