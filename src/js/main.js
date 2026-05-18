@@ -18,6 +18,7 @@ import './ctxmenu.js';
 import { applySettings } from './settings.js';
 import { formatCurrentProgram } from './format-cmd.js';
 import './gcu-announce.js';
+import { openPip } from './pip.js';
 
 function defaultBoot() {
   // Apply user settings BEFORE the first evaluate/render so sig digits
@@ -78,6 +79,13 @@ window.addEventListener('keydown', e => {
   if (e.altKey && e.shiftKey && e.key.toLowerCase() === 'f') {
     e.preventDefault();
     formatCurrentProgram();
+    return;
+  }
+  // Shift+Alt+P opens the PiP scratchpad (same shift+alt key pattern as
+  // the formatter shortcut; avoids fighting Cmd+P / browser print).
+  if (e.altKey && e.shiftKey && e.key.toLowerCase() === 'p') {
+    e.preventDefault();
+    openPip().catch(err => console.error('ep: PiP open failed:', err));
     return;
   }
   const mod = e.metaKey || e.ctrlKey;

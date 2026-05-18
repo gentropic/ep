@@ -120,6 +120,7 @@ const JS_FILES = [
   'io.js',
   'settings.js',
   'gcu-announce.js',
+  'pip.js',
   'main.js',
 ];
 
