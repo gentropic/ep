@@ -67,6 +67,7 @@ const checkUpdateBtn    = document.getElementById('settingsCheckUpdateBtn');
 const updateLastCheckedHint = document.getElementById('updateLastCheckedHint');
 const gcuShareControl   = document.getElementById('gcuShareControl');
 const desktopDrawerControl = document.getElementById('desktopDrawerControl');
+const suggestAnnotationsControl = document.getElementById('suggestAnnotationsControl');
 
 export function openSettings() {
   if (!panel) return;
@@ -166,6 +167,18 @@ function renderControls() {
       const on = v === 'on';
       setSetting('autoHideEmpty', on);
       applyEmptyPanelHiding(on);
+      renderControls();
+    });
+
+  // Annotation auto-suggest toggle. When off, render.js's applyErrorMarks
+  // skips emitting the suggest inline widgets entirely — no "+ Length?"
+  // buttons show up at all. Fires ep:params-changed so a single re-render
+  // clears the existing widgets without waiting for the next edit.
+  renderPillRow(suggestAnnotationsControl, ON_OFF,
+    getSetting('suggestAnnotations', true) ? 'on' : 'off', v => {
+      const on = v === 'on';
+      setSetting('suggestAnnotations', on);
+      window.dispatchEvent(new CustomEvent('ep:params-changed'));
       renderControls();
     });
 

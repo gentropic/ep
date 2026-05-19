@@ -894,6 +894,35 @@ body {
   background: rgba(200, 200, 200, 0.05);
   border-left-color: var(--sw-text-soft);
 }
+
+/* Annotation auto-suggest — INLINE at end of the binding's line, not a
+ * block widget below. Low ambient noise: just a small indigo button.
+ * Click applies the annotation; ignore otherwise. The button only
+ * shades on hover so the resting state recedes into the editor. */
+.cm-ep-suggest-inline {
+  /* Push slightly off the source so it doesn't crowd the value text. */
+  margin-left: 12px;
+  user-select: none;
+}
+.cm-ep-suggest-btn {
+  background: transparent;
+  border: 1px dashed var(--sw-border-soft);
+  color: var(--sw-text-soft);
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 120ms, color 120ms, border-color 120ms, background 120ms;
+}
+.cm-ep-suggest-btn:hover {
+  opacity: 1;
+  color: var(--sw-indigo);
+  border-color: var(--sw-indigo);
+  border-style: solid;
+  background: var(--sw-bg-bright);
+}
 .body .cm-content .cm-ep-warn {
   text-decoration: underline wavy var(--sw-amber);
   text-decoration-thickness: 1.5px;

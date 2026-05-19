@@ -21,7 +21,7 @@ import { state, evaluateAll } from './state.js';
 import { fmt, fmtNum, dEq, fmtDim } from './units.js';
 import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './evaluator.js';
 import { attachLongPress, showMenu } from './menu.js';
-import { takeSnapshot, currentProgramName } from './storage.js';
+import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
 
 const chipsEl    = document.getElementById('chips');
@@ -160,6 +160,7 @@ function mountCm6() {
     bracketMatching, closeBrackets,
     Decoration, WidgetType, StateField, StateEffect,
     autocompletion, CompletionContext, acceptCompletion,
+    search, searchKeymap, highlightSelectionMatches,
   } = CM6;
 
   // Inline-error block widget — renders BELOW the offending line so the
@@ -168,9 +169,43 @@ function mountCm6() {
   // for runtime/typecheck failures or 'warn' (amber) for blame-trace
   // suspect annotations.
   class EpErrorWidget extends WidgetType {
-    constructor(message, col, kind) { super(); this.message = message; this.col = col; this.kind = kind || 'error'; }
-    eq(other) { return other.message === this.message && other.col === this.col && other.kind === this.kind; }
+    constructor(message, col, kind, suggestDim, rowIdx) {
+      super();
+      this.message = message;
+      this.col = col;
+      this.kind = kind || 'error';
+      // 'suggest' kind carries the named dim to apply ("Length", "Mass", …)
+      // and the row index to edit. Other kinds ignore these fields.
+      this.suggestDim = suggestDim || null;
+      this.rowIdx = (rowIdx == null) ? -1 : rowIdx;
+    }
+    eq(other) {
+      return other.message === this.message
+        && other.col === this.col
+        && other.kind === this.kind
+        && other.suggestDim === this.suggestDim
+        && other.rowIdx === this.rowIdx;
+    }
     toDOM() {
+      if (this.kind === 'suggest') {
+        // Inline at end of line. Wrap in a span (not a div) so the
+        // browser inline-positions it next to the line text rather than
+        // wrapping it to a new row.
+        const span = document.createElement('span');
+        span.className = 'cm-ep-suggest-inline';
+        const btn = document.createElement('button');
+        btn.className = 'cm-ep-suggest-btn';
+        btn.textContent = `+ ${this.suggestDim}?`;
+        btn.title = `add type annotation — this binding's result has dim of ${this.suggestDim}`;
+        const dim = this.suggestDim;
+        const rowIdx = this.rowIdx;
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          applySuggestion(rowIdx, dim);
+        });
+        span.appendChild(btn);
+        return span;
+      }
       const el = document.createElement('div');
       el.className = 'cm-ep-error-block'
         + (this.kind === 'warn' ? ' cm-ep-warn-block' : '')
@@ -185,6 +220,25 @@ function mountCm6() {
       return el;
     }
     ignoreEvent() { return false; }
+  }
+
+  // Insert ` : <DimName>` between the binding's name and its `=`. Used
+  // by the suggest widget's "+ Length?" button. Bails defensively if
+  // the row no longer matches the expected `name = expr` shape (user
+  // edited it in the meantime), if an annotation already exists, or if
+  // the editor isn't mounted.
+  function applySuggestion(rowIdx, dimName) {
+    if (!cmView || rowIdx < 0) return;
+    if (rowIdx >= cmView.state.doc.lines) return;
+    const line = cmView.state.doc.line(rowIdx + 1);
+    const m = line.text.match(/^(\s*(?:let\s+)?[a-zA-Z_][a-zA-Z0-9_]*)(\s*=)/);
+    if (!m) return;
+    // Already has `: Anno` somewhere before `=`? Don't double-up.
+    if (/:/.test(line.text.slice(0, m[1].length + m[2].length))) return;
+    const insertAt = line.from + m[1].length;
+    cmView.dispatch({
+      changes: { from: insertAt, to: insertAt, insert: ` : ${dimName}` },
+    });
   }
   void foldService;  // no @params fold in decorator form; service still imported for future use
 
@@ -333,10 +387,11 @@ function mountCm6() {
           const kind = it.kind || 'error';
           // Inline mark for the underline (also keeps the title attribute
           // as a fallback for screen readers / quick hover). Warn rows
-          // get a softer amber underline; info (print output) rows skip
-          // the underline entirely — they're not flagging a problem,
-          // they're just surfacing captured output.
-          if (kind !== 'info') {
+          // get a softer amber underline; info (print output) and
+          // suggest (annotation-fixup) rows skip the underline entirely
+          // — they're not flagging a problem with the row, they're
+          // surfacing captured output / offering a polish action.
+          if (kind === 'error' || kind === 'warn') {
             decos.push(Decoration.mark({
               class: kind === 'warn' ? 'cm-ep-warn' : 'cm-ep-error',
               attributes: { title: it.message || '' },
@@ -347,11 +402,22 @@ function mountCm6() {
           // the caret already positions it, the user doesn't need to
           // re-read the coordinates.
           const cleanMsg = (it.message || '').replace(/^[^:]*:\d+:\d+:\s*/, '');
-          decos.push(Decoration.widget({
-            widget: new EpErrorWidget(cleanMsg, fromCol + 1, kind),
-            block: true,
-            side: 1,
-          }).range(line.to));
+          // Suggestions render INLINE at end of line — small, low-noise,
+          // doesn't push the next row down. Errors / warnings / info
+          // stay as block widgets BELOW the line so their full message
+          // has room.
+          if (kind === 'suggest') {
+            decos.push(Decoration.widget({
+              widget: new EpErrorWidget('', 0, kind, it.suggestDim, it.rowIdx),
+              side: 1,
+            }).range(line.to));
+          } else {
+            decos.push(Decoration.widget({
+              widget: new EpErrorWidget(cleanMsg, fromCol + 1, kind, it.suggestDim, it.rowIdx),
+              block: true,
+              side: 1,
+            }).range(line.to));
+          }
         }
         value = Decoration.set(decos, true);
       }
@@ -392,6 +458,11 @@ function mountCm6() {
         EditorView.lineWrapping,
         history(),
         drawSelection(),
+        // Search panel + selection-match highlighting. searchKeymap binds
+        // Cmd/Ctrl+F to open the panel, Cmd/Ctrl+G to find-next, Esc to
+        // close — standard CM6 conventions that users expect.
+        search({ top: true }),
+        highlightSelectionMatches(),
         _errorsField,
         resultGutter,
         keymap.of([
@@ -399,6 +470,7 @@ function mountCm6() {
           // when no popup is showing — Tab then falls through to default
           // browser tab order (so users can still leave the editor).
           { key: 'Tab', run: acceptCompletion },
+          ...(searchKeymap || []),    // Cmd/Ctrl-F / -G, Esc to close
           ...(historyKeymap || []),   // Mod-z / Mod-Shift-z / Mod-y
           ...(foldKeymap || []),      // Cmd/Ctrl-Alt-[ / -] fold / unfold
           ...(defaultKeymap || []),   // arrow keys, Home/End, word jumps, etc.
@@ -426,12 +498,23 @@ function mountCm6() {
         EditorView.theme({
           '&': { height: '100%' },
         }),
+        // ep-script isn't English prose; browser spell-check leaves
+        // red wavy underlines under unit-bearing values (`242 m`,
+        // `50 m`) and identifier names. Disable on the content
+        // attribute so the editor reads as "code", not "text".
+        EditorView.contentAttributes.of({ spellcheck: 'false' }),
       ],
     }),
     parent: bodyEl,
   });
 
   bodyEl.addEventListener('focusin', () => { state._lastFocused = cmView; });
+
+  // When settings change (e.g., toggling "annotation suggestions"
+  // off), re-run the inline-block dispatch so widgets that depend on
+  // the setting clear immediately instead of waiting for the next
+  // body or chip edit.
+  window.addEventListener('ep:params-changed', () => applyErrorMarks());
 
   // Right-click in the body opens ep's body-row context menu (snapshot,
   // copy result as, format document). Skipped when the user has an
@@ -864,6 +947,18 @@ function applyErrorMarks() {
     // error/suspect, distinct color.
     if (row.print) {
       items.push({ line: i + 1, col: 0, message: row.print, kind: 'info' });
+    }
+    // Annotation auto-suggest — only when there's no other in-line
+    // block in play for this row (don't pile a suggest on top of an
+    // error / suspect warning; the suggestion is for clean rows). The
+    // user can also opt out entirely via Settings → display →
+    // "annotation suggestions" off.
+    if (row.suggest && !row.error && !row.suspect
+        && getSetting('suggestAnnotations', true)) {
+      items.push({
+        line: i + 1, col: 0, message: '', kind: 'suggest',
+        suggestDim: row.suggest.dimName, rowIdx: i,
+      });
     }
   }
   cmView.dispatch({ effects: _errorEffect.of(items) });

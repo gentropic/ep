@@ -495,6 +495,29 @@ export const DIMENSION_OF = {
   Force:     {mass: 1, length: 1, time: -2},
 };
 
+// Reverse lookup: given a dim signature, find a named dimension that matches
+// exactly. First non-empty entry wins (DIMENSION_OF declaration order
+// preserves through Object.keys, so Length/Mass/Time win over later
+// derived names). Skips dimensionless entries — suggesting "+ Scalar?"
+// on every bare-number binding would be noise.
+const _dimToName = (() => {
+  const out = {};
+  for (const [name, dim] of Object.entries(DIMENSION_OF)) {
+    if (!dim || Object.keys(dim).length === 0) continue;
+    const key = JSON.stringify(Object.entries(dim).sort());
+    if (!out[key]) out[key] = name;
+  }
+  return out;
+})();
+
+export function namedDimFor(dim) {
+  if (!dim || typeof dim !== 'object') return null;
+  const keys = Object.keys(dim);
+  if (keys.length === 0) return null;
+  const key = JSON.stringify(Object.entries(dim).sort());
+  return _dimToName[key] || null;
+}
+
 export function parseAnno(s) {
   const toks = [];
   let i = 0;
@@ -803,6 +826,17 @@ export function evaluate(body) {
       bindingRowByName.set(name, ownerIdx);
       row.result = q;
       row.error  = err;
+      // Annotation auto-suggest: when the row evaluates cleanly, has a
+      // dim-shaped result, and the user hasn't already typed a `: Name`
+      // annotation, propose a one-tap fixup that adds the matching named
+      // dimension. Skipped when the result isn't a Quantity, when err is
+      // set, when the binding's expression is a bare label (no dim to
+      // infer), and when the matched name would be Scalar / Angle (both
+      // dimensionless — too noisy to suggest).
+      if (q && !err && !c.anno && q.dim) {
+        const named = namedDimFor(q.dim);
+        if (named) row.suggest = { dimName: named };
+      }
       // Supplementary typecheck — re-form the binding as a numbat let-decl.
       const annoStr = c.anno ? `: ${c.anno}` : '';
       // Wrap adds `let ` (4 chars). colShift = 4 puts the col back
