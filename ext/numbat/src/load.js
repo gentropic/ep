@@ -191,16 +191,16 @@ const BUILTIN_PROCS = {
   // values — units captured separately if the host wants them); the
   // host's renderer doesn't need to know about Numbat's Quantity type.
   plot(args) {
-    if (args.length !== 2) throw new Error(`plot: expected 2 args (xs, ys), got ${args.length}`);
+    if (args.length < 2 || args.length > 5) throw new Error(`plot: expected 2..5 args (xs, ys [, xlabel, ylabel, title]), got ${args.length}`);
     if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'line', ...coerceXY(args[0], args[1]) });
+      _plotSink({ type: 'line', ...coerceXY(args[0], args[1]), ...labelOpts(args, 2) });
     }
     return new Quantity(0, {});
   },
   scatter(args) {
-    if (args.length !== 2) throw new Error(`scatter: expected 2 args (xs, ys), got ${args.length}`);
+    if (args.length < 2 || args.length > 5) throw new Error(`scatter: expected 2..5 args (xs, ys [, xlabel, ylabel, title]), got ${args.length}`);
     if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'scatter', ...coerceXY(args[0], args[1]) });
+      _plotSink({ type: 'scatter', ...coerceXY(args[0], args[1]), ...labelOpts(args, 2) });
     }
     return new Quantity(0, {});
   },
@@ -208,18 +208,107 @@ const BUILTIN_PROCS = {
   // unit defined in units::misc. `bar_chart` matches upstream Numbat's
   // plot::bar_chart constructor naming.
   bar_chart(args) {
-    if (args.length !== 1) throw new Error(`bar_chart: expected 1 arg (values), got ${args.length}`);
+    if (args.length < 1 || args.length > 4) throw new Error(`bar_chart: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);
     if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'bar', ...coerceValues(args[0]) });
+      _plotSink({ type: 'bar', ...coerceValues(args[0]), ...labelOpts(args, 1) });
     }
     return new Quantity(0, {});
   },
   hist(args) {
-    if (args.length !== 1) throw new Error(`hist: expected 1 arg (values), got ${args.length}`);
+    if (args.length < 1 || args.length > 4) throw new Error(`hist: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);
     if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'hist', ...coerceValues(args[0]) });
+      _plotSink({ type: 'hist', ...coerceValues(args[0]), ...labelOpts(args, 1) });
     }
     return new Quantity(0, {});
+  },
+
+  // ── Iterative list ops — host-native shadows of the recursive defs in
+  // core::lists. Same semantics, no JS-stack cost. Numbat's prelude
+  // has no `for`/`while` so its `range`/`map`/`filter`/`foldl`/etc. are
+  // all recursive; for our tree-walking interpreter that meant ~10
+  // JS frames per element, which blew Safari's stack at a few hundred.
+  // Hosts that want the original script versions can delete these
+  // entries from BUILTIN_PROCS at boot. Upstream-compat is preserved
+  // because the script defs still exist in core::lists.nbt — we just
+  // shadow them at dispatch time (the host must also delete them from
+  // env.fns since fns win over BUILTIN_PROCS in evalCall's lookup order).
+  range(args) {
+    const start = args[0] instanceof Quantity ? args[0].value : args[0];
+    const end   = args[1] instanceof Quantity ? args[1].value : args[1];
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      throw new Error('range: start and end must be finite scalars');
+    }
+    const out = [];
+    if (start <= end) {
+      const lo = Math.round(start), hi = Math.round(end);
+      for (let i = lo; i <= hi; i++) out.push(new Quantity(i, {}));
+    }
+    return out;
+  },
+  map(args) {
+    const [f, xs] = args;
+    if (typeof f !== 'function') throw new Error('map: first arg must be a function');
+    if (!Array.isArray(xs)) throw new Error('map: second arg must be a list');
+    return xs.map(x => f(x));
+  },
+  map2(args) {
+    // map2(f, other, xs): zips xs with `other` via f.  Numbat's signature
+    // is map2(f, other, xs) -> [f(other_i, xs_i)] when other is a list
+    // OR f(other, xs_i) when other is a scalar. Be permissive at runtime.
+    const [f, other, xs] = args;
+    if (typeof f !== 'function') throw new Error('map2: first arg must be a function');
+    if (!Array.isArray(xs)) throw new Error('map2: third arg must be a list');
+    if (Array.isArray(other)) {
+      const n = Math.min(other.length, xs.length);
+      const out = new Array(n);
+      for (let i = 0; i < n; i++) out[i] = f(other[i], xs[i]);
+      return out;
+    }
+    return xs.map(x => f(other, x));
+  },
+  filter(args) {
+    const [p, xs] = args;
+    if (typeof p !== 'function') throw new Error('filter: first arg must be a predicate');
+    if (!Array.isArray(xs)) throw new Error('filter: second arg must be a list');
+    return xs.filter(x => p(x) === true);
+  },
+  foldl(args) {
+    const [f, acc0, xs] = args;
+    if (typeof f !== 'function') throw new Error('foldl: first arg must be a function');
+    if (!Array.isArray(xs)) throw new Error('foldl: third arg must be a list');
+    let acc = acc0;
+    for (const x of xs) acc = f(acc, x);
+    return acc;
+  },
+  concat(args) {
+    const [xs, ys] = args;
+    if (!Array.isArray(xs) || !Array.isArray(ys)) throw new Error('concat: both args must be lists');
+    return xs.concat(ys);
+  },
+  take(args) {
+    const n = args[0] instanceof Quantity ? args[0].value : args[0];
+    const xs = args[1];
+    if (!Array.isArray(xs)) throw new Error('take: second arg must be a list');
+    return xs.slice(0, Math.max(0, Math.round(n)));
+  },
+  drop(args) {
+    const n = args[0] instanceof Quantity ? args[0].value : args[0];
+    const xs = args[1];
+    if (!Array.isArray(xs)) throw new Error('drop: second arg must be a list');
+    return xs.slice(Math.max(0, Math.round(n)));
+  },
+  reverse(args) {
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('reverse: arg must be a list');
+    return xs.slice().reverse();
+  },
+  element_at(args) {
+    const i = args[0] instanceof Quantity ? args[0].value : args[0];
+    const xs = args[1];
+    if (!Array.isArray(xs)) throw new Error('element_at: second arg must be a list');
+    const idx = Math.round(i);
+    if (idx < 0 || idx >= xs.length) throw new Error(`element_at: index ${idx} out of bounds (list has ${xs.length} elements)`);
+    return xs[idx];
   },
   // String helpers — implementations for upstream's `extern fn …`
   // declarations under core::strings. Match upstream signatures.

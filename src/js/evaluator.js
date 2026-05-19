@@ -58,6 +58,19 @@ function host() {
   catch (e) { console.warn('ep: core::strings load failed:', e && e.message || e); }
   try { _host.use('core::lists'); }
   catch (e) { console.warn('ep: core::lists load failed:', e && e.message || e); }
+  // core::lists ships RECURSIVE definitions of range/map/filter/foldl/
+  // etc. — every iteration is a JS stack frame in numbat-js's tree-
+  // walker, so a 500-element list blows Safari's stack and a few-
+  // thousand blows Chrome's. numbat-js ships iterative natives for
+  // these in BUILTIN_PROCS; deleting the user-fn entries from the
+  // host's fns map after core::lists loads lets evalCall fall through
+  // to the natives. Same semantics, no stack depth. Upstream Numbat
+  // compatibility is preserved at the source level — the script defs
+  // still live in core::lists.nbt for anyone who wants to read them.
+  for (const name of ['range', 'map', 'map2', 'filter', 'foldl', 'concat',
+                      'take', 'drop', 'reverse', 'element_at']) {
+    _host.fns.delete(name);
+  }
 
   // Seed math constants. These were hardcoded in ep's old parser; replicate
   // here so existing programs keep working after the numbat-js migration.
@@ -811,7 +824,12 @@ export function evaluate(body) {
       // so the user sees it WHERE the binding is, not just in the
       // outputs panel. Skip when there's already an evaluation error
       // (don't double-up).
-      if (q && !err && isOutput && outputUnit) {
+      // Plot rows return the void sentinel Quantity(0, {}); a unit-bearing
+      // @output annotation against that would always mismatch. Skip the
+      // dim check when this binding evaluated to a plot — the user wrote
+      // @output(...) to mark it as an output, not as a dim assertion.
+      const isPlotRow = plotsByRow.has(ownerIdx);
+      if (q && !err && isOutput && outputUnit && !isPlotRow) {
         try {
           const spec = resolveUnitExpression(outputUnit);
           if (!dEq(spec.dim, q.dim)) {

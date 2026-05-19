@@ -164,15 +164,24 @@ const BUILTIN_PROC_SCHEMES = {
 };
 
 function schemePlot2() {
-  // <X, Y>(List<X>, List<Y>) -> Scalar  — plot/scatter
+  // <X, Y>(List<X>, List<Y>, String?, String?, String?) -> Scalar
+  // — plot/scatter. Trailing strings (xlabel, ylabel, title) are
+  // all optional; runtime proc handles any of 2..5 args.
   const x = freshTVar();
   const y = freshTVar();
-  return generalize(tFn([tList(x), tList(y)], T_SCALAR), [x, y], []);
+  return generalize(
+    tFn([tList(x), tList(y), tString(), tString(), tString()], T_SCALAR, { optional: 3 }),
+    [x, y], []
+  );
 }
 function schemePlot1() {
-  // <V>(List<V>) -> Scalar  — bar/hist
+  // <V>(List<V>, String?, String?, String?) -> Scalar  — bar_chart/hist.
+  // Trailing strings: xlabel/ylabel/title in that order.
   const v = freshTVar();
-  return generalize(tFn([tList(v)], T_SCALAR), [v], []);
+  return generalize(
+    tFn([tList(v), tString(), tString(), tString()], T_SCALAR, { optional: 3 }),
+    [v], []
+  );
 }
 
 const BUILTIN_FN_SCHEMES = {

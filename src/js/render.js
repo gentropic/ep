@@ -80,10 +80,26 @@ function drawPlot(canvas, descriptor, dpr) {
   ctx.fillStyle = colBg;
   ctx.fillRect(0, 0, cssW, cssH);
 
-  // Plot area inset for axes + tick labels
-  const ML = 36, MR = 12, MT = 10, MB = 24;
+  // Plot area inset for axes + tick labels. Extra space at top for a
+  // title (when given), and at left/bottom for axis labels (when given).
+  const hasTitle  = !!descriptor.title;
+  const hasXLabel = !!descriptor.xLabel;
+  const hasYLabel = !!descriptor.yLabel;
+  const ML = hasYLabel ? 50 : 36;
+  const MR = 12;
+  const MT = hasTitle  ? 26 : 10;
+  const MB = hasXLabel ? 38 : 24;
   const PW = cssW - ML - MR;
   const PH = cssH - MT - MB;
+
+  // Title — top-center, slightly larger
+  if (hasTitle) {
+    ctx.fillStyle = cssVar('--sw-text', '#232322');
+    ctx.font = '600 12px var(--sw-mono, monospace)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(descriptor.title, cssW / 2, 6);
+  }
 
   // Pull data into (xs, ys) form depending on chart type. Bar/hist
   // synthesize xs from value index / bin centers.
@@ -173,6 +189,28 @@ function drawPlot(canvas, descriptor, dpr) {
     const v = xLo + (xHi - xLo) * (i / 2);
     const px = xPix(v);
     ctx.fillText(fmtTick(v), px, MT + PH + 4);
+  }
+
+  // Axis labels — drawn after ticks so they sit further out. xLabel
+  // centered below the x-axis ticks; yLabel rotated -90° and centered
+  // vertically on the left margin.
+  if (hasXLabel) {
+    ctx.fillStyle = cssVar('--sw-text', '#232322');
+    ctx.font = '500 11px var(--sw-mono, monospace)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(descriptor.xLabel, ML + PW / 2, cssH - 4);
+  }
+  if (hasYLabel) {
+    ctx.save();
+    ctx.fillStyle = cssVar('--sw-text', '#232322');
+    ctx.font = '500 11px var(--sw-mono, monospace)';
+    ctx.translate(12, MT + PH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(descriptor.yLabel, 0, 0);
+    ctx.restore();
   }
 
   // Data
@@ -344,11 +382,14 @@ function mountCm6() {
       if (this.kind === 'plot') {
         // Plot descriptors are large; cheap object-identity check is
         // wrong (each evaluation produces a fresh descriptor). Compare
-        // a fingerprint instead — type + length-of-data is enough for
-        // re-render decisions.
+        // a fingerprint instead — type + length-of-data + label opts
+        // is enough for re-render decisions.
         const a = this.plot, b = other.plot;
         if (!a || !b) return a === b;
         return a.type === b.type
+          && a.title  === b.title
+          && a.xLabel === b.xLabel
+          && a.yLabel === b.yLabel
           && (a.xs?.length || 0) === (b.xs?.length || 0)
           && (a.ys?.length || 0) === (b.ys?.length || 0)
           && (a.values?.length || 0) === (b.values?.length || 0)
@@ -1195,11 +1236,34 @@ export function renderOutputs() {
   if (!specs.length) return;
   for (const spec of specs) {
     const { name, unit } = spec;
+    // Defensive: @output on a bare expression (no binding name) gets a
+    // null name; rendering would look up state._scope[null] = undefined.
+    // Skip — the inline result still appears in the editor gutter.
+    if (!name) continue;
     const chip = document.createElement('div');
     chip.className = 'chip readonly';
     const lbl = document.createElement('div');
     lbl.className = 'chip-lbl';
     lbl.textContent = unit ? `${name} : ${unit}` : name;
+
+    // Plot-typed output: the binding's value is the void sentinel
+    // (plot() returns Quantity(0, {})), so the "value" position carries
+    // a small canvas thumbnail of the plot instead. Look up the
+    // descriptor on the corresponding body row.
+    const plotRow = state.body.find(r => r && r.name === name && r.plot);
+    if (plotRow) {
+      const canvas = document.createElement('canvas');
+      canvas.className = 'cm-ep-plot-canvas chip-out-plot';
+      const cssW = 240, cssH = 120;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width  = cssW * dpr;
+      canvas.height = cssH * dpr;
+      const desc = plotRow.plot;
+      requestAnimationFrame(() => drawPlot(canvas, desc, dpr));
+      chip.append(lbl, canvas);
+      outChipsEl.append(chip);
+      continue;
+    }
 
     const row = document.createElement('div');
     row.className = 'chip-out-row';
