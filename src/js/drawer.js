@@ -43,11 +43,25 @@ function applyPersistentClass() {
     drawer.classList.remove('persistent');
     document.documentElement.classList.remove('ep-drawer-persistent');
   }
+  updateDrawerInert();
+}
+
+// The drawer is rendered off-screen with transform: translateX(-100%) when
+// closed in mobile/modal mode — visually hidden but still in tab order.
+// Setting `inert` on the whole drawer removes its descendants from the
+// focus/tab tree, so Tab from the header doesn't blow past the editor
+// into invisible drawer buttons. Re-enabled whenever the drawer is
+// actually visible (open as modal OR persistent sidebar).
+function updateDrawerInert() {
+  const visible = persistentMode() || drawer.classList.contains('on');
+  if (visible) drawer.removeAttribute('inert');
+  else drawer.setAttribute('inert', '');
 }
 
 export function openDrawer({focusSearch = false} = {}) {
   drawer.classList.add('on');
   drawerScrim.classList.add('on');
+  updateDrawerInert();
   renderDrawerList();
   if (focusSearch && drawerSearchEl) setTimeout(() => drawerSearchEl.focus(), 30);
 }
@@ -60,6 +74,7 @@ export function closeDrawer() {
   if (persistentMode()) return;
   drawer.classList.remove('on');
   drawerScrim.classList.remove('on');
+  updateDrawerInert();
   closeMenu();
 }
 
@@ -301,6 +316,19 @@ export function renderDrawerList() {
 
     item.appendChild(info);
     item.appendChild(actions);
+
+    // Keyboard accessibility: each row is reachable via Tab (tabindex=0)
+    // and activates on Enter/Space — same effect as a mouse click. The
+    // ⋯ button stays its own focusable element for the per-program menu.
+    // role="button" cues screen readers that this div behaves like one.
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    item.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        item.click();
+      }
+    });
 
     item.addEventListener('click', () => {
       if (name !== currentProgramName) loadProgramByName(name);

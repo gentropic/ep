@@ -1950,6 +1950,31 @@ body {
   font-size: 12px;
 }
 .ctx-menu-item:hover { background: var(--sw-bg-deep); color: var(--sw-orange); }
+
+/* ── Keyboard-focus indicators (§4.4) ───────────────────────────────
+ *
+ * Native browser focus rings vary (Chrome blue, Safari grey, etc.) and
+ * tend to clash with ep's orange/teal palette. Override with a tight
+ * orange outline that reads against both light and dark themes. Scoped
+ * to :focus-visible so click-focus on buttons doesn't get the ring —
+ * only keyboard-Tab focus does, which is the case where it actually
+ * helps. */
+button:focus-visible,
+.drawer-item:focus-visible {
+  outline: 2px solid var(--sw-orange);
+  outline-offset: 2px;
+}
+.drawer-item:focus-visible {
+  /* Drawer items sit flush against the drawer edges; offset INside
+   * so the ring doesn't extend past the drawer's border. */
+  outline-offset: -2px;
+  border-radius: var(--sw-radius);
+}
+.ctx-menu-item:focus-visible {
+  /* Inside the menu's own padding; no need to offset out. */
+  outline: 2px solid var(--sw-orange);
+  outline-offset: -1px;
+}
 .ctx-menu-item.danger:hover { background: var(--sw-bg-deep); color: var(--sw-red); }
 /* Submenu arrow — right-aligned, muted so it doesn't compete with the label. */
 .ctx-menu-item-arrow {
