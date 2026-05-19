@@ -1530,31 +1530,43 @@ body {
  * persistent drawer this absorbs the slide-over snapshots panel —
  * snapshots live in the left rail where navigational/historical things
  * belong, no layout shift on toggle. */
+/* Tab-bar segmented control, flush to the drawer's side edges. Bottom
+ * border acts as the divider between this and the sections below;
+ * vertical hairline between buttons separates programs / history.
+ * Active state is background fill + orange text — no colored border to
+ * compete with the keyboard focus ring. */
 .drawer-modes {
   display: flex;
-  padding: 0 12px 8px;
-  gap: 4px;
+  border-top: 1px solid var(--sw-border-soft);
   border-bottom: 1px solid var(--sw-border-soft);
+  background: var(--sw-bg);
 }
 .drawer-mode-btn {
   flex: 1;
   background: transparent;
-  border: 1px solid var(--sw-border-soft);
+  border: none;
   color: var(--sw-text-soft);
   font-family: var(--sw-mono);
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  padding: 6px 8px;
-  border-radius: var(--sw-radius);
+  padding: 10px 8px;
   cursor: pointer;
-  transition: color 120ms, border-color 120ms, background 120ms;
+  transition: color 120ms, background 120ms;
 }
-.drawer-mode-btn:hover { color: var(--sw-text); border-color: var(--sw-border); }
+.drawer-mode-btn + .drawer-mode-btn {
+  border-left: 1px solid var(--sw-border-soft);
+}
+.drawer-mode-btn:hover:not(.active) { color: var(--sw-text); }
 .drawer-mode-btn.active {
   background: var(--sw-bg-bright);
   color: var(--sw-orange);
-  border-color: var(--sw-orange);
+  font-weight: 700;
+}
+/* Focus ring inset so it doesn't overflow the tab-bar's flush edges. */
+.drawer-mode-btn:focus-visible {
+  outline: 2px solid var(--sw-orange);
+  outline-offset: -2px;
 }
 
 .drawer-hdr {

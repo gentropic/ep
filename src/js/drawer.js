@@ -4,7 +4,7 @@
 
 import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting, listSnapshots, restoreSnapshot, pinSnapshot, deleteSnapshot, takeSnapshot } from './storage.js';
 import { openProgramMenu } from './ctxmenu.js';
-import { attachLongPress, closeMenu } from './menu.js';
+import { attachLongPress, closeMenu, showMenu } from './menu.js';
 import { isDesktop } from './viewport.js';
 import { epConfirm, epPrompt } from './dialogs.js';
 
@@ -231,60 +231,64 @@ function renderSnapshotRow(programName, snap) {
   meta.textContent = `${formatAgo(snap.takenAt)} · ${lineCount} line${lineCount === 1 ? '' : 's'}`;
   info.appendChild(meta);
 
+  // Actions live behind a ⋯ menu instead of three inline buttons. Avoids
+  // misclicks on destructive operations (restore replaces the program;
+  // delete removes the snapshot), and matches the per-program row
+  // pattern. Long-press / right-click on the row anywhere opens the
+  // same menu, mirroring the program-row interaction.
   const actions = document.createElement('div');
-  actions.className = 'snapshot-actions';
-
-  const restoreBtn = document.createElement('button');
-  restoreBtn.className = 'settings-btn';
-  restoreBtn.textContent = 'restore';
-  restoreBtn.title = 'replace current program with this snapshot (auto-saves a "before restore" first)';
-  restoreBtn.addEventListener('click', async (e) => {
+  actions.className = 'drawer-item-actions';
+  const ellipsis = document.createElement('button');
+  ellipsis.className = 'drawer-item-menu-btn';
+  ellipsis.textContent = '⋯';
+  ellipsis.setAttribute('aria-label', 'snapshot actions');
+  ellipsis.addEventListener('click', e => {
     e.stopPropagation();
-    const ok = await epConfirm({
-      title: 'Restore snapshot?',
-      message: snap.label
-        ? `Replace the current program with the snapshot "${snap.label}"? Your current state will be saved as a "before restore" snapshot first.`
-        : `Replace the current program with this snapshot? Your current state will be saved as a "before restore" snapshot first.`,
-      okLabel: 'Restore',
-    });
-    if (!ok) return;
-    restoreSnapshot(programName, snap.id);
-    renderHistoryList();
+    const rect = ellipsis.getBoundingClientRect();
+    openSnapshotMenu(programName, snap, rect.right, rect.bottom + 4, { alignRight: true });
   });
-  actions.appendChild(restoreBtn);
+  actions.appendChild(ellipsis);
 
-  const pinBtn = document.createElement('button');
-  pinBtn.className = 'settings-btn';
-  pinBtn.textContent = snap.pinned ? 'unpin' : 'pin';
-  pinBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    pinSnapshot(programName, snap.id, !snap.pinned);
-    renderHistoryList();
-  });
-  actions.appendChild(pinBtn);
-
-  const delBtn = document.createElement('button');
-  delBtn.className = 'settings-btn danger';
-  delBtn.textContent = 'delete';
-  delBtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const ok = await epConfirm({
-      title: 'Delete snapshot?',
-      message: snap.label
-        ? `Delete the snapshot "${snap.label}"? This can't be undone.`
-        : `Delete this snapshot? This can't be undone.`,
-      okLabel: 'Delete',
-      danger: true,
-    });
-    if (!ok) return;
-    deleteSnapshot(programName, snap.id);
-    renderHistoryList();
-  });
-  actions.appendChild(delBtn);
+  attachLongPress(row, (x, y) => openSnapshotMenu(programName, snap, x, y));
 
   row.appendChild(info);
   row.appendChild(actions);
   return row;
+}
+
+function openSnapshotMenu(programName, snap, x, y, opts = {}) {
+  showMenu([
+    { label: 'restore', action: async () => {
+      const ok = await epConfirm({
+        title: 'Restore snapshot?',
+        message: snap.label
+          ? `Replace the current program with the snapshot "${snap.label}"? Your current state will be saved as a "before restore" snapshot first.`
+          : `Replace the current program with this snapshot? Your current state will be saved as a "before restore" snapshot first.`,
+        okLabel: 'Restore',
+      });
+      if (!ok) return;
+      restoreSnapshot(programName, snap.id);
+      renderHistoryList();
+    } },
+    { label: snap.pinned ? 'unpin' : 'pin', action: () => {
+      pinSnapshot(programName, snap.id, !snap.pinned);
+      renderHistoryList();
+    } },
+    { separator: true },
+    { label: 'delete', danger: true, action: async () => {
+      const ok = await epConfirm({
+        title: 'Delete snapshot?',
+        message: snap.label
+          ? `Delete the snapshot "${snap.label}"? This can't be undone.`
+          : `Delete this snapshot? This can't be undone.`,
+        okLabel: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
+      deleteSnapshot(programName, snap.id);
+      renderHistoryList();
+    } },
+  ], x, y, opts);
 }
 
 // React to viewport-band changes (window resized across the 1024 boundary,
