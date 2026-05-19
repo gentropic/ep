@@ -645,10 +645,38 @@ function openGutterUnitMenu(lineIdx, x, y) {
   if (!candidates.length) return;
   state.ui.gutterUnits = state.ui.gutterUnits || {};
   const current = state.ui.gutterUnits[row.name] || null;
-  const items = candidates.map(c => ({
+
+  // Tuck the long-tail families into submenus so the top-level list stays
+  // browseable. Length picker is the offender: 32 sieve mesh sizes + DCDMA
+  // core sizes (NQ_core / HQ_hole / etc.) flatten into a scroll-forever
+  // list otherwise. Other dimensions don't have giant families and pass
+  // through unchanged.
+  const isMesh = c => /^mesh\d+/.test(c.name);
+  const isCore = c => /_(core|hole)$/.test(c.name);
+  const mesh = candidates.filter(isMesh);
+  const cores = candidates.filter(isCore);
+  const standard = candidates.filter(c => !isMesh(c) && !isCore(c));
+
+  const toItem = c => ({
     label: c.name + (c.name === current ? '  ✓' : ''),
     action: () => setGutterUnit(row.name, c.name),
-  }));
+  });
+
+  const items = standard.map(toItem);
+  if (mesh.length) {
+    if (items.length) items.push({ separator: true });
+    items.push({
+      label: `mesh sizes (${mesh.length})`,
+      submenu: mesh.map(toItem),
+    });
+  }
+  if (cores.length) {
+    if (items.length && !mesh.length) items.push({ separator: true });
+    items.push({
+      label: `DCDMA cores (${cores.length})`,
+      submenu: cores.map(toItem),
+    });
+  }
   if (current) {
     items.push({ separator: true });
     items.push({ label: 'auto-scale', action: () => setGutterUnit(row.name, null) });

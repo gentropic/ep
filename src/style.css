@@ -1922,7 +1922,20 @@ body {
   min-width: 140px;
   font-family: var(--sw-mono);
   font-size: 12px;
+  /* Cap height so a long list (mesh sizes: 32, future builtins lists, etc.)
+   * doesn't span the whole viewport. Past the cap the menu scrolls
+   * internally — positionMenu/positionSubmenu read offsetHeight after
+   * mount, so the bounded height feeds back into their flip/clamp logic. */
+  max-height: 60vh;
+  overflow-y: auto;
+  /* Thin scrollbar that matches the surrounding chrome rather than the
+   * OS default chunky bar. Falls back to the OS default outside Webkit. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--sw-border) transparent;
 }
+.ctx-menu::-webkit-scrollbar { width: 6px; }
+.ctx-menu::-webkit-scrollbar-track { background: transparent; }
+.ctx-menu::-webkit-scrollbar-thumb { background: var(--sw-border); border-radius: 3px; }
 .ctx-menu-item {
   display: block;
   width: 100%;
@@ -1938,6 +1951,13 @@ body {
 }
 .ctx-menu-item:hover { background: var(--sw-bg-deep); color: var(--sw-orange); }
 .ctx-menu-item.danger:hover { background: var(--sw-bg-deep); color: var(--sw-red); }
+/* Submenu arrow — right-aligned, muted so it doesn't compete with the label. */
+.ctx-menu-item-arrow {
+  float: right;
+  color: var(--sw-text-soft);
+  font-size: 11px;
+  margin-left: 12px;
+}
 .ctx-menu-sep {
   height: 1px;
   background: var(--sw-border-soft);
