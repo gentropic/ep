@@ -430,8 +430,9 @@ export function getCompletionData() {
   // assert, the plot family, mod/max/min).
   const userFns  = h.fns ? [...h.fns.keys()] : [];
   const procFns  = ['print', 'println', 'assert', 'assert_eq', 'error',
-                    'mod', 'max', 'min', 'random', 'type',
-                    'plot', 'scatter', 'bar_chart', 'hist'];
+                    'mod', 'max', 'min', 'random', 'random_list', 'type',
+                    'plot', 'scatter', 'bar_chart', 'hist',
+                    'zeros', 'ones', 'linspace', 'arange'];
   const functions = [...new Set([...userFns, ...procFns])].sort();
   const dimensions = Object.keys(DIMENSION_OF).sort();
   const keywords = [

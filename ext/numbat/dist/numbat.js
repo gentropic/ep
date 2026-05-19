@@ -3088,7 +3088,31 @@ const BUILTIN_PROC_SCHEMES = {
   drop:       schemeListSlice,
   reverse:    schemeReverse,
   element_at: schemeElementAt,
+  random_list: schemeRandomList,
+  zeros:    schemeZerosOnes,
+  ones:     schemeZerosOnes,
+  linspace: schemeLinspace,
+  arange:   schemeArange,
 };
+
+function schemeRandomList() {
+  // (Scalar) -> List<Scalar>  — n random samples in [0, 1)
+  return generalize(tFn([T_SCALAR], tList(T_SCALAR)), [], []);
+}
+function schemeZerosOnes() {
+  // (Scalar) -> List<Scalar>  — same shape for both
+  return generalize(tFn([T_SCALAR], tList(T_SCALAR)), [], []);
+}
+function schemeLinspace() {
+  // <D: Dim>(D, D, Scalar) -> List<D>  — preserves unit-bearing dim
+  const d = freshTVar();
+  return generalize(tFn([d, d, T_SCALAR], tList(d)), [d], []);
+}
+function schemeArange() {
+  // <D: Dim>(D, D, D?) -> List<D>  — third arg (step) optional, same dim
+  const d = freshTVar();
+  return generalize(tFn([d, d, d], tList(d), { optional: 1 }), [d], []);
+}
 
 function schemeRange() {
   // (Scalar, Scalar) -> List<Scalar>
@@ -3793,6 +3817,93 @@ const BUILTIN_PROCS = {
     const idx = Math.round(i);
     if (idx < 0 || idx >= xs.length) throw new Error(`element_at: index ${idx} out of bounds (list has ${xs.length} elements)`);
     return xs[idx];
+  },
+  random_list(args) {
+    // random_list(n) → List<Scalar> of n samples uniform on [0, 1).
+    // Convenience because plain map(_, range(...)) would require a
+    // discard-fn for `random()` which takes no args. ep-flavored.
+    const n = args[0] instanceof Quantity ? args[0].value : args[0];
+    if (!Number.isFinite(n) || n < 0) throw new Error('random_list: arg must be a non-negative finite scalar');
+    const count = Math.round(n);
+    const out = new Array(count);
+    for (let i = 0; i < count; i++) out[i] = new Quantity(Math.random(), {});
+    return out;
+  },
+  // List constructors — numpy-shaped helpers for the dataset / plot lane.
+  // ep-flavored extensions; upstream Numbat's stdlib doesn't ship these
+  // (though upstream's plot::common has linspace, used internally).
+  zeros(args) {
+    const n = args[0] instanceof Quantity ? args[0].value : args[0];
+    if (!Number.isFinite(n) || n < 0) throw new Error('zeros: arg must be a non-negative finite scalar');
+    const k = Math.round(n);
+    const out = new Array(k);
+    for (let i = 0; i < k; i++) out[i] = new Quantity(0, {});
+    return out;
+  },
+  ones(args) {
+    const n = args[0] instanceof Quantity ? args[0].value : args[0];
+    if (!Number.isFinite(n) || n < 0) throw new Error('ones: arg must be a non-negative finite scalar');
+    const k = Math.round(n);
+    const out = new Array(k);
+    for (let i = 0; i < k; i++) out[i] = new Quantity(1, {});
+    return out;
+  },
+  linspace(args) {
+    // linspace(start, end, n) → n evenly-spaced points from start to end
+    // (both inclusive). Preserves the input quantities' dim — so
+    // linspace(0 m, 10 m, 5) yields List<Length>. Mirrors numpy.linspace
+    // and upstream Numbat's plot::common::linspace.
+    if (args.length !== 3) throw new Error(`linspace: expected 3 args (start, end, n), got ${args.length}`);
+    const [startQ, endQ, nArg] = args;
+    if (!(startQ instanceof Quantity) || !(endQ instanceof Quantity)) {
+      throw new Error('linspace: start and end must be quantities');
+    }
+    if (!dimEq(startQ.dim, endQ.dim)) {
+      throw new Error(`linspace: start and end must have the same dim`);
+    }
+    const n = nArg instanceof Quantity ? nArg.value : nArg;
+    if (!Number.isFinite(n) || n < 0) throw new Error('linspace: n must be a non-negative finite scalar');
+    const k = Math.round(n);
+    if (k === 0) return [];
+    if (k === 1) return [new Quantity(startQ.value, startQ.dim)];
+    const step = (endQ.value - startQ.value) / (k - 1);
+    const out = new Array(k);
+    for (let i = 0; i < k; i++) out[i] = new Quantity(startQ.value + step * i, startQ.dim);
+    return out;
+  },
+  arange(args) {
+    // arange(start, stop [, step]) → numpy-style: stop EXCLUSIVE, step
+    // optional (default 1). Supports negative step (descending range)
+    // and unit-bearing args (preserves dim). Differs from range() which
+    // is integer-only / inclusive / step=1 to match upstream Numbat.
+    if (args.length < 2 || args.length > 3) {
+      throw new Error(`arange: expected 2..3 args (start, stop [, step]), got ${args.length}`);
+    }
+    const [startQ, stopQ, stepQ] = args;
+    if (!(startQ instanceof Quantity) || !(stopQ instanceof Quantity)) {
+      throw new Error('arange: start and stop must be quantities');
+    }
+    if (!dimEq(startQ.dim, stopQ.dim)) {
+      throw new Error('arange: start and stop must have the same dim');
+    }
+    let step = 1;
+    if (stepQ !== undefined) {
+      if (!(stepQ instanceof Quantity)) throw new Error('arange: step must be a quantity');
+      if (!dimEq(stepQ.dim, startQ.dim)) {
+        throw new Error('arange: step must have the same dim as start / stop');
+      }
+      step = stepQ.value;
+    }
+    if (!Number.isFinite(step) || step === 0) throw new Error('arange: step must be non-zero finite');
+    const start = startQ.value, stop = stopQ.value;
+    const dim = startQ.dim;
+    const out = [];
+    if (step > 0) {
+      for (let v = start; v < stop; v += step) out.push(new Quantity(v, dim));
+    } else {
+      for (let v = start; v > stop; v += step) out.push(new Quantity(v, dim));
+    }
+    return out;
   },
   // String helpers — implementations for upstream's `extern fn …`
   // declarations under core::strings. Match upstream signatures.

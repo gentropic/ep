@@ -175,7 +175,31 @@ const BUILTIN_PROC_SCHEMES = {
   drop:       schemeListSlice,
   reverse:    schemeReverse,
   element_at: schemeElementAt,
+  random_list: schemeRandomList,
+  zeros:    schemeZerosOnes,
+  ones:     schemeZerosOnes,
+  linspace: schemeLinspace,
+  arange:   schemeArange,
 };
+
+function schemeRandomList() {
+  // (Scalar) -> List<Scalar>  — n random samples in [0, 1)
+  return generalize(tFn([T_SCALAR], tList(T_SCALAR)), [], []);
+}
+function schemeZerosOnes() {
+  // (Scalar) -> List<Scalar>  — same shape for both
+  return generalize(tFn([T_SCALAR], tList(T_SCALAR)), [], []);
+}
+function schemeLinspace() {
+  // <D: Dim>(D, D, Scalar) -> List<D>  — preserves unit-bearing dim
+  const d = freshTVar();
+  return generalize(tFn([d, d, T_SCALAR], tList(d)), [d], []);
+}
+function schemeArange() {
+  // <D: Dim>(D, D, D?) -> List<D>  — third arg (step) optional, same dim
+  const d = freshTVar();
+  return generalize(tFn([d, d, d], tList(d), { optional: 1 }), [d], []);
+}
 
 function schemeRange() {
   // (Scalar, Scalar) -> List<Scalar>
