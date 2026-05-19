@@ -99,7 +99,10 @@ const BUILTIN_FNS = {
   asin(q){ mustBeDimensionless(q, 'asin');return new Quantity(Math.asin(q.value), {}); },
   acos(q){ mustBeDimensionless(q, 'acos');return new Quantity(Math.acos(q.value), {}); },
   atan(q){ mustBeDimensionless(q, 'atan');return new Quantity(Math.atan(q.value), {}); },
-  log(q) { mustBeDimensionless(q, 'log'); return new Quantity(Math.log10(q.value), {}); },
+  // Upstream Numbat defines `log` as an alias for `ln` (natural log) —
+  // `fn log(x) = ln(x)` in math/transcendental.nbt. Earlier this was
+  // wired to Math.log10, which silently diverged from upstream.
+  log(q) { mustBeDimensionless(q, 'log'); return new Quantity(Math.log(q.value), {}); },
   log10(q){mustBeDimensionless(q, 'log10');return new Quantity(Math.log10(q.value), {}); },
   log2(q){ mustBeDimensionless(q, 'log2');return new Quantity(Math.log2(q.value), {}); },
   ln(q)  { mustBeDimensionless(q, 'ln');  return new Quantity(Math.log(q.value), {}); },
