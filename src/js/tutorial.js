@@ -7,7 +7,8 @@
 //   1. tap a chip                  — auto-advances on chip input event
 //   2. watch the outputs update    — auto-advances after 2s
 //   3. the chips are just source   — manual "next →"
-//   4. programs travel             — manual "next →" (final step)
+//   4. programs travel             — manual "next →"
+//   5. where to find help          — manual "next →" (final step)
 
 const TUTORIAL_DONE_KEY = 'ep:tutorialDone';
 
@@ -52,6 +53,12 @@ const STEPS = [
     title: 'programs travel',
     body: 'Use export to bundle as a .ep file, a standalone .html, or a shareable link / QR.',
     target: () => document.getElementById('exportBtn'),
+    manual: true,
+  },
+  {
+    title: 'help is built in',
+    body: 'Open the menu and switch to the docs tab — guides on syntax, units, broadcasting and plots, plus a searchable function reference. All offline.',
+    target: () => document.getElementById('menuBtn'),
     manual: true,
   },
 ];
