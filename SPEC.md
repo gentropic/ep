@@ -65,6 +65,7 @@ The same program has three presentations:
 | `@input` (decorator) | tags the next binding as an input chip in the top panel |
 | `@output[(unit)]` (decorator) | tags the next binding as an output chip; optional unit override |
 | `@options(a, b, c)` (decorator) | renders the next binding's chip as a `<select>` with the given options |
+| `@range(min, max[, step])` (decorator) | renders the next binding's chip as a numeric slider over the given range |
 
 Multi-line `fn` bodies, `struct` declarations, `where` clauses across multiple lines, and `use module::path` aren't supported at the line classifier level yet. `where` clauses on single-line `fn` definitions work.
 
@@ -77,9 +78,13 @@ Infix arithmetic with standard precedence:
 | 1 (highest) | `^`, `**`, `²` `³` (unicode exponents) | right |
 | 2 | `*` `×` `·`, `/` `÷` | left |
 | 3 | `+`, `-` `−` | left |
-| 4 (lowest) | `->` / `to` / `→` (unit conversion) | left |
+| 4 | `==`, `!=`, `<`, `<=`, `>`, `>=` (comparison) | left |
+| 5 | `&&`, `\|\|` (logical), `and`, `or` | left |
+| 6 (lowest) | `->` / `to` / `→` (unit conversion) | left |
 
-Unary minus, parens. Function calls `f(arg)`. Constants `pi`, `e`. Number literals: integer, decimal, scientific (`1.5e-3`), underscore separators (`12_345`).
+Unary minus, unary `!` (logical not), parens. Function calls `f(arg)`. Postfix `n!` (factorial). Pipe `x \|> f`. Constants `pi`, `e`, `tau`, … Number literals: integer, decimal, scientific (`1.5e-3`), underscore separators (`12_345`).
+
+Comparison and logical operators produce `Bool`; when an operand is a list they broadcast element-wise to `List<Bool>` (see "Lists, broadcasting, and masks" below).
 
 ### Quantities
 
@@ -123,9 +128,29 @@ metal_oz = metal -> ozt    # display in troy ounces
 
 Arithmetic on a `->` -tagged value does NOT propagate the display tag — once you do further math, the result auto-scales again.
 
-### Decorators — `@input`, `@output`, `@options`
+### Lists, broadcasting, and masks (ep extension)
 
-ep extends numbat-script with three decorators that adorn the binding on the line *below* them. They're real numbat-grammar decorators (`@<name>` or `@<name>(<args>)`) — unknown to upstream numbat at semantic-time but parsed cleanly there, so programs using ep decorators round-trip through pure numbat without errors. See "Numbat compatibility status" below.
+Lists are written `[a, b, c]`; all elements share a type (and dimension, for quantities). Upstream Numbat has `List<T>` and a recursive `core::lists` prelude; ep extends that surface for the calculator / dataset lane:
+
+- **Native list ops.** `map`, `map2`, `filter`, `foldl`, `concat`, `take`, `drop`, `reverse`, `element_at`, `range`, plus primitives `head`/`tail`/`cons`/`len`/`is_empty`. ep ships iterative native implementations that shadow the recursive `core::lists` defs — Numbat has no loops, so the upstream versions recurse, and a tree-walking interpreter overflows the stack on lists of a few thousand elements.
+- **List builders.** `linspace(a, b, n)` (unit-preserving), `arange(a, b, step?)`, `zeros(n)`, `ones(n)`, `random_list(n)`.
+- **Arithmetic broadcasting.** `*`, `/`, `+`, `-`, `^`, unary `-`, and the built-in 1-arg numeric fns (`sin`, `sqrt`, `ln`, …) broadcast element-wise — `xs * 2`, `sin(xs)`, `xs + ys`. List ⊕ List requires equal length; List ⊕ Scalar broadcasts the scalar. Dimensions still apply per element.
+- **Comparison broadcasting + masks.** `>`, `<`, `>=`, `<=` and list-vs-scalar `==`/`!=` broadcast to `List<Bool>`. List-vs-list `==`/`!=` stays structural (single `Bool`) so `is_empty(xs) = xs == []` and similar keep working. `&&`/`||`/`!` broadcast over `List<Bool>`.
+- **Mask filtering + reductions.** `filter(mask, xs)` keeps elements where the mask is true (the predicate-function form `filter(fn, xs)` also still works — overloaded on the first arg's type). `any(mask)` / `all(mask)` (short-circuiting) and `count(mask)` reduce a `List<Bool>`.
+
+Broadcasting and masks are the substrate for the planned dataset / `where`-clause layer — see `SPEC-DATASETS.md`. The runtime is eager; lazy views land with that work.
+
+### Lambdas (ep extension)
+
+Arrow-function literals: `x => body` for one parameter, `(x, y) => body` for several. Parameters may carry type annotations. Used as first-class arguments to higher-order fns (`filter(x => x > 0, xs)`). Upstream Numbat has no lambda syntax yet; ep adds them as a small parser extension and will adopt upstream's form if/when it lands.
+
+### Plots (ep extension)
+
+`plot`, `scatter`, `bar_chart`, and `hist` render a canvas chart inline below the calling line. Trailing string args are optional x-label / y-label / title. A plot bound to an `@output` also surfaces as a compact, chrome-free thumbnail in the outputs panel — tap to enlarge, long-press to jump to the source row.
+
+### Decorators — `@input`, `@output`, `@options`, `@range`
+
+ep extends numbat-script with four decorators that adorn the binding on the line *below* them. They're real numbat-grammar decorators (`@<name>` or `@<name>(<args>)`) — unknown to upstream numbat at semantic-time but parsed cleanly there, so programs using ep decorators round-trip through pure numbat without errors. See "Numbat compatibility status" below.
 
 ```ep
 # Drill core sample
@@ -152,6 +177,8 @@ mass = sample_mass(core_size, length, density)
 **`@output[(unit)]`** — the binding shows up in the bottom chip panel with a copy button. The optional argument is a display-unit override (resolved as a Numbat expression, so compound forms like `ft^3`, `kg/m^2`, `km/h` work without pre-registered aliases). Without an argument, the auto-scale formatter picks the unit.
 
 **`@options(a, b, c, …)`** — the binding's chip renders as a `<select>` with exactly those options. Useful for enum-style tags (`rock_type = granite`) where the value is a label, not a numeric quantity. When `@options` is present and the value is a bare label rather than a numbat-resolvable expression, ep skips evaluation entirely (no "unknown identifier" noise). Implies `@input` semantics for chip rendering even without an explicit `@input` line.
+
+**`@range(min, max[, step])`** — the binding's chip renders as a numeric slider over `[min, max]`, with an optional `step` (defaults to a continuous range). For numeric inputs the user wants to sweep — cutoff grades, rates — rather than type. Implies `@input` chip rendering.
 
 Decorators stack — `@input` + `@output(km)` on the same binding makes it both an input chip and an output chip (e.g. for round-tripping unit conversions). Blank lines and `#` comments between a decorator and its target binding are tolerated.
 
@@ -301,7 +328,9 @@ The Phase 1–3 plan from earlier versions of this doc has all landed:
 
 - **Source split + build script** — `src/template.html`, `src/style.css`, `src/js/*.js`, plus a second `src/viewer-template.html` for the export artifact. Zero-deps `build.js` at the repo root concatenates them into `index.html`. Two vendor builds run as prerequisites (`ext/numbat/build.js`, `ext/qrcode/build.js`) and a third (`ext/cm6/build.js`) produces the CM6 bundle from npm-installed sources on demand. `node_modules/` is gitignored under `ext/cm6/`; the prebuilt `cm6.min.js` is committed.
 - **CodeMirror 6 editor** — vendored from auditable's pattern, ~597 KB IIFE bundle. Syntax highlighting via a StreamLanguage for ep-script (comments, `@decorators`, keywords, type names, constants, operators). Bracket matching + auto-close. `EditorView.lineWrapping` so long lines don't trigger horizontal scroll.
-- **numbat-js** — full port under `ext/numbat/`, drives expression evaluation. All 62 upstream Numbat modules vendored as strings; the full test corpus passes (typecheck + integration + conformance + upstream-port = 749 tests at the ep level, plus the per-module suites under `ext/numbat/test/`). ep's own evaluator (`src/js/evaluator.js`, ~900 LOC) classifies each row, drives the per-statement typecheck via `typecheckStatement`, evaluates the runtime, integrates the blame walker for `@output` mismatches, and routes `print()` output to per-row info widgets.
+- **numbat-js** — full port under `ext/numbat/`, drives expression evaluation. All 62 upstream Numbat modules vendored as strings; the full test corpus passes (typecheck + integration + conformance + upstream-port + broadcasting = 770 tests at the ep level, plus the per-module suites under `ext/numbat/test/`). ep's own evaluator (`src/js/evaluator.js`, ~900 LOC) classifies each row, drives the per-statement typecheck via `typecheckStatement`, evaluates the runtime, integrates the blame walker for `@output` mismatches, and routes `print()` output to per-row info widgets.
+- **Language extensions** — beyond the upstream Numbat surface, ep adds: arrow-function lambdas, arithmetic + comparison + logical broadcasting over lists, mask filtering (`filter(mask, xs)`), the `any`/`all`/`count` mask reductions, native iterative list ops shadowing the recursive `core::lists` prelude, list builders (`linspace`/`arange`/`zeros`/`ones`/`random_list`), and inline plotting (`plot`/`scatter`/`bar_chart`/`hist`). All are designed to round-trip through, or extend cleanly past, upstream Numbat — see "Lists, broadcasting, and masks" and "Lambdas" in the Syntax section.
+- **In-editor + in-app docs** — signature help, hover docs, autocomplete info panels (all fed by `src/js/docs.js`), and a drawer `docs` mode with searchable guides + function reference (`src/js/guides.js`). See §4.4–§4.5.
 
 - **Static typechecker** — full HM-style dimension-aware checker under `ext/numbat/src/typecheck/` (12 files, ~2,150 LOC). Handles type variables (`TVar`) and dimension variables (`TDimVar`) separately, with rational-exponent dim arithmetic (`rat.js` for normalized `Rat`), unrestricted generics with proper let-generalization, polymorphic zero, IsDType promotion of type variables to dim variables on demand, and free-var consistency checks across function bodies. Errors include Levenshtein did-you-mean for unknown names, context strings (`in the argument of fn foo`), and a snippet builder that points at the offending token. ~102 upstream tests ported from `numbat`'s `type_checking.rs` and parts of `type_inference.rs`. Every ep row runs through `typecheckStatement` before evaluation; type errors surface through the same inline-block path as runtime errors (see §4.2).
 
@@ -309,7 +338,7 @@ Things deferred to "when use cases pull":
 
 - **Incremental DAG reactivity** — see Performance section below.
 - **`iter` / `solve` / `root` / `integrate` primitives** — numbat-js doesn't have these upstream; would need to add. Out of scope until calculator-scale programs hit walls.
-- **Dataset-shaped values** — lazy collections, masks, block models. Designed in `SPEC-DATASETS.md`; not built. The typechecker's `TList` and `TStruct` already support the type-level shape, so the open work is surface syntax (`where`-overload, masks, backtick column names) + runtime (view chains, materialization, reductions).
+- **Dataset-shaped values** — lazy collections, block models. Designed in `SPEC-DATASETS.md`. The eager substrate has landed: comparison broadcasting produces `List<Bool>` masks, `filter(mask, xs)` selects, and `any`/`all`/`count` reduce. Still open: the `where`-clause filter syntax, backtick column names, struct-typed lists with `model.column` projection, lazy view chains, async-loaded sources (CSV / block-model import), and AIR-compiled reductions. The typechecker's `TList` and `TStruct` already support the type-level shape.
 
 ---
 
@@ -426,12 +455,16 @@ ep/
       units.js             ← adapter re-exporting numbat-js primitives
       evaluator.js         ← classify + parseAnno + evaluate() + typecheck wiring
       blame.js             ← bidirectional blame walker for @output dim mismatches
-      render.js            ← chip + CM6 editor rendering + inline block widgets
+      render.js            ← chip + CM6 editor rendering + inline block widgets,
+                             sig help, hover docs, plot drawing
+      docs.js              ← DOCS table + DOC_GROUPS (autocomplete / sig help /
+                             hover / docs-mode reference)
+      guides.js            ← long-form guide pages + tiny markdown renderer
       storage.js           ← persistence + autosave + draft slot + ephemeral
       share.js             ← URL share encode/decode + QR rendering
       dialogs.js           ← in-app epConfirm / epPrompt
       ctxmenu.js           ← long-press + program context menu
-      drawer.js            ← hamburger drawer + saved programs list
+      drawer.js            ← hamburger drawer: programs / history / docs modes
       scenarios.js         ← named @input presets
       examples.js          ← built-in starter programs
       tutorial.js          ← first-launch walkthrough
@@ -695,7 +728,7 @@ When the implementation graduates to its own package (`@gcu/pointer`), `src/js/p
 
 ---
 
-## 4. Editing affordances — §4.1 / §4.2 / §4.3 **Shipped**; §4.4 **Future**
+## 4. Editing affordances — §4.1–§4.5 **Shipped**; §4.6 **Future**
 
 ### 4.1 Syntax highlighting — **Shipped** (M)
 
@@ -733,13 +766,36 @@ Errors surface in three coordinated places:
 
 The full error text remains visible as a native `title` tooltip on the marked span as well, in case the block widget is dismissed (currently always visible — dismissibility is **Future**).
 
+**Mid-edit quiet.** Two refinements keep errors from being noisy while the user is actively typing. (1) *Cursor-line suppression* — the line the cursor is on shows no error indicators at all (block widget, squiggle, gutter ✕): the user is editing right there and a mid-keystroke "unknown identifier" is just noise. The indicators reappear when the cursor leaves the line. (2) *Debounce* — evaluation stays synchronous (results, gutter, chip values update live every keystroke), but the error-decoration pass waits ~300 ms past the last edit, so downstream rows that transiently error mid-keystroke don't flicker red. Cursor-only moves apply marks immediately, so the cursor-line suppression releases without lag.
+
 ### 4.3 Auto-pair brackets/braces — **Shipped** (S)
 
 In the body editor, typing `(`, `[`, `{` inserts the matching close character with the cursor in the middle. Typing the close character when the next char is already that close just moves the cursor past. Backspace at the empty pair deletes both.
 
 Standard editor affordance. CM6 has this built-in via `closeBrackets()` extension.
 
-### 4.4 Tab-cycle through chips and body rows (S)
+### 4.4 In-editor documentation — **Shipped** (M)
+
+Three coordinated surfaces, all fed by the hand-curated `DOCS` table in `src/js/docs.js` (~150 entries: signature, description, optional example):
+
+**Autocomplete info panel.** Each completion option carries an `info` field; CM6 renders it beside the popup.
+
+**Signature help.** When the cursor sits inside a function call's argument list, a tooltip shows the function signature with the active argument highlighted (comma-counted at paren depth 0, string-aware). Cursor-anchored on desktop; on mobile it docks as a strip just above the accessory bar (which itself rides above the soft keyboard via `--ep-kbd-inset`), since a cursor-anchored tooltip tends to land off-screen there.
+
+**Hover docs.** Resting the pointer (~350 ms) on a builtin / decorator / keyword shows its `DOCS` entry as a tooltip. Desktop-only by nature; mobile reaches the same content through the autocomplete panel and the sig-help strip.
+
+`showTooltip` and `hoverTooltip` are exported from the CM6 bundle for these.
+
+### 4.5 In-app docs viewer — **Shipped** (M)
+
+The drawer gains a third mode (`docs`, alongside `programs` / `history`):
+
+- **Guides** — long-form pages from `src/js/guides.js`: ep-specific topics (decorators, broadcasting + masks, plots, export, form view, persistence) plus Numbat fundamentals (numbers/units, dimensions, conversion, functions, lists, strings) adapted with MIT/Apache attribution. A ~120-line hand-rolled markdown renderer (no library) drives them; prev/next nav between pages; fenced code blocks have copy buttons.
+- **Function reference** — the `DOCS` table grouped by category (`DOC_GROUPS`), searchable.
+
+`guides.js` is deliberately excluded from `VIEWER_JS_FILES`, so program-form `.html` exports (which clone the viewer artifact) don't carry the doc weight — the recipient only sees the form anyway.
+
+### 4.6 Tab-cycle through chips and body rows (S) — **Future**
 
 Hitting Tab in a chip input moves focus to the next chip. Shift+Tab to previous. Tab from the last chip moves to the first body row. Tab through body rows linearly. Tab from the last body row goes to the first output chip's copy button (or wraps).
 

@@ -1099,7 +1099,7 @@ function mountCm6() {
               else                                syncChipInputsFromState();
               renderChipResults();
               renderOutputs();
-              applyErrorMarks();
+              scheduleErrorMarks();
               window.dispatchEvent(new CustomEvent('ep:params-changed'));
             } catch (e) {
               // Never let an evaluator hiccup wedge CM6's update cycle.
@@ -1136,7 +1136,7 @@ function mountCm6() {
   // off), re-run the inline-block dispatch so widgets that depend on
   // the setting clear immediately instead of waiting for the next
   // body or chip edit.
-  window.addEventListener('ep:params-changed', () => applyErrorMarks());
+  window.addEventListener('ep:params-changed', () => scheduleErrorMarks());
 
   // Right-click in the body opens ep's body-row context menu (snapshot,
   // copy result as, format document). Skipped when the user has an
@@ -1406,7 +1406,7 @@ export function renderChips() {
       syncCmFromState();
       renderChipResults();
       renderOutputs();
-      applyErrorMarks();
+      scheduleErrorMarks();
       // storage.js listens for ep:params-changed and triggers autosave.
       // Decoupled from render so the viewer can reuse render.js without
       // pulling in the storage layer.
@@ -1539,12 +1539,33 @@ function setGutterUnit(name, unitName) {
   window.dispatchEvent(new CustomEvent('ep:params-changed'));
 }
 
+// Debounced applyErrorMarks. Evaluation itself stays synchronous —
+// results, the gutter, and chip values update live on every keystroke.
+// Only the ERROR DECORATION pass is deferred: while the user is mid-
+// edit, downstream rows transiently error (e.g. typing `x = ` makes
+// every row using `x` go red for a frame) and that flicker is pure
+// noise. Waiting ~300ms past the last keystroke lets the program
+// settle before lighting anything up. Cursor-only moves still apply
+// marks immediately — see the selectionSet branch — so the cursor-
+// line suppression releases without lag.
+let _errorMarksTimer = null;
+function scheduleErrorMarks() {
+  if (_errorMarksTimer) clearTimeout(_errorMarksTimer);
+  _errorMarksTimer = setTimeout(() => {
+    _errorMarksTimer = null;
+    applyErrorMarks();
+  }, 300);
+}
+
 // §4.2 — push the current set of body-row errors into the CM6 decoration
 // field. The parser surfaces "<src>:1:<col>: msg" for parse errors; we
 // extract col and translate it into source-line coordinates by adding the
 // `name = ` prefix length on binding lines. Non-binding lines (or messages
 // without a parseable position) fall back to underlining the whole line.
 function applyErrorMarks() {
+  // A pending debounce timer is now moot — we're applying marks right
+  // now. Clear it so a stale timer doesn't double-fire a moment later.
+  if (_errorMarksTimer) { clearTimeout(_errorMarksTimer); _errorMarksTimer = null; }
   if (!cmView || !_errorEffect) return;
   // Suppress every error indicator on the line the cursor is on —
   // block widget, squiggle underline, and gutter ✕. The user is typing
