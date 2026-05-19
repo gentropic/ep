@@ -1153,6 +1153,27 @@ body {
 .cm-completionIcon-type::after     { content: 'τ'; color: var(--sw-indigo); }
 .cm-completionIcon-unit::after     { content: 'u'; color: var(--sw-text-soft); }
 
+/* Info panel — the side popup that shows when an option is focused.
+ * docs.js populates this with multi-line signature + description +
+ * example text. The CM6 default styling is anemic; override to match
+ * the rest of the autocomplete popup. white-space: pre-wrap so the
+ * multi-line strings render with their line breaks. */
+.cm-tooltip.cm-completionInfo {
+  background: var(--sw-bg-bright) !important;
+  border: 1px solid var(--sw-border) !important;
+  border-radius: var(--sw-radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  color: var(--sw-text);
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  max-width: 380px;
+  white-space: pre-wrap;
+  /* CM6 positions this to the right of the popup; on narrow viewports
+   * it can flip below the option. Either way, give it room to read. */
+}
+
 /* Accessory bar */
 .accessory {
   background: var(--sw-bg-raised);

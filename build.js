@@ -77,6 +77,7 @@ const VENDORS = [
 // no drawer, no persistence. render.js is reusable because it fires
 // ep:params-changed via event (not a storage.js function call).
 const VIEWER_JS_FILES = [
+  'docs.js',
   'units.js',
   'blame.js',
   'evaluator.js',
@@ -92,6 +93,7 @@ const VIEWER_JS_FILES = [
 // order is mostly cosmetic — but it makes reading the built file saner.)
 const JS_FILES = [
   'viewport.js',
+  'docs.js',
   'units.js',
   'blame.js',
   'evaluator.js',

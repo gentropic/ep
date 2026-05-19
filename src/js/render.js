@@ -23,6 +23,7 @@ import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './
 import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
+import { renderDocInfo } from './docs.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -571,12 +572,23 @@ function mountCm6() {
   const _epCompletions = (context) => {
     // Decorator context: line starts with `@`, suggest @input/@output/@options
     // (and let the user complete partial names).
+    // Helper: attach an `info` callback to an option iff there's a doc
+    // entry for it. CM6's autocomplete calls info() when the option is
+    // focused and renders the returned string in a side panel. Returning
+    // undefined here (no doc entry) makes CM6 just not show the panel
+    // for that option — silent fallback, no UI noise.
+    const withInfo = (option, lookupName) => {
+      const info = renderDocInfo(lookupName !== undefined ? lookupName : option.label);
+      if (info) option.info = info;
+      return option;
+    };
+
     const decoratorWord = context.matchBefore(/@[a-zA-Z_]*/);
     if (decoratorWord && (decoratorWord.from !== decoratorWord.to || context.explicit)) {
       const { decorators } = getCompletionData();
       return {
         from: decoratorWord.from,
-        options: decorators.map(d => ({ label: d, type: 'keyword', boost: 50 })),
+        options: decorators.map(d => withInfo({ label: d, type: 'keyword', boost: 50 })),
       };
     }
 
@@ -591,17 +603,19 @@ function mountCm6() {
     if (/:\s$/.test(before)) {
       return {
         from: word.from,
-        options: dimensions.map(d => ({ label: d, type: 'type', boost: 20 })),
+        options: dimensions.map(d => withInfo({ label: d, type: 'type', boost: 20 })),
       };
     }
 
     const scopeNames = state.params.map(p => p.name)
       .concat(Object.keys(state._scope || {}));
     const options = [];
-    for (const n of new Set(scopeNames))     options.push({ label: n, type: 'variable', boost: 30 });
-    for (const k of keywords)                options.push({ label: k, type: 'keyword',  boost: 10 });
-    for (const f of functions)               options.push({ label: f, type: 'function', boost:  5, apply: f + '(' });
-    for (const u of units)                   options.push({ label: u, type: 'unit',     boost:  0 });
+    for (const n of new Set(scopeNames))     options.push(withInfo({ label: n, type: 'variable', boost: 30 }));
+    for (const k of keywords)                options.push(withInfo({ label: k, type: 'keyword',  boost: 10 }));
+    // Functions: the option's `apply` adds the open paren, but the doc
+    // lookup should still use the bare name — pass it explicitly.
+    for (const f of functions)               options.push(withInfo({ label: f, type: 'function', boost:  5, apply: f + '(' }, f));
+    for (const u of units)                   options.push(withInfo({ label: u, type: 'unit',     boost:  0 }));
     return { from: word.from, options };
   };
 
