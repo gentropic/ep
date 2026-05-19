@@ -895,6 +895,32 @@ body {
   border-left-color: var(--sw-text-soft);
 }
 
+/* Plot block — wraps a canvas-rendered chart below a plot()/scatter()/
+ * bar_chart()/hist() call. Block widget, sits flush left so the chart
+ * lines up with the source. Subtle indigo accent left border to mark
+ * it as ep-rendered output (vs the program's own source above). */
+.body .cm-content .cm-ep-plot-block {
+  padding: 6px 10px;
+  margin: 4px 0 6px;
+  background: rgba(78, 85, 128, 0.05);
+  border-left: 2px solid var(--sw-indigo);
+}
+[data-theme="dark"] .body .cm-content .cm-ep-plot-block {
+  background: rgba(120, 130, 200, 0.06);
+}
+.cm-ep-plot-canvas {
+  display: block;
+  border-radius: var(--sw-radius);
+  background: var(--sw-bg-raised);
+  /* Shrink on narrow viewports — mobile editor + PiP window can be
+   * under 400px wide. The intrinsic ratio (canvas width/height attrs)
+   * keeps the aspect 2:1 when CSS width shrinks. Slight pixel blur is
+   * acceptable for v1; a proper fix would observe container width and
+   * resize the backing store + redraw on layout changes. */
+  max-width: 100%;
+  height: auto;
+}
+
 /* Annotation auto-suggest — INLINE at end of the binding's line, not a
  * block widget below. Low ambient noise: just a small indigo button.
  * Click applies the annotation; ignore otherwise. The button only

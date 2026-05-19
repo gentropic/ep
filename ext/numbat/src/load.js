@@ -183,6 +183,44 @@ const BUILTIN_PROCS = {
     return new Quantity(0, {});
   },
   println(args) { return BUILTIN_PROCS.print(args); },
+
+  // plot()/scatter()/bar()/hist(): emit a plot descriptor to the host
+  // via _plotSink. Same role as print() for canvas/SVG output. Return
+  // the void sentinel so the call composes as a statement. Each list
+  // arg is coerced from List<Quantity> to plain number[] (canonical
+  // values — units captured separately if the host wants them); the
+  // host's renderer doesn't need to know about Numbat's Quantity type.
+  plot(args) {
+    if (args.length !== 2) throw new Error(`plot: expected 2 args (xs, ys), got ${args.length}`);
+    if (typeof _plotSink === 'function') {
+      _plotSink({ type: 'line', ...coerceXY(args[0], args[1]) });
+    }
+    return new Quantity(0, {});
+  },
+  scatter(args) {
+    if (args.length !== 2) throw new Error(`scatter: expected 2 args (xs, ys), got ${args.length}`);
+    if (typeof _plotSink === 'function') {
+      _plotSink({ type: 'scatter', ...coerceXY(args[0], args[1]) });
+    }
+    return new Quantity(0, {});
+  },
+  // Note: NOT named `bar` to avoid colliding with the `bar` pressure
+  // unit defined in units::misc. `bar_chart` matches upstream Numbat's
+  // plot::bar_chart constructor naming.
+  bar_chart(args) {
+    if (args.length !== 1) throw new Error(`bar_chart: expected 1 arg (values), got ${args.length}`);
+    if (typeof _plotSink === 'function') {
+      _plotSink({ type: 'bar', ...coerceValues(args[0]) });
+    }
+    return new Quantity(0, {});
+  },
+  hist(args) {
+    if (args.length !== 1) throw new Error(`hist: expected 1 arg (values), got ${args.length}`);
+    if (typeof _plotSink === 'function') {
+      _plotSink({ type: 'hist', ...coerceValues(args[0]) });
+    }
+    return new Quantity(0, {});
+  },
   // String helpers — implementations for upstream's `extern fn …`
   // declarations under core::strings. Match upstream signatures.
   str_length(args)  { return new Quantity(String(args[0] ?? '').length, {}); },
@@ -580,6 +618,54 @@ export function setQuantityFormatter(fn) { _quantityFormatter = fn; }
 // assert on what programs print.
 let _printSink = null;
 export function setPrintSink(fn) { _printSink = fn; }
+
+// Plot output sink — receives a descriptor object whenever a program
+// calls plot()/scatter()/bar()/hist(). Same role as _printSink for
+// text: numbat-js stays output-medium-agnostic, the host (ep, REPL,
+// notebook shell) chooses how to render. Descriptor shape:
+//   { type: 'line' | 'scatter' | 'bar' | 'hist',
+//     xs?: number[], ys?: number[], values?: number[],
+//     xUnit?: string, yUnit?: string }
+// Defaults to no-op; hosts that don't render plots simply drop them.
+let _plotSink = null;
+export function setPlotSink(fn) { _plotSink = fn; }
+
+// Extract canonical numbers and unit string from a List<Quantity> arg.
+// numbat-js represents Lists as plain JS arrays whose entries are
+// Quantity instances. We pull .value from each (canonical units —
+// grams, meters, seconds, …) and capture the dim's format as the unit
+// label for the host's axis. Bare numbers / mixed types fall back to
+// passing through as-is.
+function _listToNumbers(arr) {
+  if (!Array.isArray(arr)) return { values: [], unit: '' };
+  const values = [];
+  for (const v of arr) {
+    if (v instanceof Quantity) values.push(v.value);
+    else if (typeof v === 'number') values.push(v);
+    else values.push(Number(v));
+  }
+  // Capture the dim of the first Quantity entry as the axis label
+  // hint. The host can use this for "Time (seconds)" type labeling.
+  let unit = '';
+  if (arr.length && arr[0] instanceof Quantity) {
+    try {
+      if (typeof _quantityFormatter === 'function') {
+        const p = _quantityFormatter(arr[0]);
+        if (p && p.unit) unit = p.unit;
+      }
+    } catch {}
+  }
+  return { values, unit };
+}
+function coerceXY(xsArg, ysArg) {
+  const x = _listToNumbers(xsArg);
+  const y = _listToNumbers(ysArg);
+  return { xs: x.values, ys: y.values, xUnit: x.unit, yUnit: y.unit };
+}
+function coerceValues(valuesArg) {
+  const v = _listToNumbers(valuesArg);
+  return { values: v.values, valueUnit: v.unit };
+}
 
 // ── Datetime formatting ──────────────────────────────────────────
 // strftime-ish formatter used by BUILTIN_PROCS.format_datetime. Recognized

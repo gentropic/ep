@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
 import { traceBlame } from './blame.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
@@ -50,9 +50,14 @@ function host() {
   //
   // core::strings — hex / bin / oct / base + str_* family. Transitively
   //   pulls in core::scalar / core::functions / core::error.
+  // core::lists  — range / map / filter / foldl / cons / etc. Needed
+  //   for the plot family (`plot(xs, ys)` style) and any data-shaped
+  //   ep program. Same additive-layer-on-v0.1 pattern.
   _host.registerAllVendoredModules();
   try { _host.use('core::strings'); }
   catch (e) { console.warn('ep: core::strings load failed:', e && e.message || e); }
+  try { _host.use('core::lists'); }
+  catch (e) { console.warn('ep: core::lists load failed:', e && e.message || e); }
 
   // Seed math constants. These were hardcoded in ep's old parser; replicate
   // here so existing programs keep working after the numbat-js migration.
@@ -404,9 +409,17 @@ export function getCompletionData() {
   const units = h.registry._units
     ? [...h.registry._units.keys()].sort()
     : [];
-  const functions = h.fns
-    ? [...h.fns.keys()].sort()
-    : [];
+  // User-defined fns (from the .nbt prelude that ran at host bootstrap)
+  // plus hand-listed built-in procs that aren't reachable through h.fns.
+  // The BUILTIN_PROCS table lives inside numbat-js's load.js and isn't
+  // exposed; keeping a small whitelist here is cheap and keeps the
+  // autocomplete useful for the procs ep actively encourages (print,
+  // assert, the plot family, mod/max/min).
+  const userFns  = h.fns ? [...h.fns.keys()] : [];
+  const procFns  = ['print', 'println', 'assert', 'assert_eq', 'error',
+                    'mod', 'max', 'min', 'random', 'type',
+                    'plot', 'scatter', 'bar_chart', 'hist'];
+  const functions = [...new Set([...userFns, ...procFns])].sort();
   const dimensions = Object.keys(DIMENSION_OF).sort();
   const keywords = [
     'let', 'fn', 'if', 'then', 'else', 'where', 'dimension', 'unit',
@@ -710,15 +723,24 @@ export function evaluate(body) {
   // that routes to printsByRow[currentRowIdx]. Restore the previous
   // sink at end-of-evaluate so unrelated callers aren't disrupted.
   const printsByRow = new Map();
+  // Captured plot() / scatter() / bar_chart() / hist() output, similar
+  // to printsByRow. Multiple plot calls on one row would overwrite each
+  // other for now — only the LAST descriptor wins (typical use is one
+  // plot per row anyway).
+  const plotsByRow = new Map();
   let currentRowIdx = -1;
   setPrintSink(text => {
     if (currentRowIdx < 0) return;
     const prev = printsByRow.get(currentRowIdx);
     printsByRow.set(currentRowIdx, prev ? prev + '\n' + text : text);
   });
+  setPlotSink(descriptor => {
+    if (currentRowIdx < 0) return;
+    plotsByRow.set(currentRowIdx, descriptor);
+  });
   const params = [];
   const outputs = [];
-  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, suspect: null, print: null, outputs: null, inParams: false}));
+  const rows = body.map(() => ({kind: null, name: null, result: null, error: null, suspect: null, print: null, plot: null, outputs: null, inParams: false}));
 
   for (const stmt of statements) {
     const isInput   = stmt.decorators.some(d => d.name === 'input');
@@ -937,10 +959,17 @@ export function evaluate(body) {
   for (const [idx, text] of printsByRow) {
     if (rows[idx]) rows[idx].print = text;
   }
-  // Tear down the print sink so subsequent unrelated callers don't see
-  // our captures.
+  // Same for plot() output — store the latest descriptor per row. The
+  // render layer turns this into a <canvas> inline block widget below
+  // the line.
+  for (const [idx, descriptor] of plotsByRow) {
+    if (rows[idx]) rows[idx].plot = descriptor;
+  }
+  // Tear down both sinks so subsequent unrelated callers don't see our
+  // captures.
   currentRowIdx = -1;
   setPrintSink(null);
+  setPlotSink(null);
 
   // Convert the values Map to a plain object — render.js does `state._scope[name]`.
   // Exclude host-seeded names (pi/tau/e/…) so the returned scope reflects

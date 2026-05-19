@@ -152,7 +152,28 @@ const BUILTIN_PROC_SCHEMES = {
   ord:        schemeOrd,
   lowercase:  schemeStrFn1,
   uppercase:  schemeStrFn1,
+  // Plot output procs. Each emits to the host's _plotSink and returns
+  // the void sentinel (Scalar). plot/scatter take two lists; bar/hist
+  // take one. Type vars are unrestricted dims so calling with e.g.
+  // List<Length> + List<Mass> typechecks cleanly — the host doesn't
+  // care about the axes' physical dims.
+  plot:       schemePlot2,
+  scatter:    schemePlot2,
+  bar_chart:  schemePlot1,  // NOT `bar` — conflicts with the `bar` pressure unit
+  hist:       schemePlot1,
 };
+
+function schemePlot2() {
+  // <X, Y>(List<X>, List<Y>) -> Scalar  — plot/scatter
+  const x = freshTVar();
+  const y = freshTVar();
+  return generalize(tFn([tList(x), tList(y)], T_SCALAR), [x, y], []);
+}
+function schemePlot1() {
+  // <V>(List<V>) -> Scalar  — bar/hist
+  const v = freshTVar();
+  return generalize(tFn([tList(v)], T_SCALAR), [v], []);
+}
 
 const BUILTIN_FN_SCHEMES = {
   // Dim-preserving

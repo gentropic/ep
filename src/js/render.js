@@ -48,6 +48,164 @@ function escapeHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
+// ── Tiny canvas plotter ──────────────────────────────────────────
+// Hand-rolled, ~150 LOC, no library. Handles four chart types:
+// line / scatter / bar / hist. Auto-scales axes, draws light gridless
+// frame + ticks, renders the data in the theme's orange. Read from
+// drawPlot(canvas, descriptor, dpr) where descriptor is whatever
+// numbat-js's _plotSink emitted: {type, xs?, ys?, values?, xUnit?, yUnit?}.
+//
+// All drawing is in CSS pixels (we apply ctx.scale(dpr, dpr) once at
+// the top), so coordinate math elsewhere uses CSS px directly.
+function drawPlot(canvas, descriptor, dpr) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || !descriptor) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const cssW = canvas.width  / dpr;
+  const cssH = canvas.height / dpr;
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  // Read theme colors from CSS variables on the document. Falls back
+  // to muted neutrals when the variable isn't defined (e.g. canvas
+  // mounted into a PiP doc whose stylesheet copy missed).
+  const cs = getComputedStyle(document.documentElement);
+  const cssVar = (n, fallback) => (cs.getPropertyValue(n).trim() || fallback);
+  const colData = cssVar('--sw-orange',    '#B54E1A');
+  const colAxis = cssVar('--sw-border',    '#B3B1AD');
+  const colText = cssVar('--sw-text-soft', '#7A7875');
+  const colBg   = cssVar('--sw-bg-raised', '#E4E3E1');
+
+  // Background
+  ctx.fillStyle = colBg;
+  ctx.fillRect(0, 0, cssW, cssH);
+
+  // Plot area inset for axes + tick labels
+  const ML = 36, MR = 12, MT = 10, MB = 24;
+  const PW = cssW - ML - MR;
+  const PH = cssH - MT - MB;
+
+  // Pull data into (xs, ys) form depending on chart type. Bar/hist
+  // synthesize xs from value index / bin centers.
+  let xs = [], ys = [];
+  const type = descriptor.type || 'line';
+
+  if (type === 'line' || type === 'scatter') {
+    xs = descriptor.xs || [];
+    ys = descriptor.ys || [];
+    if (xs.length !== ys.length) {
+      const n = Math.min(xs.length, ys.length);
+      xs = xs.slice(0, n);
+      ys = ys.slice(0, n);
+    }
+  } else if (type === 'bar') {
+    const values = descriptor.values || [];
+    xs = values.map((_, i) => i);
+    ys = values.slice();
+  } else if (type === 'hist') {
+    const values = descriptor.values || [];
+    if (values.length) {
+      const n = Math.max(2, Math.min(50, Math.ceil(Math.sqrt(values.length))));
+      let lo = Infinity, hi = -Infinity;
+      for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (lo === hi) { lo -= 0.5; hi += 0.5; }
+      const w = (hi - lo) / n;
+      const bins = new Array(n).fill(0);
+      for (const v of values) {
+        let i = Math.floor((v - lo) / w);
+        if (i >= n) i = n - 1;
+        if (i < 0)  i = 0;
+        bins[i]++;
+      }
+      xs = bins.map((_, i) => lo + (i + 0.5) * w);
+      ys = bins;
+    }
+  }
+
+  if (!xs.length || !ys.length) {
+    ctx.fillStyle = colText;
+    ctx.font = '11px var(--sw-mono, monospace)';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('(no data)', ML + 4, MT + PH / 2);
+    return;
+  }
+
+  // Bounds with 5% padding so points aren't on the frame.
+  let xMin = Math.min(...xs), xMax = Math.max(...xs);
+  let yMin = Math.min(...ys), yMax = Math.max(...ys);
+  if (xMin === xMax) { xMin -= 0.5; xMax += 0.5; }
+  if (yMin === yMax) { yMin -= 0.5; yMax += 0.5; }
+  const xPad = (xMax - xMin) * 0.05;
+  const yPad = (yMax - yMin) * 0.05;
+  // bar/hist: start y at 0 (bars need a baseline at 0 to read).
+  const yLo = (type === 'bar' || type === 'hist') ? Math.min(0, yMin - yPad) : yMin - yPad;
+  const xLo = xMin - xPad;
+  const xHi = xMax + xPad;
+  const yHi = yMax + yPad;
+
+  const xPix = x => ML + ((x - xLo) / (xHi - xLo)) * PW;
+  const yPix = y => MT + PH - ((y - yLo) / (yHi - yLo)) * PH;
+
+  // Frame
+  ctx.strokeStyle = colAxis;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ML, MT, PW, PH);
+
+  // Axis tick labels — 3 on each side, formatted to a few sig digits.
+  ctx.fillStyle = colText;
+  ctx.font = '10px var(--sw-mono, monospace)';
+  ctx.textBaseline = 'middle';
+  const fmtTick = v => {
+    if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2)) return v.toExponential(1);
+    return parseFloat(v.toPrecision(3)).toString();
+  };
+  // y-axis: 3 ticks (low, mid, hi)
+  for (let i = 0; i <= 2; i++) {
+    const v = yLo + (yHi - yLo) * (i / 2);
+    const py = yPix(v);
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtTick(v), ML - 4, py);
+  }
+  // x-axis: 3 ticks
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i <= 2; i++) {
+    const v = xLo + (xHi - xLo) * (i / 2);
+    const px = xPix(v);
+    ctx.fillText(fmtTick(v), px, MT + PH + 4);
+  }
+
+  // Data
+  ctx.strokeStyle = colData;
+  ctx.fillStyle = colData;
+  ctx.lineWidth = 1.5;
+  if (type === 'line') {
+    ctx.beginPath();
+    for (let i = 0; i < xs.length; i++) {
+      const px = xPix(xs[i]), py = yPix(ys[i]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  } else if (type === 'scatter') {
+    for (let i = 0; i < xs.length; i++) {
+      ctx.beginPath();
+      ctx.arc(xPix(xs[i]), yPix(ys[i]), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (type === 'bar' || type === 'hist') {
+    const baselinePx = yPix(Math.max(0, yLo));
+    // Bar width = bin width (or 1 unit for bar with integer x) scaled to px.
+    const dx = xs.length > 1 ? (xs[1] - xs[0]) : 1;
+    const wPx = Math.max(1, (dx / (xHi - xLo)) * PW * 0.8);
+    for (let i = 0; i < xs.length; i++) {
+      const cx = xPix(xs[i]);
+      const top = yPix(ys[i]);
+      const h = baselinePx - top;
+      ctx.fillRect(cx - wPx / 2, top, wPx, h);
+    }
+  }
+}
+
 function resultMarkerHtml(lineIdx) {
   const r = state.body[lineIdx];
   if (!r) return null;
@@ -169,7 +327,7 @@ function mountCm6() {
   // for runtime/typecheck failures or 'warn' (amber) for blame-trace
   // suspect annotations.
   class EpErrorWidget extends WidgetType {
-    constructor(message, col, kind, suggestDim, rowIdx) {
+    constructor(message, col, kind, suggestDim, rowIdx, plot) {
       super();
       this.message = message;
       this.col = col;
@@ -178,8 +336,25 @@ function mountCm6() {
       // and the row index to edit. Other kinds ignore these fields.
       this.suggestDim = suggestDim || null;
       this.rowIdx = (rowIdx == null) ? -1 : rowIdx;
+      // 'plot' kind carries the descriptor object produced by numbat-js's
+      // _plotSink. Other kinds ignore.
+      this.plot = plot || null;
     }
     eq(other) {
+      if (this.kind === 'plot') {
+        // Plot descriptors are large; cheap object-identity check is
+        // wrong (each evaluation produces a fresh descriptor). Compare
+        // a fingerprint instead — type + length-of-data is enough for
+        // re-render decisions.
+        const a = this.plot, b = other.plot;
+        if (!a || !b) return a === b;
+        return a.type === b.type
+          && (a.xs?.length || 0) === (b.xs?.length || 0)
+          && (a.ys?.length || 0) === (b.ys?.length || 0)
+          && (a.values?.length || 0) === (b.values?.length || 0)
+          && JSON.stringify(a.xs || a.values || []) === JSON.stringify(b.xs || b.values || [])
+          && JSON.stringify(a.ys || []) === JSON.stringify(b.ys || []);
+      }
       return other.message === this.message
         && other.col === this.col
         && other.kind === this.kind
@@ -187,6 +362,37 @@ function mountCm6() {
         && other.rowIdx === this.rowIdx;
     }
     toDOM() {
+      if (this.kind === 'plot') {
+        // Canvas-rendered chart. Block widget so it claims its own row
+        // below the plot()-calling line. ~400×200 default — big enough
+        // to read, small enough not to push the page around. Lives in
+        // a wrapper that picks up our theme variables so the canvas
+        // colors match the rest of ep on light/dark.
+        const wrap = document.createElement('div');
+        wrap.className = 'cm-ep-plot-block';
+        const canvas = document.createElement('canvas');
+        canvas.className = 'cm-ep-plot-canvas';
+        // Use devicePixelRatio so the line strokes don't go fuzzy on
+        // hi-DPI displays. CSS width/height is set in the style sheet;
+        // the canvas backing store is sized in actual pixels.
+        const cssW = 400, cssH = 200;
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width  = cssW * dpr;
+        canvas.height = cssH * dpr;
+        // Note: NOT setting inline style.width/style.height. The
+        // backing store dimensions (canvas.width/height attrs) act as
+        // intrinsic dimensions; CSS rules in style.css (.cm-ep-plot-
+        // canvas { max-width: 100%; height: auto }) shrink the
+        // displayed canvas on narrow viewports while preserving the
+        // 2:1 aspect ratio. Setting inline width/height would override
+        // the responsive CSS.
+        wrap.appendChild(canvas);
+        // Defer the draw to next frame: the canvas needs to be in the
+        // DOM before getComputedStyle resolves --sw-* CSS variables.
+        const desc = this.plot;
+        requestAnimationFrame(() => drawPlot(canvas, desc, dpr));
+        return wrap;
+      }
       if (this.kind === 'suggest') {
         // Inline at end of line. Wrap in a span (not a div) so the
         // browser inline-positions it next to the line text rather than
@@ -409,6 +615,12 @@ function mountCm6() {
           if (kind === 'suggest') {
             decos.push(Decoration.widget({
               widget: new EpErrorWidget('', 0, kind, it.suggestDim, it.rowIdx),
+              side: 1,
+            }).range(line.to));
+          } else if (kind === 'plot') {
+            decos.push(Decoration.widget({
+              widget: new EpErrorWidget('', 0, kind, null, -1, it.plot),
+              block: true,
               side: 1,
             }).range(line.to));
           } else {
@@ -947,6 +1159,12 @@ function applyErrorMarks() {
     // error/suspect, distinct color.
     if (row.print) {
       items.push({ line: i + 1, col: 0, message: row.print, kind: 'info' });
+    }
+    // Plot output — canvas-rendered chart below the line. plot/scatter/
+    // bar_chart/hist procs in numbat-js write to _plotSink which lands
+    // here as row.plot.
+    if (row.plot) {
+      items.push({ line: i + 1, col: 0, message: '', kind: 'plot', plot: row.plot });
     }
     // Annotation auto-suggest — only when there's no other in-line
     // block in play for this row (don't pile a suggest on top of an
