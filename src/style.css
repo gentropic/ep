@@ -2112,6 +2112,262 @@ body {
   text-align: center;
   font-style: italic;
 }
+
+/* In-app docs panel (drawer mode "docs"). Renders DOCS table grouped
+ * by category. Tight typography — this is reference content, not the
+ * primary surface. */
+.drawer-docs-list { padding: 0 4px 16px; }
+.drawer-docs-grouphdr {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+  padding: 12px 6px 4px;
+  border-bottom: 1px solid var(--sw-border);
+  margin-bottom: 4px;
+}
+.drawer-docs-row {
+  font-family: var(--sw-mono);
+  padding: 6px 6px 7px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+  transition: background 80ms ease;
+}
+.drawer-docs-row:hover { background: var(--sw-bg-raised); }
+.drawer-docs-row-flash {
+  background: rgba(181, 78, 26, 0.20) !important;
+}
+.drawer-docs-name {
+  font-size: 12px;
+  color: var(--sw-orange);
+  font-weight: 600;
+}
+.drawer-docs-sig {
+  font-size: 11px;
+  color: var(--sw-text);
+  margin-top: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.drawer-docs-desc {
+  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.drawer-docs-ex {
+  font-size: 11px;
+  color: var(--sw-text-mid, var(--sw-text-soft));
+  background: var(--sw-bg-deep, var(--sw-bg));
+  border-left: 2px solid var(--sw-border);
+  padding: 3px 6px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.drawer-docs-empty {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+  padding: 16px 10px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* Guides — navigable index of long-form pages, sits above the function
+ * reference in the docs drawer mode. */
+.drawer-guide-row {
+  padding: 8px 6px 9px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+  transition: background 80ms ease;
+}
+.drawer-guide-row:hover { background: var(--sw-bg-raised); }
+.drawer-guide-title {
+  font-family: var(--sw-mono);
+  font-size: 13px;
+  color: var(--sw-text);
+  font-weight: 600;
+}
+.drawer-guide-summary {
+  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.drawer-docs-back {
+  display: inline-block;
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  color: var(--sw-orange);
+  text-decoration: none;
+  padding: 6px 6px;
+  margin-bottom: 4px;
+}
+.drawer-docs-back:hover { text-decoration: underline; }
+
+/* Rendered guide body — prose typography, comfortable line-height. */
+.guide-body {
+  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--sw-text);
+  padding: 6px 6px 18px;
+}
+.guide-body .guide-h1,
+.guide-body .guide-h2,
+.guide-body .guide-h3 {
+  font-family: var(--sw-mono);
+  color: var(--sw-orange);
+  font-weight: 600;
+  margin: 18px 0 8px;
+  line-height: 1.2;
+}
+.guide-body .guide-h1 { font-size: 18px; margin-top: 8px; }
+.guide-body .guide-h2 { font-size: 15px; }
+.guide-body .guide-h3 { font-size: 13px; }
+.guide-body .guide-p  { margin: 0 0 10px; }
+.guide-body .guide-ul { margin: 0 0 10px; padding-left: 22px; }
+.guide-body .guide-ul li { margin-bottom: 3px; }
+.guide-body .guide-inline-code {
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  background: var(--sw-bg-raised);
+  color: var(--sw-text);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.guide-body .guide-code {
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  background: var(--sw-bg-deep, var(--sw-bg-raised));
+  color: var(--sw-text);
+  border-left: 2px solid var(--sw-orange);
+  padding: 8px 10px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.5;
+}
+/* Wrap around the <pre> that hosts the copy button. Relative-positioned
+ * so the absolute button anchors at the corner; the wrapper carries the
+ * margin so the spacing matches the un-wrapped <pre> from earlier. */
+.guide-body .guide-code-wrap {
+  position: relative;
+  margin: 0 0 12px;
+}
+.guide-body .guide-code-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+  background: var(--sw-bg-raised);
+  border: 1px solid var(--sw-border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  /* Hidden until the wrapper is hovered to keep the snippet visually
+   * clean. On touch devices the button reveals on first tap of the
+   * wrapper (browsers map :hover to first-tap for non-link elements). */
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.guide-body .guide-code-wrap:hover .guide-code-copy,
+.guide-body .guide-code-wrap:focus-within .guide-code-copy,
+.guide-body .guide-code-copy:focus {
+  opacity: 1;
+}
+.guide-body .guide-code-copy:hover { color: var(--sw-text); }
+.guide-body .guide-code-copy.copied {
+  color: var(--sw-orange);
+  opacity: 1;
+}
+/* On touchscreens (hover unavailable), keep the button visible so users
+ * can find it. */
+@media (hover: none) {
+  .guide-body .guide-code-copy { opacity: 0.8; }
+}
+.guide-body a {
+  color: var(--sw-orange);
+  text-decoration: none;
+}
+.guide-body a:hover { text-decoration: underline; }
+.guide-body em  { color: var(--sw-text-soft); font-style: italic; }
+.guide-body strong { color: var(--sw-text); }
+.guide-body hr {
+  border: none;
+  border-top: 1px solid var(--sw-border);
+  margin: 16px 0 12px;
+}
+
+/* Prev/next nav at the bottom of an opened guide. Two-column flex so
+ * the prev link sits left, next link sits right; missing sides leave a
+ * blank spacer so layout stays stable. */
+.drawer-guide-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 8px;
+  margin: 16px 6px 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sw-border);
+}
+.drawer-guide-nav-link {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  text-decoration: none;
+  color: var(--sw-text);
+  transition: background 80ms ease, border-color 80ms ease;
+}
+.drawer-guide-nav-link:hover {
+  background: var(--sw-bg-raised);
+  border-color: var(--sw-orange);
+}
+.drawer-guide-nav-prev { text-align: left; }
+.drawer-guide-nav-next { text-align: right; justify-content: flex-end; }
+.drawer-guide-nav-arrow {
+  font-family: var(--sw-mono);
+  font-size: 14px;
+  color: var(--sw-orange);
+  flex: 0 0 auto;
+}
+.drawer-guide-nav-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.drawer-guide-nav-label {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+  line-height: 1.2;
+}
+.drawer-guide-nav-title {
+  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--sw-text);
+  font-weight: 600;
+  margin-top: 2px;
+  /* Truncate long titles on narrow drawer widths so the row stays one
+   * line instead of pushing the arrow out of column alignment. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .drawer-about {
   font-family: var(--sw-mono);
   font-size: 10px;

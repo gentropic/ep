@@ -175,12 +175,24 @@ const BUILTIN_PROC_SCHEMES = {
   drop:       schemeListSlice,
   reverse:    schemeReverse,
   element_at: schemeElementAt,
+  any:        schemeMaskReduceBool,
+  all:        schemeMaskReduceBool,
+  count:      schemeMaskReduceScalar,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
   linspace: schemeLinspace,
   arange:   schemeArange,
 };
+
+function schemeMaskReduceBool() {
+  // (List<Bool>) -> Bool — any / all
+  return generalize(tFn([tList(tBool())], tBool()), [], []);
+}
+function schemeMaskReduceScalar() {
+  // (List<Bool>) -> Scalar — count
+  return generalize(tFn([tList(tBool())], T_SCALAR), [], []);
+}
 
 function schemeRandomList() {
   // (Scalar) -> List<Scalar>  — n random samples in [0, 1)

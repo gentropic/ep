@@ -160,7 +160,27 @@ fn sq(x: Scalar) -> Scalar = x * x
 sq(xs)                             # works — body broadcasts
 ```
 
-For control flow (`if`/`then`/`else` over each element) you still need `map` explicitly, since comparisons don't broadcast yet.
+### Comparison broadcasting + masks (ep extension)
+
+Comparison and logical operators also broadcast, producing `List<Bool>` masks for filtering / counting:
+
+```ep
+xs = [1, 5, 10, 15]
+
+xs > 5                             # [false, false, true, true]
+(xs > 2) && (xs < 12)              # [false, true, true, false]
+!(xs > 5)                          # [true, true, false, false]
+
+# Filter by mask — natural pair with comparison broadcasting:
+big = filter(xs > 5, xs)           # [10, 15]
+
+# Mask reductions (any / all short-circuit):
+any(xs > 100)                      # false
+all(xs > 0)                        # true
+count(xs > 5)                      # 2
+```
+
+`filter` is overloaded on its first arg: a function predicate (`x => x > 5`) keeps the existing functional form; a `List<Bool>` of the same length as `xs` is treated as a mask. List-vs-list `==`/`!=` keeps structural-equality semantics so upstream Numbat's `is_empty<A>(xs) = xs == []` continues to work.
 
 ### List builders + plots (ep extension)
 

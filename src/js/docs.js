@@ -58,13 +58,18 @@ export const DOCS = {
   // ── List ops — transformations ───────────────────────────────────
   map:    { signature: 'map<A, B>(f: Fn[(A) -> B], xs: List<A>) -> List<B>', description: 'Apply f to each element. With ep\'s broadcasting and auto-mapped builtins, often unnecessary — try `xs * 2` or `sin(xs)` first.', example: 'map(x => x * 2, [1, 2, 3]) = [2, 4, 6]' },
   map2:   { signature: 'map2<A, B, C>(f: Fn[(A, B) -> C], a: A, xs: List<B>) -> List<C>', description: 'Element-wise binary map with a scalar or paired-list second argument.', example: 'map2((a, b) => a * b, [1, 2, 3], [10, 20, 30]) = [10, 40, 90]' },
-  filter: { signature: 'filter<A>(p: Fn[(A) -> Bool], xs: List<A>) -> List<A>', description: 'Keep elements where p returns true.', example: 'filter(x => x > 0, [-2, -1, 0, 1, 2]) = [1, 2]' },
+  filter: { signature: 'filter<A>(p: Fn[(A) -> Bool] | List<Bool>, xs: List<A>) -> List<A>', description: 'Keep elements where p returns true. First arg can be a predicate function OR a Bool mask the same length as xs (ep extension).', example: 'filter(x => x > 0, [-2, -1, 0, 1, 2]) = [1, 2]\nxs = [1, 5, 10]; filter(xs > 4, xs) = [5, 10]' },
   foldl:  { signature: 'foldl<A, B>(f: Fn[(A, B) -> A], init: A, xs: List<B>) -> A', description: 'Left fold. Threads an accumulator through xs.', example: 'foldl((a, x) => a + x, 0, [1, 2, 3, 4]) = 10' },
   concat: { signature: 'concat<A>(xs: List<A>, ys: List<A>) -> List<A>', description: 'Append two lists.', example: 'concat([1, 2], [3, 4]) = [1, 2, 3, 4]' },
   take:   { signature: 'take<A>(n: Scalar, xs: List<A>) -> List<A>', description: 'First n elements.', example: 'take(3, [1, 2, 3, 4, 5]) = [1, 2, 3]' },
   drop:   { signature: 'drop<A>(n: Scalar, xs: List<A>) -> List<A>', description: 'All elements after the first n.', example: 'drop(2, [1, 2, 3, 4, 5]) = [3, 4, 5]' },
   reverse:    { signature: 'reverse<A>(xs: List<A>) -> List<A>', description: 'Reverse element order.', example: 'reverse([1, 2, 3]) = [3, 2, 1]' },
   element_at: { signature: 'element_at<A>(i: Scalar, xs: List<A>) -> A', description: 'Get the i-th element (0-indexed).', example: 'element_at(1, [10, 20, 30]) = 20' },
+
+  // ── Mask reductions (ep extension) ───────────────────────────────
+  any:   { signature: 'any(mask: List<Bool>) -> Bool',   description: 'True if any element of the mask is true. Short-circuits on the first true.', example: 'any([1, 5, 10] > 7) = true' },
+  all:   { signature: 'all(mask: List<Bool>) -> Bool',   description: 'True only if every element of the mask is true. Short-circuits on the first false.', example: 'all([1, 5, 10] > 0) = true' },
+  count: { signature: 'count(mask: List<Bool>) -> Scalar', description: 'Number of true elements in the mask.', example: 'count([1, 5, 10, 15] > 7) = 2' },
 
   // ── List ops — primitives ────────────────────────────────────────
   head:     { signature: 'head<A>(xs: List<A>) -> A', description: 'First element. Errors on an empty list.', example: 'head([10, 20, 30]) = 10' },
@@ -130,6 +135,56 @@ export const DOCS = {
   struct:    { signature: 'struct Name { field: Type, ... }', description: 'Declare a record type.' },
   use:       { signature: 'use module::path', description: 'Load a vendored Numbat module (core::lists, math::statistics, etc.).' },
 };
+
+// Display-ordered grouping of DOCS for the in-app docs viewer (drawer's
+// "docs" mode). Each group's `names` list mirrors the comment headers
+// above — keep these in sync when adding new entries. Names not listed
+// here land in a synthetic "Other" group at the bottom of the panel.
+export const DOC_GROUPS = [
+  { label: 'Numeric — single-arg', names: [
+    'abs','sqrt','cbrt','sqr','round','floor','ceil','trunc','fract',
+    'exp','ln','log','log10','log2',
+    'sin','cos','tan','asin','acos','atan','sinh','cosh','tanh',
+  ]},
+  { label: 'Numeric — multi-arg', names: [
+    'max','min','mod','random','type',
+  ]},
+  { label: 'List constructors', names: [
+    'range','arange','linspace','zeros','ones','random_list',
+  ]},
+  { label: 'List transformations', names: [
+    'map','map2','filter','foldl','concat','take','drop','reverse','element_at',
+  ]},
+  { label: 'Mask reductions (ep extension)', names: [
+    'any','all','count',
+  ]},
+  { label: 'List primitives', names: [
+    'head','tail','cons','cons_end','len','is_empty',
+  ]},
+  { label: 'Plots', names: [
+    'plot','scatter','bar_chart','hist',
+  ]},
+  { label: 'Strings', names: [
+    'str_length','str_slice','str_append','str_contains','str_replace',
+    'str_starts_with','str_ends_with','str_upper','str_lower',
+    'chr','ord','to_string',
+  ]},
+  { label: 'I/O + assertions', names: [
+    'print','assert','assert_eq',
+  ]},
+  { label: 'ep prelude', names: [
+    'tonnage_of','grade_of','metal_of',
+  ]},
+  { label: 'Decorators', names: [
+    '@input','@output','@options','@range',
+  ]},
+  { label: 'Constants', names: [
+    'pi','e','tau','phi','c','g','h','N_A','k_B',
+  ]},
+  { label: 'Keywords', names: [
+    'let','fn','if','where','to','per','dimension','unit','struct','use',
+  ]},
+];
 
 // Render a doc entry as a multi-line plain-text panel — CM6\'s
 // autocomplete `info` field takes either a string or a Node-returning

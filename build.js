@@ -76,6 +76,10 @@ const VENDORS = [
 // JS subset for the viewer artifact — chip eval + render only. No editor,
 // no drawer, no persistence. render.js is reusable because it fires
 // ep:params-changed via event (not a storage.js function call).
+// Note: `guides.js` is intentionally absent — the viewer is what gets
+// baked into program-form `.html` exports (per export.js), and the
+// embedded user guides are dead weight in a shared calculator that
+// only exposes the form view. They live in the main editor bundle only.
 const VIEWER_JS_FILES = [
   'docs.js',
   'units.js',
@@ -94,6 +98,7 @@ const VIEWER_JS_FILES = [
 const JS_FILES = [
   'viewport.js',
   'docs.js',
+  'guides.js',
   'units.js',
   'blame.js',
   'evaluator.js',

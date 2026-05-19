@@ -291,6 +291,43 @@ const BUILTIN_PROCS = {
     if (typeof p !== 'function') throw new Error('filter: first arg must be a predicate function or Bool mask');
     return xs.filter(x => p(x) === true);
   },
+  // any / all / count — mask reductions. Natural pair with comparison
+  // broadcasting: `any(xs > threshold)`, `all(0 <= xs && xs < 1)`,
+  // `count(xs == target)`. any and all short-circuit; count must visit
+  // every element. All three reject non-Bool entries to surface the
+  // common bug of passing a List<Number> by mistake (e.g. forgetting
+  // the comparison).
+  any(args) {
+    if (args.length !== 1) throw new Error(`any: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('any: expected List<Bool>');
+    for (const x of xs) {
+      if (x === true) return true;
+      if (x !== false) throw new Error('any: list element must be Bool');
+    }
+    return false;
+  },
+  all(args) {
+    if (args.length !== 1) throw new Error(`all: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('all: expected List<Bool>');
+    for (const x of xs) {
+      if (x === false) return false;
+      if (x !== true) throw new Error('all: list element must be Bool');
+    }
+    return true;
+  },
+  count(args) {
+    if (args.length !== 1) throw new Error(`count: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('count: expected List<Bool>');
+    let n = 0;
+    for (const x of xs) {
+      if (x === true) n++;
+      else if (x !== false) throw new Error('count: list element must be Bool');
+    }
+    return new Quantity(n, {});
+  },
   foldl(args) {
     const [f, acc0, xs] = args;
     if (typeof f !== 'function') throw new Error('foldl: first arg must be a function');

@@ -143,3 +143,70 @@ test('filter functional form still works (function predicate)', () => {
   assert.equal(v[0].value, 10);
   assert.equal(v[1].value, 15);
 });
+
+// ── any / all / count mask reductions ─────────────────────────────
+
+test('any: true when at least one element is true', () => {
+  const v = scopeOf([
+    'xs = [1, 5, 10]',
+    'r = any(xs > 7)',
+  ], 'r');
+  assert.equal(v, true);
+});
+
+test('any: false on all-false mask', () => {
+  const v = scopeOf([
+    'xs = [1, 2, 3]',
+    'r = any(xs > 100)',
+  ], 'r');
+  assert.equal(v, false);
+});
+
+test('any: short-circuits on first true (verified via long list)', () => {
+  // No direct way to observe short-circuit from the outside other than
+  // it not OOMing; assert correctness on a long input.
+  const lines = ['xs = [' + Array.from({length: 1000}, (_, i) => i).join(', ') + ']'];
+  lines.push('r = any(xs == 5)');
+  const v = scopeOf(lines, 'r');
+  assert.equal(v, true);
+});
+
+test('all: true on all-true mask', () => {
+  const v = scopeOf([
+    'xs = [1, 5, 10]',
+    'r = all(xs > 0)',
+  ], 'r');
+  assert.equal(v, true);
+});
+
+test('all: false when any element fails', () => {
+  const v = scopeOf([
+    'xs = [1, 5, 10]',
+    'r = all(xs > 3)',
+  ], 'r');
+  assert.equal(v, false);
+});
+
+test('count: number of trues in the mask', () => {
+  const v = scopeOf([
+    'xs = [1, 5, 10, 15, 20]',
+    'r = count(xs > 7)',
+  ], 'r');
+  assert.equal(v.value, 3);
+});
+
+test('count: zero on all-false mask', () => {
+  const v = scopeOf([
+    'xs = [1, 2, 3]',
+    'r = count(xs > 100)',
+  ], 'r');
+  assert.equal(v.value, 0);
+});
+
+test('any/all: reject non-Bool list', () => {
+  const r = evaluate(bodyOf([
+    'xs = [1, 2, 3]',
+    'bad = any(xs)',
+  ]));
+  assert.ok(r.rows[1].error, 'expected any() to reject a List<Number>');
+});

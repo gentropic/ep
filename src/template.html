@@ -140,7 +140,8 @@
 
   <div class="drawer-modes" role="tablist" aria-label="drawer mode">
     <button class="drawer-mode-btn active" id="drawerModeProgramsBtn" data-mode="programs" role="tab" aria-selected="true">programs</button>
-    <button class="drawer-mode-btn" id="drawerModeHistoryBtn" data-mode="history" role="tab" aria-selected="false">history</button>
+    <button class="drawer-mode-btn" id="drawerModeHistoryBtn"  data-mode="history"  role="tab" aria-selected="false">history</button>
+    <button class="drawer-mode-btn" id="drawerModeDocsBtn"     data-mode="docs"     role="tab" aria-selected="false">docs</button>
   </div>
 
   <div class="drawer-section drawer-mode-programs">
@@ -170,6 +171,15 @@
   <div class="drawer-section drawer-list-wrap drawer-mode-history" style="display:none">
     <div class="drawer-section-hdr" id="drawerHistoryHdr">snapshots</div>
     <div class="drawer-list" id="drawerHistoryList"></div>
+  </div>
+
+  <!-- docs mode — function reference rendered from src/js/docs.js's
+       DOCS table. Search filters by name + description substring. -->
+  <div class="drawer-section drawer-search-wrap drawer-mode-docs" style="display:none">
+    <input class="drawer-search" id="drawerDocsSearch" placeholder="search docs…" spellcheck="false" autocapitalize="off" autocomplete="off">
+  </div>
+  <div class="drawer-section drawer-list-wrap drawer-mode-docs" style="display:none">
+    <div class="drawer-list drawer-docs-list" id="drawerDocsList"></div>
   </div>
 
   <div class="drawer-section">

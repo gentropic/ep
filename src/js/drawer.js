@@ -7,6 +7,8 @@ import { openProgramMenu } from './ctxmenu.js';
 import { attachLongPress, closeMenu, showMenu } from './menu.js';
 import { isDesktop } from './viewport.js';
 import { epConfirm, epPrompt } from './dialogs.js';
+import { DOCS, DOC_GROUPS } from './docs.js';
+import { GUIDES, renderMarkdown } from './guides.js';
 
 const menuBtn        = document.getElementById('menuBtn');
 const drawer         = document.getElementById('drawer');
@@ -21,24 +23,32 @@ const openFileBtn    = document.getElementById('openFileBtn');
 const drawerFileInput = document.getElementById('fileInput');
 const drawerModeProgramsBtn = document.getElementById('drawerModeProgramsBtn');
 const drawerModeHistoryBtn  = document.getElementById('drawerModeHistoryBtn');
+const drawerModeDocsBtn     = document.getElementById('drawerModeDocsBtn');
 const drawerHistoryListEl   = document.getElementById('drawerHistoryList');
 const drawerHistoryHdrEl    = document.getElementById('drawerHistoryHdr');
 const drawerSnapshotNowBtn  = document.getElementById('drawerSnapshotNowBtn');
+const drawerDocsSearchEl    = document.getElementById('drawerDocsSearch');
+const drawerDocsListEl      = document.getElementById('drawerDocsList');
 
 let searchFilter = '';
-let drawerMode = 'programs';   // 'programs' | 'history'
+let docsSearchFilter = '';
+let drawerOpenGuide = null;    // slug of currently-expanded guide, or null
+let drawerMode = 'programs';   // 'programs' | 'history' | 'docs'
 
 // Show/hide the program-mode sections vs history-mode sections, update
 // the title + active tab. Doesn't re-render — caller fires renderDrawer
 // (or renderHistory) afterwards. Exported so ctxmenu's "history" action
 // can flip the drawer in persistent mode.
 export function setDrawerMode(mode) {
-  drawerMode = (mode === 'history') ? 'history' : 'programs';
+  drawerMode = (mode === 'history' || mode === 'docs') ? mode : 'programs';
   for (const el of document.querySelectorAll('.drawer-mode-programs')) {
     el.style.display = drawerMode === 'programs' ? '' : 'none';
   }
   for (const el of document.querySelectorAll('.drawer-mode-history')) {
     el.style.display = drawerMode === 'history' ? '' : 'none';
+  }
+  for (const el of document.querySelectorAll('.drawer-mode-docs')) {
+    el.style.display = drawerMode === 'docs' ? '' : 'none';
   }
   if (drawerModeProgramsBtn) {
     drawerModeProgramsBtn.classList.toggle('active', drawerMode === 'programs');
@@ -48,13 +58,20 @@ export function setDrawerMode(mode) {
     drawerModeHistoryBtn.classList.toggle('active', drawerMode === 'history');
     drawerModeHistoryBtn.setAttribute('aria-selected', drawerMode === 'history');
   }
+  if (drawerModeDocsBtn) {
+    drawerModeDocsBtn.classList.toggle('active', drawerMode === 'docs');
+    drawerModeDocsBtn.setAttribute('aria-selected', drawerMode === 'docs');
+  }
   if (drawerTitleEl) {
     drawerTitleEl.textContent = drawerMode === 'history'
       ? `ep · history${currentProgramName ? ' · ' + currentProgramName : ''}`
-      : 'ep · programs';
+      : drawerMode === 'docs'
+        ? 'ep · docs'
+        : 'ep · programs';
   }
-  if (drawerMode === 'history') renderHistoryList();
-  else                          renderDrawerList();
+  if      (drawerMode === 'history') renderHistoryList();
+  else if (drawerMode === 'docs')    renderDocsList();
+  else                                renderDrawerList();
 }
 
 // Desktop persistent-drawer mode: when the viewport is desktop AND the
@@ -144,6 +161,19 @@ if (drawerModeProgramsBtn) {
 if (drawerModeHistoryBtn) {
   drawerModeHistoryBtn.addEventListener('click', () => setDrawerMode('history'));
 }
+if (drawerModeDocsBtn) {
+  drawerModeDocsBtn.addEventListener('click', () => setDrawerMode('docs'));
+}
+if (drawerDocsSearchEl) {
+  drawerDocsSearchEl.addEventListener('input', e => {
+    docsSearchFilter = (e.target.value || '').toLowerCase();
+    // Searching pops the user back to the index — they want to see
+    // matches across all guides, not within whichever one happened to
+    // be open.
+    drawerOpenGuide = null;
+    renderDocsList();
+  });
+}
 if (drawerSnapshotNowBtn) {
   drawerSnapshotNowBtn.addEventListener('click', async () => {
     const name = currentProgramName;
@@ -158,6 +188,221 @@ if (drawerSnapshotNowBtn) {
     takeSnapshot(name, (label || '').trim() || null);
     renderHistoryList();
   });
+}
+
+// Docs list rendering. Top: navigable list of guide pages (or the
+// currently-expanded guide body). Below: function reference grouped by
+// category, filtered by docsSearchFilter. Both sections respect the
+// same search input so users can filter prose AND symbols together.
+function renderDocsList() {
+  if (!drawerDocsListEl) return;
+  drawerDocsListEl.innerHTML = '';
+  const q = docsSearchFilter;
+
+  // ── Guides section ─────────────────────────────────────────────
+  // When a guide is opened (drawerOpenGuide is set), render just its
+  // body with a back link. Otherwise show the navigable index.
+  if (Array.isArray(GUIDES) && GUIDES.length) {
+    const guidesHdr = document.createElement('div');
+    guidesHdr.className = 'drawer-docs-grouphdr';
+    guidesHdr.textContent = 'Guides';
+    drawerDocsListEl.appendChild(guidesHdr);
+
+    if (drawerOpenGuide) {
+      const idx = GUIDES.findIndex(x => x.slug === drawerOpenGuide);
+      const g = idx >= 0 ? GUIDES[idx] : null;
+      if (g) {
+        const back = document.createElement('a');
+        back.className = 'drawer-docs-back';
+        back.href = '#';
+        back.textContent = '← all guides';
+        back.addEventListener('click', e => {
+          e.preventDefault();
+          drawerOpenGuide = null;
+          renderDocsList();
+        });
+        drawerDocsListEl.appendChild(back);
+        const body = document.createElement('div');
+        body.className = 'guide-body';
+        for (const node of renderMarkdown(g.body)) body.appendChild(node);
+        drawerDocsListEl.appendChild(body);
+        // Prev/next nav — shown only when there's an adjacent guide.
+        // Wraps neither end; reaching the edge just hides that side
+        // (rather than jumping to the opposite end, which would
+        // surprise users who don't realize they wrapped).
+        const prev = idx > 0 ? GUIDES[idx - 1] : null;
+        const next = idx < GUIDES.length - 1 ? GUIDES[idx + 1] : null;
+        if (prev || next) {
+          const nav = document.createElement('div');
+          nav.className = 'drawer-guide-nav';
+          const makeLink = (g2, label, side) => {
+            const a = document.createElement('a');
+            a.className = 'drawer-guide-nav-link drawer-guide-nav-' + side;
+            a.href = '#';
+            const arrow = document.createElement('span');
+            arrow.className = 'drawer-guide-nav-arrow';
+            arrow.textContent = side === 'prev' ? '←' : '→';
+            const meta = document.createElement('div');
+            meta.className = 'drawer-guide-nav-meta';
+            const lbl = document.createElement('div');
+            lbl.className = 'drawer-guide-nav-label';
+            lbl.textContent = label;
+            const ttl = document.createElement('div');
+            ttl.className = 'drawer-guide-nav-title';
+            ttl.textContent = g2.title;
+            meta.appendChild(lbl);
+            meta.appendChild(ttl);
+            // For 'prev' the arrow is on the left of the meta; for
+            // 'next' it's on the right. CSS handles ordering via
+            // flex-direction; here we just append both in a stable
+            // order.
+            if (side === 'prev') { a.appendChild(arrow); a.appendChild(meta); }
+            else                  { a.appendChild(meta);  a.appendChild(arrow); }
+            a.addEventListener('click', e => {
+              e.preventDefault();
+              drawerOpenGuide = g2.slug;
+              renderDocsList();
+              // Scroll back to the top so the user starts at the heading.
+              if (drawerDocsListEl.parentElement) drawerDocsListEl.parentElement.scrollTop = 0;
+            });
+            return a;
+          };
+          // Left slot: prev (or blank spacer so right slot stays right-aligned).
+          if (prev) nav.appendChild(makeLink(prev, 'previous', 'prev'));
+          else      nav.appendChild(document.createElement('div'));
+          if (next) nav.appendChild(makeLink(next, 'next', 'next'));
+          else      nav.appendChild(document.createElement('div'));
+          drawerDocsListEl.appendChild(nav);
+        }
+      }
+    } else {
+      // Index. Filter by search query (title + summary substring).
+      const matches = (g) => {
+        if (!q) return true;
+        return g.title.toLowerCase().includes(q) ||
+               (g.summary || '').toLowerCase().includes(q) ||
+               (g.body || '').toLowerCase().includes(q);
+      };
+      const visible = GUIDES.filter(matches);
+      if (!visible.length && q) {
+        const empty = document.createElement('div');
+        empty.className = 'drawer-docs-empty';
+        empty.textContent = `no guides match "${q}"`;
+        drawerDocsListEl.appendChild(empty);
+      } else {
+        for (const g of visible) {
+          const row = document.createElement('div');
+          row.className = 'drawer-guide-row';
+          const title = document.createElement('div');
+          title.className = 'drawer-guide-title';
+          title.textContent = g.title;
+          row.appendChild(title);
+          if (g.summary) {
+            const sum = document.createElement('div');
+            sum.className = 'drawer-guide-summary';
+            sum.textContent = g.summary;
+            row.appendChild(sum);
+          }
+          row.addEventListener('click', () => {
+            drawerOpenGuide = g.slug;
+            renderDocsList();
+            // Scroll the panel back to the top so the user starts reading
+            // from the heading, not wherever the guide-row sat.
+            if (drawerDocsListEl.parentElement) drawerDocsListEl.parentElement.scrollTop = 0;
+          });
+          drawerDocsListEl.appendChild(row);
+        }
+      }
+    }
+  }
+
+  // ── Function reference section ─────────────────────────────────
+  // Skip when a single guide is opened — the user came in to read prose,
+  // not browse symbols. The "← all guides" link brings them back.
+  if (drawerOpenGuide) return;
+  const refHdr = document.createElement('div');
+  refHdr.className = 'drawer-docs-grouphdr';
+  refHdr.style.marginTop = '12px';
+  refHdr.textContent = 'Function reference';
+  drawerDocsListEl.appendChild(refHdr);
+  const matches = (name) => {
+    if (!q) return true;
+    if (name.toLowerCase().includes(q)) return true;
+    const d = DOCS[name];
+    if (!d) return false;
+    if (d.description && d.description.toLowerCase().includes(q)) return true;
+    if (d.signature   && d.signature.toLowerCase().includes(q))   return true;
+    return false;
+  };
+  // Track which names belong to a known group so unlisted ones can be
+  // surfaced in an "Other" bucket at the bottom — keeps doc additions
+  // discoverable even before they've been grouped.
+  const grouped = new Set();
+  let anyVisible = false;
+  for (const group of DOC_GROUPS) {
+    const visible = group.names.filter(n => DOCS[n] && matches(n));
+    for (const n of group.names) grouped.add(n);
+    if (!visible.length) continue;
+    anyVisible = true;
+    const hdr = document.createElement('div');
+    hdr.className = 'drawer-docs-grouphdr';
+    hdr.textContent = group.label;
+    drawerDocsListEl.appendChild(hdr);
+    for (const n of visible) drawerDocsListEl.appendChild(buildDocItem(n));
+  }
+  // Sweep any DOCS entries not in DOC_GROUPS into an "Other" tail bucket.
+  const extras = Object.keys(DOCS).filter(n => !grouped.has(n) && matches(n));
+  if (extras.length) {
+    anyVisible = true;
+    const hdr = document.createElement('div');
+    hdr.className = 'drawer-docs-grouphdr';
+    hdr.textContent = 'Other';
+    drawerDocsListEl.appendChild(hdr);
+    for (const n of extras.sort()) drawerDocsListEl.appendChild(buildDocItem(n));
+  }
+  if (!anyVisible) {
+    const empty = document.createElement('div');
+    empty.className = 'drawer-docs-empty';
+    empty.textContent = q ? `no docs match "${q}"` : 'no docs available';
+    drawerDocsListEl.appendChild(empty);
+  }
+}
+
+function buildDocItem(name) {
+  const d = DOCS[name];
+  const row = document.createElement('div');
+  row.className = 'drawer-docs-row';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'drawer-docs-name';
+  nameEl.textContent = name;
+  row.appendChild(nameEl);
+  if (d.signature) {
+    const sig = document.createElement('div');
+    sig.className = 'drawer-docs-sig';
+    sig.textContent = d.signature;
+    row.appendChild(sig);
+  }
+  if (d.description) {
+    const desc = document.createElement('div');
+    desc.className = 'drawer-docs-desc';
+    desc.textContent = d.description;
+    row.appendChild(desc);
+  }
+  if (d.example) {
+    const ex = document.createElement('div');
+    ex.className = 'drawer-docs-ex';
+    ex.textContent = d.example;
+    row.appendChild(ex);
+  }
+  // Click → copy the name to clipboard (silent best-effort; if the
+  // clipboard API is unavailable, just brief-flash the row instead).
+  row.addEventListener('click', () => {
+    const copyName = name.replace(/^@/, '@'); // keep decorators intact
+    try { navigator.clipboard && navigator.clipboard.writeText(copyName); } catch { /* ignore */ }
+    row.classList.add('drawer-docs-row-flash');
+    setTimeout(() => row.classList.remove('drawer-docs-row-flash'), 400);
+  });
+  return row;
 }
 
 // Snapshot list rendering. Reuses the same row shape as the slide-in
