@@ -5,6 +5,7 @@
 import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting } from './storage.js';
 import { openProgramMenu } from './ctxmenu.js';
 import { attachLongPress, closeMenu } from './menu.js';
+import { isDesktop } from './viewport.js';
 
 const menuBtn        = document.getElementById('menuBtn');
 const drawer         = document.getElementById('drawer');
@@ -19,6 +20,31 @@ const drawerFileInput = document.getElementById('fileInput');
 
 let searchFilter = '';
 
+// Desktop persistent-drawer mode: when the viewport is desktop AND the
+// user hasn't opted out via Settings, the drawer is a sidebar that stays
+// open. closeDrawer becomes a no-op, the scrim is hidden, and the app
+// content shifts right (CSS handles the layout via the `persistent`
+// class on the drawer). The hamburger close button is still wired up
+// to closeDrawer; in persistent mode the close button itself is hidden
+// via CSS rather than being made functional-but-overridden.
+function persistentMode() {
+  return isDesktop() && getSetting('desktopDrawer', true);
+}
+
+function applyPersistentClass() {
+  // ep-drawer-persistent lives on <html> (not body) so the head script
+  // can set it before first paint to avoid a slide-in animation on every
+  // refresh. drawer.js keeps it in sync at runtime; CSS rules use it
+  // as a descendant selector so both <html> and <body> placements work.
+  if (persistentMode()) {
+    drawer.classList.add('persistent');
+    document.documentElement.classList.add('ep-drawer-persistent');
+  } else {
+    drawer.classList.remove('persistent');
+    document.documentElement.classList.remove('ep-drawer-persistent');
+  }
+}
+
 export function openDrawer({focusSearch = false} = {}) {
   drawer.classList.add('on');
   drawerScrim.classList.add('on');
@@ -27,6 +53,11 @@ export function openDrawer({focusSearch = false} = {}) {
 }
 
 export function closeDrawer() {
+  // In persistent mode, the drawer stays open; user can still interact
+  // with elements inside it (search, list, settings) but the standard
+  // close paths (scrim click, Esc, action-clicks-that-also-close) become
+  // no-ops. The drawer is a permanent part of the layout, not a modal.
+  if (persistentMode()) return;
   drawer.classList.remove('on');
   drawerScrim.classList.remove('on');
   closeMenu();
@@ -40,6 +71,21 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('ep:close-drawer', closeDrawer);
 window.addEventListener('ep:storage-changed', renderDrawerList);
+
+// React to viewport-band changes (window resized across the 1024 boundary,
+// or device orientation flipped). Also fired by the setting toggle in
+// settings.js when the user changes the desktopDrawer preference.
+function reapplyPersistentMode() {
+  applyPersistentClass();
+  if (persistentMode()) {
+    // Auto-open in persistent mode so the sidebar is visible from boot.
+    if (!drawer.classList.contains('on')) openDrawer();
+  }
+}
+window.addEventListener('ep:viewport-changed', reapplyPersistentMode);
+window.addEventListener('ep:desktop-drawer-setting-changed', reapplyPersistentMode);
+// Run once at module load so initial paint shows the right layout.
+reapplyPersistentMode();
 
 newProgBtn.addEventListener('click', () => { newProgram(); closeDrawer(); });
 openFileBtn.addEventListener('click', () => { drawerFileInput.click(); closeDrawer(); });

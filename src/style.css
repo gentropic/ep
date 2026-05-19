@@ -1406,6 +1406,124 @@ body {
 .drawer.on { transform: translateX(0); }
 .drawer.dragging,
 .drawer-scrim.dragging { transition: none; }
+
+/* Desktop persistent-drawer mode. Drawer is a sidebar that stays open;
+ * the scrim is hidden (no modal-overlay semantics); the app shifts right
+ * to leave room. Width matches the drawer's fixed 320px.
+ *
+ * Activated by the `persistent` class on .drawer and `ep-drawer-persistent`
+ * on <body> (drawer.js sets both together). Below the 1024px viewport
+ * breakpoint, drawer.js removes both classes — so dragging the window
+ * narrow returns to the mobile slide-in modal model automatically. */
+.drawer.persistent {
+  /* No shadow when sitting inline next to the app (modal shadow is just
+   * visual noise on a permanent sidebar). Border keeps the seam visible. */
+  box-shadow: none;
+  border-right: 1px solid var(--sw-border);
+}
+
+/* Pre-position the drawer at translateX(0) AND suppress the transition
+ * in persistent mode. The head script sets ep-drawer-persistent on <html>
+ * before first paint, so CSS sees this rule from the very first frame
+ * and the drawer renders already-visible — no slide-in animation on
+ * refresh. Runtime toggles (settings change, viewport resize) snap
+ * instantly too, which feels right for a permanent sidebar. */
+.ep-drawer-persistent .drawer {
+  transform: translateX(0);
+  transition: none;
+}
+.ep-drawer-persistent .drawer-scrim,
+.ep-drawer-persistent #drawerCloseBtn,
+.ep-drawer-persistent #menuBtn { display: none; }
+
+/* ── 3-pane desktop layout ──────────────────────────────────────────
+ *
+ * On desktop + persistent drawer, the app becomes a real three-column
+ * layout: drawer (already left of .app via margin-left), editor in the
+ * center column, outputs as a permanent right rail. The fundamental win
+ * is that inputs, source, and outputs are ALL visible at once — drag a
+ * slider in the input chips, see the output value change without
+ * scrolling. That's the desktop superpower mobile can't deliver.
+ *
+ * Structure (preserved via grid-template-areas — no DOM changes):
+ *   .app
+ *     ├─ .top-bar         → "header"  spans both columns
+ *     ├─ .drop-overlay    → fixed-positioned, sits outside the grid
+ *     ├─ .scenarios-strip → "scen"    spans both columns
+ *     ├─ .panel#paramsPanel → "input"   center column
+ *     ├─ .show-source     → "showsrc" center column (form-mode affordance)
+ *     ├─ .body#body       → "body"    center column, flex-grows
+ *     ├─ .panel#outputsPanel → "outputs" right column, spans inputs→accessory
+ *     ├─ .form-spacer     → "spacer"  center column (form mode only)
+ *     └─ .accessory       → "access"  center column (math symbol pad)
+ *
+ * Below the 1024px viewport breakpoint, this whole block doesn't apply
+ * (drawer.js drops the .ep-drawer-persistent body class) — the layout
+ * falls back to the mobile column flexbox automatically. */
+.ep-drawer-persistent .app {
+  display: grid;
+  max-width: none;
+  margin: 0 0 0 min(320px, 84vw);
+  border-left: none;     /* drawer's right border is the seam now */
+  /* Right column width: ~300px is enough for output chips (value + unit
+   * stacked) without crowding the editor. Adjust if outputs get cramped. */
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: auto auto auto auto 1fr auto auto;
+  grid-template-areas:
+    "header   header"
+    "scen     scen"
+    "input    outputs"
+    "showsrc  outputs"
+    "body     outputs"
+    "spacer   outputs"
+    "access   outputs";
+  /* Each pane manages its own scroll; the app itself doesn't need to. */
+  overflow: hidden;
+}
+.ep-drawer-persistent .app > .hdr             { grid-area: header; }
+.ep-drawer-persistent .app > .scenarios-strip { grid-area: scen; }
+.ep-drawer-persistent .app > #paramsPanel     { grid-area: input; }
+.ep-drawer-persistent .app > .show-source     { grid-area: showsrc; }
+/* The drop-overlay is position:fixed and shouldn't claim a grid cell;
+ * pulling it out of the grid flow keeps auto-placement deterministic. */
+.ep-drawer-persistent .app > .drop-overlay    { position: fixed; }
+.ep-drawer-persistent .app > #body {
+  grid-area: body;
+  min-height: 0;
+  /* Let the editor fill the center column. Capping the width and
+   * centering created twin empty bands on either side that felt
+   * silly. Accept ultra-wide on ultra-wide screens — most ep code is
+   * short anyway, so the wrap rarely kicks in. */
+}
+.ep-drawer-persistent .app > #outputsPanel {
+  grid-area: outputs;
+  /* Rail-flavored: left border separates from editor, top border removed
+   * (the row above sits flush). Scroll independently for long output lists.
+   * Background matches the editor (.sw-bg) so the empty area below the
+   * chips reads as a continuous rail, not a darker void. The panel-hdr
+   * keeps its distinct color to mark the section. */
+  background: var(--sw-bg);
+  border-left: 1px solid var(--sw-border);
+  border-top: none;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ep-drawer-persistent .app > .form-spacer { grid-area: spacer; }
+.ep-drawer-persistent .app > .accessory   { grid-area: access; }
+
+/* Output chips stack vertically in the narrow rail (override the
+ * default 2-column grid). Each chip still has its full layout — label,
+ * value, unit, copy button — just one per row. */
+.ep-drawer-persistent #outputsPanel .chip-grid {
+  grid-template-columns: 1fr;
+}
+
+/* Input chips flow horizontally on desktop: as many per row as fit at
+ * ~180px each. With a typical center column of 700-1200px, that's 3-6
+ * chips per row instead of mobile's fixed 2. */
+.ep-drawer-persistent #paramsPanel .chip-grid {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
 .drawer-hdr {
   padding: 10px 12px;
   background: var(--sw-bg-raised);

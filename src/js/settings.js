@@ -66,6 +66,7 @@ const autoCheckControl  = document.getElementById('autoCheckControl');
 const checkUpdateBtn    = document.getElementById('settingsCheckUpdateBtn');
 const updateLastCheckedHint = document.getElementById('updateLastCheckedHint');
 const gcuShareControl   = document.getElementById('gcuShareControl');
+const desktopDrawerControl = document.getElementById('desktopDrawerControl');
 
 export function openSettings() {
   if (!panel) return;
@@ -176,6 +177,19 @@ function renderControls() {
       renderControls();
     });
   updateLastCheckedLabel();
+
+  // Desktop persistent drawer toggle. drawer.js listens for the dispatched
+  // event and re-applies its layout (auto-opens when turning on, switches
+  // back to modal behavior when turning off). Behavior is gated on the
+  // viewport band too — turning the toggle on while in mobile width has
+  // no visible effect until the window crosses 1024px.
+  renderPillRow(desktopDrawerControl, ON_OFF,
+    getSetting('desktopDrawer', true) ? 'on' : 'off', v => {
+      const on = v === 'on';
+      setSetting('desktopDrawer', on);
+      window.dispatchEvent(new CustomEvent('ep:desktop-drawer-setting-changed'));
+      renderControls();
+    });
 
   // GCU hyper integration toggle. When turned OFF, removes any
   // gcu:tool:ep / gcu:log:ep entries previously written so the user's

@@ -35,6 +35,20 @@
     var dark = pref === 'dark' || (pref === 'auto' &&
       window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+
+    // Pre-apply the desktop persistent-drawer state BEFORE first paint.
+    // Without this, drawer.js's class additions run after the drawer
+    // has already rendered hidden, triggering its slide-in animation
+    // on every refresh. Setting the class on <html> here means the CSS
+    // rules below (drawer pre-positioned at translateX(0), transition
+    // suppressed in persistent mode) apply on the very first frame.
+    //
+    // drawer.js continues to manage the same class at runtime — toggle
+    // changes, viewport resizes — but boot starts in the correct state.
+    var desktopDrawer = settings.desktopDrawer !== false;  // default true
+    if (desktopDrawer && window.innerWidth >= 1024) {
+      document.documentElement.classList.add('ep-drawer-persistent');
+    }
   } catch (e) {
     document.documentElement.setAttribute('data-theme', 'dark');
   }
@@ -313,6 +327,17 @@
         <div class="settings-row-control">
           <button class="settings-btn" id="settingsCheckUpdateBtn">check now</button>
         </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-hdr">desktop</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>persistent drawer on desktop</div>
+          <div class="settings-row-hint">when on, ep keeps the side drawer permanently visible on screens 1024px wide or more, like a desktop file browser. turn off to use the mobile-style modal drawer everywhere.</div>
+        </div>
+        <div class="settings-row-control" id="desktopDrawerControl"></div>
       </div>
     </div>
 

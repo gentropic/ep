@@ -91,6 +91,7 @@ const VIEWER_JS_FILES = [
 // (Function declarations hoist within the concatenated flat scope, so this
 // order is mostly cosmetic — but it makes reading the built file saner.)
 const JS_FILES = [
+  'viewport.js',
   'units.js',
   'blame.js',
   'evaluator.js',
