@@ -271,8 +271,24 @@ const BUILTIN_PROCS = {
   },
   filter(args) {
     const [p, xs] = args;
-    if (typeof p !== 'function') throw new Error('filter: first arg must be a predicate');
     if (!Array.isArray(xs)) throw new Error('filter: second arg must be a list');
+    // Mask form: first arg is a List<Bool> the same length as xs. Keeps
+    // xs[i] where mask[i] is true. Natural pair with the comparison-
+    // broadcasting we added: `filter(xs > 5, xs)` works.
+    if (Array.isArray(p)) {
+      if (p.length !== xs.length) {
+        throw new Error(`filter: mask length ${p.length} doesn't match list length ${xs.length}`);
+      }
+      const out = [];
+      for (let i = 0; i < xs.length; i++) {
+        if (p[i] === true) out.push(xs[i]);
+        else if (p[i] !== false) {
+          throw new Error('filter: mask elements must be Bool');
+        }
+      }
+      return out;
+    }
+    if (typeof p !== 'function') throw new Error('filter: first arg must be a predicate function or Bool mask');
     return xs.filter(x => p(x) === true);
   },
   foldl(args) {
@@ -996,6 +1012,14 @@ export function evalValueExpr(node, env) {
   }
   if (node.type === 'Unary' && node.op === '!') {
     const v = evalValueExpr(node.expr, env);
+    // Array broadcasting: ![true, false, true] → [false, true, false].
+    // Mask negation, useful for inverting a selection mask.
+    if (Array.isArray(v)) {
+      return v.map(x => {
+        if (typeof x !== 'boolean') throw new Error('!: list element must be Bool');
+        return !x;
+      });
+    }
     if (typeof v !== 'boolean') throw new Error('! requires a Bool operand');
     return !v;
   }
@@ -1014,21 +1038,27 @@ export function evalValueExpr(node, env) {
     return v.neg();
   }
   if (node.type === 'Binary') {
-    // Logical operators on booleans (short-circuit).
-    if (node.op === '&&') {
+    // Logical operators on booleans (short-circuit) — but if either side
+    // is a List<Bool>, broadcast element-wise instead. List broadcasting
+    // can't short-circuit (we need to fully evaluate the RHS to align
+    // it with the LHS list), so the short-circuit path applies only
+    // when both sides are scalar booleans.
+    if (node.op === '&&' || node.op === '||') {
       const l = evalValueExpr(node.left, env);
-      if (typeof l !== 'boolean') throw new Error('&& requires Bool operands');
-      if (!l) return false;
+      if (Array.isArray(l)) {
+        // List on the left — eval the right and broadcast.
+        const r = evalValueExpr(node.right, env);
+        return broadcastLogic(node.op, l, r);
+      }
+      if (typeof l !== 'boolean') throw new Error(`${node.op} requires Bool operands`);
+      // Scalar Bool on the left — short-circuit IF the result is
+      // determined. Otherwise eval the right; if it's a list, broadcast
+      // the scalar across it.
+      if (node.op === '&&' && !l) return false;
+      if (node.op === '||' &&  l) return true;
       const r = evalValueExpr(node.right, env);
-      if (typeof r !== 'boolean') throw new Error('&& requires Bool operands');
-      return r;
-    }
-    if (node.op === '||') {
-      const l = evalValueExpr(node.left, env);
-      if (typeof l !== 'boolean') throw new Error('|| requires Bool operands');
-      if (l) return true;
-      const r = evalValueExpr(node.right, env);
-      if (typeof r !== 'boolean') throw new Error('|| requires Bool operands');
+      if (Array.isArray(r)) return broadcastLogic(node.op, l, r);
+      if (typeof r !== 'boolean') throw new Error(`${node.op} requires Bool operands`);
       return r;
     }
     if (EVAL_CMP_OPS.has(node.op)) return evalCmp(node, env);
@@ -1139,55 +1169,117 @@ function valueEq(a, b) {
   return a === b;
 }
 
-// Comparison: both operands must agree on shape. ==/!= work on every value
-// type; ordering ops only on Quantities (with same dim).
-function evalCmp(node, env) {
-  const l = evalValueExpr(node.left, env);
-  const r = evalValueExpr(node.right, env);
-  // ==/!= are total: lists, strings, booleans, quantities all comparable to
-  // their own kind. Cross-kind compares throw to surface obvious bugs.
-  if (node.op === '==' || node.op === '!=') {
-    if (Array.isArray(l) || Array.isArray(r)) {
-      if (!Array.isArray(l) || !Array.isArray(r)) {
-        throw new Error(`${node.op}: cannot compare List with non-List`);
-      }
-      const eq = valueEq(l, r);
-      return node.op === '==' ? eq : !eq;
-    }
+// Compare two scalar Quantities or primitives — the pre-broadcasting
+// element-wise path. Used both for the scalar/scalar case in evalCmp
+// AND inside broadcastCmp to apply the op to each pair. Throws on
+// cross-kind compares (Bool vs Quantity, String vs Bool, etc.) so
+// obvious bugs surface immediately.
+function cmpScalar(op, l, r) {
+  if (op === '==' || op === '!=') {
     if (typeof l === 'boolean' || typeof r === 'boolean') {
       if (typeof l !== typeof r) {
-        throw new Error(`${node.op}: cannot compare Bool with non-Bool`);
+        throw new Error(`${op}: cannot compare Bool with non-Bool`);
       }
-      return node.op === '==' ? l === r : l !== r;
+      return op === '==' ? l === r : l !== r;
     }
     if (typeof l === 'string' || typeof r === 'string') {
       if (typeof l !== typeof r) {
-        throw new Error(`${node.op}: cannot compare String with non-String`);
+        throw new Error(`${op}: cannot compare String with non-String`);
       }
-      return node.op === '==' ? l === r : l !== r;
+      return op === '==' ? l === r : l !== r;
     }
     // Quantity-vs-Quantity
     if (!dimEq(l.dim, r.dim)) {
-      throw new Error(`${node.op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
+      throw new Error(`${op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
     }
-    return node.op === '==' ? l.value === r.value : l.value !== r.value;
+    return op === '==' ? l.value === r.value : l.value !== r.value;
   }
   // Ordering ops: Quantity only.
   if (typeof l === 'boolean' || typeof r === 'boolean') {
-    throw new Error(`${node.op}: ordering not defined on booleans`);
+    throw new Error(`${op}: ordering not defined on booleans`);
   }
-  if (Array.isArray(l) || Array.isArray(r) || typeof l === 'string' || typeof r === 'string') {
-    throw new Error(`${node.op}: ordering only defined on Quantities`);
+  if (typeof l === 'string' || typeof r === 'string') {
+    throw new Error(`${op}: ordering only defined on Quantities`);
   }
   if (!dimEq(l.dim, r.dim)) {
-    throw new Error(`${node.op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
+    throw new Error(`${op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
   }
-  switch (node.op) {
+  switch (op) {
     case '<':  return l.value <  r.value;
     case '<=': return l.value <= r.value;
     case '>':  return l.value >  r.value;
     case '>=': return l.value >= r.value;
   }
+}
+
+// Element-wise comparison broadcasting. Called when at least one of the
+// operands is an Array. Result is a List<Bool>. Matches numpy-style
+// rules: Array/Array of equal length zip; Array/Scalar broadcasts the
+// scalar against every element. Cross-length Array/Array throws to
+// catch bugs early.
+//
+// Note: evalCmp keeps list-vs-list ==/!= on the STRUCTURAL path
+// (returns Bool) so upstream Numbat's `is_empty<A>(xs) = xs == []`
+// pattern stays semantically correct. This helper is reached for
+// every OTHER list-involving case (ordering ops, list-vs-scalar
+// ==/!=, etc.).
+function broadcastCmp(op, l, r) {
+  if (Array.isArray(l) && Array.isArray(r)) {
+    if (l.length !== r.length) {
+      throw new Error(`${op}: list length mismatch (${l.length} vs ${r.length})`);
+    }
+    return l.map((x, i) => cmpScalar(op, x, r[i]));
+  }
+  if (Array.isArray(l)) return l.map(x => cmpScalar(op, x, r));
+  return r.map(x => cmpScalar(op, l, x));
+}
+
+// Element-wise && / || over List<Bool> operands. Called when at least
+// one side of a logical op is an Array. Mirrors broadcastCmp shape:
+// list/list same length zips, list/scalar broadcasts scalar across the
+// list. Operands must all be Bools — surfaces a clear error if a List<Number>
+// accidentally lands in a mask combinator.
+function broadcastLogic(op, l, r) {
+  const apply = (a, b) => {
+    if (typeof a !== 'boolean' || typeof b !== 'boolean') {
+      throw new Error(`${op}: list element must be Bool`);
+    }
+    return op === '&&' ? (a && b) : (a || b);
+  };
+  if (Array.isArray(l) && Array.isArray(r)) {
+    if (l.length !== r.length) {
+      throw new Error(`${op}: list length mismatch (${l.length} vs ${r.length})`);
+    }
+    return l.map((x, i) => apply(x, r[i]));
+  }
+  if (Array.isArray(l)) return l.map(x => apply(x, r));
+  return r.map(x => apply(l, x));
+}
+
+// Comparison dispatch:
+//
+//   ==/!= list-vs-list  → STRUCTURAL (returns Bool). Preserved so the
+//                          `xs == []` is_empty pattern used throughout
+//                          upstream Numbat keeps working.
+//   ==/!= list-vs-scalar → BROADCAST (List<Bool>). Each element is
+//                          compared against the scalar.
+//   <,<=,>,>= any list  → BROADCAST. No prior semantics, so this is
+//                          the natural fit for mask construction.
+//   scalar/scalar       → existing cmpScalar.
+function evalCmp(node, env) {
+  const l = evalValueExpr(node.left, env);
+  const r = evalValueExpr(node.right, env);
+  const op = node.op;
+  const lArr = Array.isArray(l);
+  const rArr = Array.isArray(r);
+  if (lArr || rArr) {
+    if ((op === '==' || op === '!=') && lArr && rArr) {
+      const eq = valueEq(l, r);
+      return op === '==' ? eq : !eq;
+    }
+    return broadcastCmp(op, l, r);
+  }
+  return cmpScalar(op, l, r);
 }
 
 // ── generic-fn machinery (v0.4) ──────────────────────────────────

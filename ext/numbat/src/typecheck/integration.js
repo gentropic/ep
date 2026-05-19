@@ -222,9 +222,20 @@ function schemeMap2() {
   return generalize(tFn([tFn([a, b], c), a, tList(b)], tList(c)), [a, b, c], []);
 }
 function schemeFilter() {
-  // <A>(Fn[(A) -> Bool], List<A>) -> List<A>
+  // <A, F>(F, List<A>) -> List<A>
+  //
+  // First arg is intentionally unconstrained. The runtime accepts EITHER
+  // a predicate function `(A) -> Bool` OR a Bool mask `List<Bool>` of the
+  // same length as xs. Encoding "function OR list" as a single HM scheme
+  // isn't expressible — relaxing F to a TVar lets both forms typecheck
+  // cleanly and pushes shape-checking to the runtime, where the error
+  // message ("mask length 2 doesn't match list length 3") is also more
+  // useful than the typechecker's "cannot unify (...) -> Bool with
+  // List<Bool>". Net tradeoff: lose typecheck rejection of nonsense like
+  // filter(5, xs); keep both useful forms.
   const a = freshTVar();
-  return generalize(tFn([tFn([a], tBool()), tList(a)], tList(a)), [a], []);
+  const f = freshTVar();
+  return generalize(tFn([f, tList(a)], tList(a)), [a, f], []);
 }
 function schemeFoldl() {
   // <A, B>(Fn[(A, B) -> A], A, List<B>) -> A

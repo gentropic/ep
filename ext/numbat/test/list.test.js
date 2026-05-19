@@ -57,14 +57,21 @@ test('list equality: same lists', () => {
   assert.equal(n.values.get('c'), true);
 });
 
-test('list equality: cross-type rejected', () => {
+test('list equality: list-vs-scalar broadcasts (ep extension)', () => {
+  // Previously rejected as "cannot compare List with non-List"; the
+  // broadcasting work makes this a useful mask construction primitive.
+  // Structural list-vs-list equality is still preserved (see test above).
   const n = new Numbat({ prelude: 'none' });
-  assert.throws(() => n.loadSource('let bad = [1, 2] == 5'), /cannot compare List with non-List/);
+  n.loadSource('let m = [1, 2, 1] == 1');
+  assert.deepEqual(n.values.get('m'), [true, false, true]);
 });
 
-test('list ordering: rejected', () => {
+test('list ordering: broadcasts element-wise (ep extension)', () => {
+  // Previously rejected; now broadcasts so `xs < ys` returns a List<Bool>
+  // mask. Lengths must match for list-vs-list.
   const n = new Numbat({ prelude: 'none' });
-  assert.throws(() => n.loadSource('let bad = [1] < [2]'), /ordering only defined on Quantities/);
+  n.loadSource('let m = [1, 5] < [3, 2]');
+  assert.deepEqual(n.values.get('m'), [true, false]);
 });
 
 // ── primitives ───────────────────────────────────────────────────
