@@ -111,6 +111,74 @@ years = 30
 future_value = compound(10000, 0.05, years)
 ```
 
+### Arrow-function lambdas (ep extension)
+
+Inline anonymous functions. Same `(params) => body` syntax as JavaScript / TypeScript. Upstream Numbat doesn't define lambda syntax yet — when it does, ep will adopt whatever they choose.
+
+```ep
+double = x => x * 2
+double(5)                          # → 10
+
+map(x => x * 2, [1, 2, 3])         # → [2, 4, 6]
+filter(x => x > 0, [-2, 0, 3])     # → [3]
+foldl((acc, x) => acc + x, 0, xs)  # sum
+```
+
+Closures capture the surrounding scope:
+
+```ep
+multiplier = 5
+scale = x => x * multiplier         # remembers `multiplier`
+scale(10)                           # → 50
+```
+
+### Array broadcasting (ep extension)
+
+Arithmetic and most numeric builtins broadcast over lists element-wise — same shape as numpy. Upstream Numbat handles this via explicit `map`/`foldl`; ep adds broadcasting on top because the dataset / plot lane gets badly cluttered without it.
+
+```ep
+xs = range(1, 5)                   # [1, 2, 3, 4, 5]
+
+ys = xs * 2 + 1                    # [3, 5, 7, 9, 11]
+zs = -xs                           # [-1, -2, -3, -4, -5]
+ws = xs * xs                       # [1, 4, 9, 16, 25]
+
+sin(xs)                            # element-wise sin
+sqrt(xs)                           # element-wise sqrt
+```
+
+Rules:
+- **List ⊕ List** of the same length → element-wise.
+- **List ⊕ Scalar** or **Scalar ⊕ List** → broadcast the scalar.
+- Length mismatch errors per-pair with the same "list length mismatch" message.
+- Dim arithmetic still applies element-wise — `[1 m] + [2 kg]` errors with "dim mismatch", same as scalars.
+
+Built-in 1-arg numeric functions (`sin`, `cos`, `sqrt`, `ln`, `abs`, …) auto-map over lists. User-defined fns also broadcast as long as their body is built from broadcasting-friendly ops — you don't always need `map` even for custom fns:
+
+```ep
+fn sq(x: Scalar) -> Scalar = x * x
+sq(xs)                             # works — body broadcasts
+```
+
+For control flow (`if`/`then`/`else` over each element) you still need `map` explicitly, since comparisons don't broadcast yet.
+
+### List builders + plots (ep extension)
+
+```ep
+range(1, 10)                       # 1..10 inclusive (integer step)
+arange(0, 1, 0.25)                 # numpy-style; stop exclusive, step optional
+linspace(0 m, 10 m, 5)             # n evenly-spaced points, unit-preserving
+zeros(5)                           # [0, 0, 0, 0, 0]
+ones(5)                            # [1, 1, 1, 1, 1]
+random_list(100)                   # 100 uniform [0,1) samples
+
+xs = linspace(0, 4 * pi, 200)
+plot(xs, sin(xs), "x", "sin(x)", "Sine wave")
+hist(random_list(1000))
+```
+
+Plots render inline as canvas widgets below the calling line. Add `@output` above a plot to also surface it as a thumbnail in the outputs panel.
+
 ### Built-in helpers
 
 ep's prelude adds a few domain-specific things on top of Numbat's standard units:
