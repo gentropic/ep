@@ -1288,6 +1288,44 @@ body {
   opacity: 0.85;
 }
 
+/* Hover docs — tooltip shown when the pointer rests on a builtin /
+ * decorator / keyword in the editor. CM6 tags the outer element with
+ * .cm-tooltip (light default styling); override for the dark surface,
+ * same approach as .cm-ep-sighelp above. */
+.cm-tooltip.cm-ep-hoverdoc {
+  background: var(--sw-bg-bright) !important;
+  border: 1px solid var(--sw-border) !important;
+  border-radius: var(--sw-radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  padding: 8px 10px;
+  max-width: min(400px, 90vw);
+}
+.cm-ep-hoverdoc-sig {
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  color: var(--sw-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cm-ep-hoverdoc-desc {
+  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+  line-height: 1.45;
+  margin-top: 5px;
+}
+.cm-ep-hoverdoc-ex {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  color: var(--sw-text-mid, var(--sw-text-soft));
+  background: var(--sw-bg-deep, var(--sw-bg));
+  border-left: 2px solid var(--sw-border);
+  padding: 3px 6px;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Mobile docked sig-help strip. Lives just above the accessory bar,
  * which is itself pinned above the soft keyboard via --ep-kbd-inset.
  * Hidden on desktop (the floating cursor-anchored tooltip handles

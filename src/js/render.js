@@ -23,7 +23,7 @@ import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './
 import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
-import { renderDocInfo, parseSignature } from './docs.js';
+import { DOCS, renderDocInfo, parseSignature } from './docs.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -470,7 +470,7 @@ function mountCm6() {
     Decoration, WidgetType, StateField, StateEffect,
     autocompletion, CompletionContext, acceptCompletion,
     search, searchKeymap, highlightSelectionMatches,
-    showTooltip,
+    showTooltip, hoverTooltip,
   } = CM6;
 
   // Inline-error block widget — renders BELOW the offending line so the
@@ -979,6 +979,73 @@ function mountCm6() {
     });
   }
 
+  // §4.4 — hover docs. Hovering a builtin / decorator / keyword shows
+  // its DOCS entry as a tooltip. Same data the autocomplete info panel
+  // and signature help draw from. Only fires for names that HAVE a docs
+  // entry — hovering a user binding or plain number does nothing.
+  function wordRangeAt(state, pos) {
+    const line = state.doc.lineAt(pos);
+    const text = line.text;
+    let rel = pos - line.from;
+    const isWord = (c) => /[A-Za-z0-9_]/.test(c);
+    // pos can sit just past the end of the word (CM6 gives the boundary);
+    // step back one if the char under pos isn't a word char but the one
+    // before is.
+    if (rel > 0 && (rel >= text.length || !isWord(text[rel])) && isWord(text[rel - 1])) {
+      rel--;
+    }
+    if (rel < 0 || rel >= text.length || !isWord(text[rel])) return null;
+    let from = rel, to = rel;
+    while (from > 0 && isWord(text[from - 1])) from--;
+    while (to < text.length - 1 && isWord(text[to + 1])) to++;
+    to++; // exclusive end
+    // Pull a leading `@` into the range so decorator names (@input etc.)
+    // resolve against their DOCS keys.
+    let name = text.slice(from, to);
+    if (from > 0 && text[from - 1] === '@') { from--; name = '@' + name; }
+    return { from: line.from + from, to: line.from + to, name };
+  }
+
+  function buildHoverDom(name) {
+    const d = DOCS[name];
+    if (!d) return null;
+    const wrap = document.createElement('div');
+    // Both classes so the `.cm-tooltip.cm-ep-hoverdoc` override applies
+    // whether or not CM6 also tags the outer element — same belt-and-
+    // braces as the sig-help tooltip.
+    wrap.className = 'cm-tooltip cm-ep-hoverdoc';
+    const sig = document.createElement('div');
+    sig.className = 'cm-ep-hoverdoc-sig';
+    sig.textContent = d.signature || name;
+    wrap.appendChild(sig);
+    if (d.description) {
+      const desc = document.createElement('div');
+      desc.className = 'cm-ep-hoverdoc-desc';
+      desc.textContent = d.description;
+      wrap.appendChild(desc);
+    }
+    if (d.example) {
+      const ex = document.createElement('div');
+      ex.className = 'cm-ep-hoverdoc-ex';
+      ex.textContent = d.example;
+      wrap.appendChild(ex);
+    }
+    return wrap;
+  }
+
+  const epHoverDocs = hoverTooltip((view, pos) => {
+    const wr = wordRangeAt(view.state, pos);
+    if (!wr) return null;
+    const dom = buildHoverDom(wr.name);
+    if (!dom) return null;
+    return {
+      pos: wr.from,
+      end: wr.to,
+      above: true,
+      create() { return { dom }; },
+    };
+  }, { hoverTime: 350 });
+
   const initialDoc = state.body.map(r => r.src).join('\n');
 
   bodyEl.innerHTML = '';
@@ -1007,6 +1074,7 @@ function mountCm6() {
         highlightSelectionMatches(),
         _errorsField,
         sigHelpField,
+        epHoverDocs,
         resultGutter,
         keymap.of([
           // Tab accepts the open completion. acceptCompletion returns false

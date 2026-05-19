@@ -15,6 +15,7 @@ export {
   gutter,
   GutterMarker,
   showTooltip,
+  hoverTooltip,
 } from '@codemirror/view';
 
 export {
