@@ -142,3 +142,46 @@ export function renderDocInfo(name) {
   if (d.example)     s += '\n\nexample:  ' + d.example;
   return s;
 }
+
+// Split a signature like "max<D>(a: D, b: D) -> D" into:
+//   { prefix: "max<D>(", args: ["a: D", "b: D"], suffix: ") -> D" }
+// Returns null if there's no parenthesized arg list (constants like `pi`,
+// keywords, etc.). Splitting is depth-aware so nested generics like
+// `List<T>` don't trip the comma scanner.
+export function parseSignature(name) {
+  const d = DOCS[name];
+  if (!d) return null;
+  const sig = d.signature;
+  const open = sig.indexOf('(');
+  if (open < 0) return null;
+  // Find matching close paren — track angle/paren depth so we don't
+  // mis-match on e.g. `(xs: List<T>, ys: List<T>) -> List<T>`.
+  let depth = 1;
+  let i = open + 1;
+  while (i < sig.length && depth > 0) {
+    const c = sig[i];
+    if (c === '(' || c === '<') depth++;
+    else if (c === ')' || c === '>') depth--;
+    if (depth === 0) break;
+    i++;
+  }
+  if (depth !== 0) return null;
+  const inner = sig.slice(open + 1, i);
+  // Split inner by commas at depth 0.
+  const args = [];
+  let buf = '';
+  let d2 = 0;
+  for (const c of inner) {
+    if (c === '(' || c === '<') d2++;
+    else if (c === ')' || c === '>') d2--;
+    if (c === ',' && d2 === 0) { args.push(buf.trim()); buf = ''; continue; }
+    buf += c;
+  }
+  if (buf.trim()) args.push(buf.trim());
+  return {
+    prefix: sig.slice(0, open + 1),
+    args,
+    suffix: sig.slice(i),
+    description: d.description || '',
+  };
+}

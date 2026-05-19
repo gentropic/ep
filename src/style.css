@@ -1174,6 +1174,91 @@ body {
    * it can flip below the option. Either way, give it room to read. */
 }
 
+/* Signature help — floating tooltip that anchors to the open paren of
+ * the enclosing function call. Shows the signature with the active
+ * parameter highlighted, plus the one-line description below.
+ *
+ * CM6 adds the .cm-tooltip class to our dom (light bg, light border by
+ * default). Override with !important so the dark Switchboard surface
+ * wins — same approach used for .cm-completionInfo above. */
+.cm-tooltip.cm-ep-sighelp {
+  background: var(--sw-bg-bright) !important;
+  border: 1px solid var(--sw-border) !important;
+  border-radius: var(--sw-radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  color: var(--sw-text);
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 10px;
+  max-width: min(420px, 90vw);
+  pointer-events: none; /* don't steal taps on mobile */
+}
+.cm-ep-sighelp-sig {
+  white-space: pre-wrap;
+  color: var(--sw-text);
+}
+.cm-ep-sighelp-active {
+  color: var(--sw-orange, var(--sw-text));
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+.cm-ep-sighelp-desc {
+  margin-top: 4px;
+  color: var(--sw-text-muted, var(--sw-text));
+  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-size: 11px;
+  white-space: normal;
+  opacity: 0.85;
+}
+
+/* Mobile docked sig-help strip. Lives just above the accessory bar,
+ * which is itself pinned above the soft keyboard via --ep-kbd-inset.
+ * Hidden on desktop (the floating cursor-anchored tooltip handles
+ * that case better — see media query at the end of this block). */
+.sighelp-strip {
+  display: none;  /* default; mobile media-query below flips this on */
+}
+.cm-ep-sighelp--strip {
+  /* Drop the floating tooltip's max-width and shadow — the strip spans
+   * the viewport edge-to-edge and sits on its own row. */
+  box-shadow: none !important;
+  max-width: 100% !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  border-radius: 0 !important;
+  padding: 6px 10px !important;
+}
+@media (max-width: 1023px) {
+  /* Show the docked strip; hide the floating tooltip — its anchor
+   * point (the open paren) usually scrolls off-screen behind the
+   * soft keyboard, leaving the tooltip dangling somewhere unhelpful. */
+  .sighelp-strip {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    /* Sit directly above the accessory bar. ~44px matches the
+     * accessory's typical rendered height (same approximation used
+     * for .app's padding-bottom further up). */
+    bottom: calc(var(--ep-kbd-inset, 0px) + 44px);
+    z-index: 49;  /* below accessory's 50, so accessory wins overlap */
+    transition: bottom 180ms ease;  /* match accessory's slide */
+    pointer-events: none;
+  }
+  .cm-tooltip.cm-ep-sighelp {
+    display: none !important;
+  }
+  /* When the accessory is toggled off, the strip should sit flush
+   * against the keyboard (or viewport bottom). */
+  .app.no-accessory .sighelp-strip {
+    bottom: var(--ep-kbd-inset, 0);
+  }
+}
+
 /* Accessory bar */
 .accessory {
   background: var(--sw-bg-raised);

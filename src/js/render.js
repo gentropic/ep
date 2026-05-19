@@ -23,7 +23,7 @@ import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './
 import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
-import { renderDocInfo } from './docs.js';
+import { renderDocInfo, parseSignature } from './docs.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -248,6 +248,13 @@ function drawPlot(canvas, descriptor, dpr) {
 function resultMarkerHtml(lineIdx) {
   const r = state.body[lineIdx];
   if (!r) return null;
+  // Cursor-line quiet: when the user is typing on this very line, the
+  // applyErrorMarks pass already suppressed the squiggle + block widget.
+  // Suppress the gutter ✕ too, so the whole line is calm mid-edit.
+  // Suspect rows (amber) keep their gutter marker — they're a softer
+  // signal and not actually an error on this line.
+  const cursorLine = (state.ui && state.ui._cursorLine) || 0;
+  if (r.error && (lineIdx + 1) === cursorLine) return null;
   if (r.error) {
     // Red ✕ as a shape-distinct error mark (accessible for color-blind
     // users). The full message lives in the inline error block below
@@ -358,6 +365,7 @@ function mountCm6() {
     Decoration, WidgetType, StateField, StateEffect,
     autocompletion, CompletionContext, acceptCompletion,
     search, searchKeymap, highlightSelectionMatches,
+    showTooltip,
   } = CM6;
 
   // Inline-error block widget — renders BELOW the offending line so the
@@ -652,7 +660,7 @@ function mountCm6() {
           // suggest (annotation-fixup) rows skip the underline entirely
           // — they're not flagging a problem with the row, they're
           // surfacing captured output / offering a polish action.
-          if (kind === 'error' || kind === 'warn') {
+          if ((kind === 'error' || kind === 'warn') && !it.suppressMark) {
             decos.push(Decoration.mark({
               class: kind === 'warn' ? 'cm-ep-warn' : 'cm-ep-error',
               attributes: { title: it.message || '' },
@@ -678,7 +686,11 @@ function mountCm6() {
               block: true,
               side: 1,
             }).range(line.to));
-          } else {
+          } else if (!it.suppressBlock) {
+            // error / warn / info paths. suppressBlock is set by
+            // applyErrorMarks for error+warn rows where the cursor
+            // currently lives — see the comment there for the
+            // rationale. info (print output) and plot never set it.
             decos.push(Decoration.widget({
               widget: new EpErrorWidget(cleanMsg, fromCol + 1, kind, it.suggestDim, it.rowIdx),
               block: true,
@@ -703,6 +715,145 @@ function mountCm6() {
     },
     lineMarkerChange() { return true; },
   });
+
+  // §4.3 — signature help. When the cursor sits inside a function-call
+  // arg list (e.g. `plot(xs, |ys)`), show the function's signature with
+  // the current arg highlighted. Scans the current line backward from
+  // the cursor, counting parens + commas at depth 0 to figure out which
+  // arg the cursor is on. String literals are skipped so unbalanced
+  // parens inside "foo(" don't fool us. Looks up DOCS for the signature
+  // text. No DOCS entry → no tooltip (silent).
+  function findEnclosingCall(state, pos) {
+    const line  = state.doc.lineAt(pos);
+    const text  = line.text;
+    const col   = pos - line.from;
+    let depth = 0;
+    let commaCount = 0;
+    let inStr = false, strCh = '';
+    for (let i = col - 1; i >= 0; i--) {
+      const c = text[i];
+      if (inStr) {
+        // Walking backward through a string. End it when we hit the
+        // opening quote (not escaped). Approximate — we don't try to
+        // count odd vs. even leading backslashes; ep strings are rare.
+        if (c === strCh && text[i - 1] !== '\\') inStr = false;
+        continue;
+      }
+      if (c === '"' || c === "'") { inStr = true; strCh = c; continue; }
+      if (c === ')') { depth++; continue; }
+      if (c === '(') {
+        if (depth === 0) {
+          // Unmatched open paren — this is our call. Identify the name
+          // immediately before it (skipping whitespace).
+          let j = i - 1;
+          while (j >= 0 && /\s/.test(text[j])) j--;
+          const end = j + 1;
+          while (j >= 0 && /[A-Za-z0-9_]/.test(text[j])) j--;
+          // Allow `::` inside names (module-qualified, e.g. core::lists::map),
+          // but only after we've consumed at least one identifier char.
+          while (j >= 1 && text[j] === ':' && text[j - 1] === ':') {
+            j -= 2;
+            while (j >= 0 && /[A-Za-z0-9_]/.test(text[j])) j--;
+          }
+          const name = text.slice(j + 1, end);
+          if (!name) return null;
+          return { name, parenPos: line.from + i, argIndex: commaCount };
+        }
+        depth--;
+        continue;
+      }
+      if (c === ',' && depth === 0) commaCount++;
+    }
+    return null;
+  }
+
+  function buildSigTooltipDom(name, argIndex) {
+    const parsed = parseSignature(name);
+    if (!parsed) return null;
+    const wrap = document.createElement('div');
+    // Both classes: cm-tooltip so our `.cm-tooltip.cm-ep-sighelp`
+    // override hits regardless of whether CM6 also tags the outer
+    // element. Belt-and-braces — keeps the dark Switchboard surface
+    // visible against the default light CM6 tooltip styling.
+    wrap.className = 'cm-tooltip cm-ep-sighelp';
+    const sigLine = document.createElement('div');
+    sigLine.className = 'cm-ep-sighelp-sig';
+    sigLine.appendChild(document.createTextNode(parsed.prefix));
+    parsed.args.forEach((a, i) => {
+      if (i > 0) sigLine.appendChild(document.createTextNode(', '));
+      const span = document.createElement('span');
+      span.textContent = a;
+      // Highlight the arg the cursor is currently on. If there are more
+      // commas than declared args (extra/trailing arg in a typo), nothing
+      // gets highlighted — better than highlighting the wrong slot.
+      if (i === argIndex) span.className = 'cm-ep-sighelp-active';
+      sigLine.appendChild(span);
+    });
+    sigLine.appendChild(document.createTextNode(parsed.suffix));
+    wrap.appendChild(sigLine);
+    if (parsed.description) {
+      const desc = document.createElement('div');
+      desc.className = 'cm-ep-sighelp-desc';
+      desc.textContent = parsed.description;
+      wrap.appendChild(desc);
+    }
+    return wrap;
+  }
+
+  const sigHelpField = StateField.define({
+    create(state) { return computeSigTooltip(state); },
+    update(value, tr) {
+      if (!tr.docChanged && !tr.selection) return value;
+      return computeSigTooltip(tr.state);
+    },
+    provide: f => showTooltip.from(f),
+  });
+
+  function computeSigTooltip(state) {
+    const pos = state.selection.main.head;
+    const call = findEnclosingCall(state, pos);
+    if (!call) { updateSigHelpStrip(null, 0); return null; }
+    const dom = buildSigTooltipDom(call.name, call.argIndex);
+    if (!dom) { updateSigHelpStrip(null, 0); return null; }
+    updateSigHelpStrip(call.name, call.argIndex);
+    return {
+      // Anchor at the open paren so the tooltip stays put while the user
+      // types args. `above: true` lifts it above the line so the in-
+      // progress text below stays visible. strictSide: false lets CM6
+      // flip the tooltip below if there's no room above.
+      pos: call.parenPos,
+      above: true,
+      strictSide: false,
+      create() { return { dom }; },
+    };
+  }
+
+  // Mirror the floating tooltip's content into the docked strip above
+  // the accessory bar. CSS owns the desktop/mobile visibility split —
+  // see .sighelp-strip rules in style.css. Passing name=null clears /
+  // hides the strip.
+  function updateSigHelpStrip(name, argIndex) {
+    const strip = document.getElementById('sighelpStrip');
+    if (!strip) return;
+    if (!name) {
+      strip.hidden = true;
+      strip.replaceChildren();
+      return;
+    }
+    const inner = buildSigTooltipDom(name, argIndex);
+    if (!inner) {
+      strip.hidden = true;
+      strip.replaceChildren();
+      return;
+    }
+    // buildSigTooltipDom returns a `.cm-tooltip.cm-ep-sighelp` div —
+    // drop the cm-tooltip class on this copy since we're outside the
+    // editor's tooltip layer and don't want CM6's default tooltip
+    // styling fighting our docked-strip CSS.
+    inner.className = 'cm-ep-sighelp cm-ep-sighelp--strip';
+    strip.replaceChildren(inner);
+    strip.hidden = false;
+  }
 
   const initialDoc = state.body.map(r => r.src).join('\n');
 
@@ -731,6 +882,7 @@ function mountCm6() {
         search({ top: true }),
         highlightSelectionMatches(),
         _errorsField,
+        sigHelpField,
         resultGutter,
         keymap.of([
           // Tab accepts the open completion. acceptCompletion returns false
@@ -743,23 +895,34 @@ function mountCm6() {
           ...(defaultKeymap || []),   // arrow keys, Home/End, word jumps, etc.
         ]),
         EditorView.updateListener.of((update) => {
-          if (!update.docChanged) return;
-          if (_syncingFromChip) return;
-          try {
-            const text = update.state.doc.toString();
-            state.body = text.split('\n').map(src => ({src}));
-            evaluateAll();
-            // If params were added/removed/renamed, rebuild the chip panel
-            // wholesale; otherwise just update existing chip values + results.
-            if (state._paramsStructureChanged) renderChips();
-            else                                syncChipInputsFromState();
-            renderChipResults();
-            renderOutputs();
-            applyErrorMarks();
-            window.dispatchEvent(new CustomEvent('ep:params-changed'));
-          } catch (e) {
-            // Never let an evaluator hiccup wedge CM6's update cycle.
-            console.error('ep: evaluator threw during doc update:', e);
+          if (update.docChanged) {
+            if (_syncingFromChip) return;
+            try {
+              const text = update.state.doc.toString();
+              state.body = text.split('\n').map(src => ({src}));
+              evaluateAll();
+              // If params were added/removed/renamed, rebuild the chip panel
+              // wholesale; otherwise just update existing chip values + results.
+              if (state._paramsStructureChanged) renderChips();
+              else                                syncChipInputsFromState();
+              renderChipResults();
+              renderOutputs();
+              applyErrorMarks();
+              window.dispatchEvent(new CustomEvent('ep:params-changed'));
+            } catch (e) {
+              // Never let an evaluator hiccup wedge CM6's update cycle.
+              console.error('ep: evaluator threw during doc update:', e);
+            }
+            return;
+          }
+          // Cursor moved without a doc change. Re-fire applyErrorMarks so
+          // the cursor-line block-widget suppression updates: errors on
+          // the line the user just left should reappear, and errors on
+          // the line they just entered should go quiet.
+          if (update.selectionSet) {
+            const before = update.startState.doc.lineAt(update.startState.selection.main.head).number;
+            const after  = update.state.doc.lineAt(update.state.selection.main.head).number;
+            if (before !== after) applyErrorMarks();
           }
         }),
         EditorView.theme({
@@ -1191,15 +1354,28 @@ function setGutterUnit(name, unitName) {
 // without a parseable position) fall back to underlining the whole line.
 function applyErrorMarks() {
   if (!cmView || !_errorEffect) return;
+  // Suppress every error indicator on the line the cursor is on —
+  // block widget, squiggle underline, and gutter ✕. The user is typing
+  // right there; flagging an "unknown identifier" or trailing-comma
+  // error mid-edit is just noise (and the block widget tends to slip
+  // behind the autocomplete popup as it grows). When the cursor moves
+  // off the line, everything reappears via the selection-change
+  // listener that re-fires applyErrorMarks.
+  const cursorLine = cmView.state.doc.lineAt(cmView.state.selection.main.head).number;
+  // Stash for the result gutter — resultMarkerHtml reads this to
+  // suppress the ✕ on the cursor's line. Also bumped in the selection
+  // listener so gutter redraws pick up cursor moves.
+  state.ui._cursorLine = cursorLine;
   const items = [];
   for (let i = 0; i < state.body.length; i++) {
     const row = state.body[i];
+    const onCursorLine = (i + 1) === cursorLine;
     if (row.error) {
       const message = row.error;
       let col = 0;
       const m = message.match(/^[^:]*:1:(\d+):/);
       if (m) col = parseInt(m[1], 10);
-      items.push({ line: i + 1, col, message, kind: 'error' });
+      items.push({ line: i + 1, col, message, kind: 'error', suppressBlock: onCursorLine, suppressMark: onCursorLine });
     }
     // Suspect annotation from the @output blame walker: the binding on
     // this row was implicated by a downstream output's dim mismatch.
@@ -1207,7 +1383,7 @@ function applyErrorMarks() {
     // binding itself isn't broken — it just doesn't fit what some
     // OTHER row expected.
     if (row.suspect && !row.error) {
-      items.push({ line: i + 1, col: 0, message: row.suspect, kind: 'warn' });
+      items.push({ line: i + 1, col: 0, message: row.suspect, kind: 'warn', suppressBlock: onCursorLine, suppressMark: onCursorLine });
     }
     // print(...) output captured during evaluation. Rendered in a
     // neutral info block below the line — same mechanism as
