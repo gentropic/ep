@@ -891,7 +891,10 @@ export function evalValueExpr(node, env) {
     return BUILTIN_FNS.factorial(v);
   }
   if (node.type === 'Unary' && node.op === '-') {
-    return evalValueExpr(node.expr, env).neg();
+    const v = evalValueExpr(node.expr, env);
+    // Array broadcasting: -[1, 2, 3] negates each element.
+    if (Array.isArray(v)) return v.map(x => x.neg());
+    return v.neg();
   }
   if (node.type === 'Binary') {
     // Logical operators on booleans (short-circuit).
@@ -946,11 +949,33 @@ export function evalValueExpr(node, env) {
     if (node.op === '^') {
       const base = evalValueExpr(node.left, env);
       const exp = evalValueExpr(node.right, env);
+      // Array broadcasting on the base: [a, b, c]^n = [a^n, b^n, c^n].
+      // Exponent must be a dimensionless scalar (per-element exponents
+      // would be uncommon and require defining per-element semantics).
+      if (Array.isArray(base)) {
+        if (!(exp instanceof Quantity) || !dimEmpty(exp.dim)) {
+          throw new Error('exponent must be a dimensionless scalar (lists not allowed on the right of ^)');
+        }
+        return base.map(x => x.pow(exp.value));
+      }
       if (!dimEmpty(exp.dim)) throw new Error('exponent must be dimensionless');
       return base.pow(exp.value);
     }
     const l = evalValueExpr(node.left, env);
     const r = evalValueExpr(node.right, env);
+    // Array broadcasting for arithmetic. Numpy-style rules:
+    //   Array op Array → element-wise (length must match)
+    //   Array op Scalar → broadcast scalar across the array
+    //   Scalar op Array → same
+    //   Length mismatch on Array op Array → error
+    // Dim arithmetic still applies per-element, so List<Length> + List<Mass>
+    // would error per-element on the underlying Quantity.add(). This is
+    // an ep-flavored extension to numbat — upstream Numbat's stdlib uses
+    // map/foldl for element-wise ops, so programs relying on broadcasting
+    // are ep-specific.
+    if (Array.isArray(l) || Array.isArray(r)) {
+      return broadcastArith(node.op, l, r);
+    }
     if (node.op === '+') return l.add(r);
     if (node.op === '-') return l.sub(r);
     if (node.op === '*') return l.mul(r);
@@ -958,6 +983,32 @@ export function evalValueExpr(node, env) {
     throw new Error(`operator '${node.op}' not supported in value expression`);
   }
   throw new Error(`unexpected node ${node.type} in value expression`);
+}
+
+// Element-wise arithmetic broadcasting for the four basic ops. Called
+// from evalValueExpr's Binary handler when at least one operand is a
+// JS array (i.e., a numbat List). Dim checking happens per-element via
+// the underlying Quantity ops, so length-matched lists of incompatible
+// dims still surface a useful error (`[3 m] + [2 kg]` → "dim mismatch"
+// on the first pair, not a vague type complaint).
+function broadcastArith(op, l, r) {
+  const elemOp = (a, b) => {
+    switch (op) {
+      case '+': return a.add(b);
+      case '-': return a.sub(b);
+      case '*': return a.mul(b);
+      case '/': return a.div(b);
+    }
+    throw new Error(`broadcast: '${op}' not a supported arithmetic op`);
+  };
+  if (Array.isArray(l) && Array.isArray(r)) {
+    if (l.length !== r.length) {
+      throw new Error(`list length mismatch in '${op}': ${l.length} vs ${r.length}`);
+    }
+    return l.map((v, i) => elemOp(v, r[i]));
+  }
+  if (Array.isArray(l)) return l.map(v => elemOp(v, r));
+  /* Array.isArray(r) */ return r.map(v => elemOp(l, v));
 }
 
 // Deep equality across Quantity / Bool / String / List values.
@@ -1249,6 +1300,13 @@ function evalCall(node, env) {
   if (builtin) {
     if (argVals.length !== 1) {
       throw new Error(`${node.name}: built-in takes 1 argument, got ${argVals.length}`);
+    }
+    // Array broadcasting: sin([1,2,3]) → [sin(1), sin(2), sin(3)].
+    // ep-flavored extension; the typecheck side doesn't carry the
+    // List<T>→List<T> signature so ep suppresses tc errors on rows
+    // whose runtime result is a list.
+    if (Array.isArray(argVals[0])) {
+      return argVals[0].map(v => builtin(v));
     }
     return builtin(argVals[0]);
   }
