@@ -1164,6 +1164,41 @@ body {
   scrollbar-width: none;
   flex: 0 0 auto;
 }
+
+/* Mobile: pin the accessory bar to the top edge of the on-screen
+ * keyboard so users can reach the math tokens while typing — by
+ * default iOS Safari lets keyboard overlay fixed-positioned elements,
+ * hiding the bar. The --ep-kbd-inset CSS variable is maintained by
+ * viewport.js via the visualViewport API; it's 0 with no keyboard,
+ * and equals the keyboard's height when one is shown. .app gets a
+ * matching padding-bottom so editor content doesn't sit underneath.
+ * Above the desktop breakpoint, the 3-pane layout puts the accessory
+ * in its grid area instead — this fix-positioning would conflict, so
+ * the media query keeps it scoped to mobile / narrow viewports. */
+@media (max-width: 1023px) {
+  .app .accessory {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--ep-kbd-inset, 0);
+    z-index: 50;
+    /* Smooth slide-up when the keyboard appears, snap-down on dismiss. */
+    transition: bottom 180ms ease;
+  }
+  .app {
+    /* Reserve enough room at the bottom so the editor's last lines
+     * aren't covered by the now-floating accessory bar. ~44px is the
+     * accessory's typical rendered height; safe approximation that
+     * doesn't require measuring at runtime. */
+    padding-bottom: 44px;
+  }
+  /* When the accessory is toggled off in settings (.no-accessory),
+   * drop the reserved padding too — empty space at the bottom of the
+   * editor reads as a bug. */
+  .app.no-accessory {
+    padding-bottom: 0;
+  }
+}
 .accessory::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
 .tok {
   font-family: var(--sw-mono);
