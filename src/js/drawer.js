@@ -2,23 +2,60 @@
 // Open is hamburger-only (no swipe-open) to avoid conflicting with Android's
 // system back gesture.
 
-import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting } from './storage.js';
+import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting, listSnapshots, restoreSnapshot, pinSnapshot, deleteSnapshot, takeSnapshot } from './storage.js';
 import { openProgramMenu } from './ctxmenu.js';
 import { attachLongPress, closeMenu } from './menu.js';
 import { isDesktop } from './viewport.js';
+import { epConfirm, epPrompt } from './dialogs.js';
 
 const menuBtn        = document.getElementById('menuBtn');
 const drawer         = document.getElementById('drawer');
 const drawerScrim    = document.getElementById('drawerScrim');
 const drawerCloseBtn = document.getElementById('drawerCloseBtn');
+const drawerTitleEl  = document.getElementById('drawerTitle');
 const drawerListEl   = document.getElementById('drawerList');
 const drawerSearchEl = document.getElementById('drawerSearch');
 const drawerSortBtn  = document.getElementById('drawerSortBtn');
 const newProgBtn     = document.getElementById('newProgBtn');
 const openFileBtn    = document.getElementById('openFileBtn');
 const drawerFileInput = document.getElementById('fileInput');
+const drawerModeProgramsBtn = document.getElementById('drawerModeProgramsBtn');
+const drawerModeHistoryBtn  = document.getElementById('drawerModeHistoryBtn');
+const drawerHistoryListEl   = document.getElementById('drawerHistoryList');
+const drawerHistoryHdrEl    = document.getElementById('drawerHistoryHdr');
+const drawerSnapshotNowBtn  = document.getElementById('drawerSnapshotNowBtn');
 
 let searchFilter = '';
+let drawerMode = 'programs';   // 'programs' | 'history'
+
+// Show/hide the program-mode sections vs history-mode sections, update
+// the title + active tab. Doesn't re-render — caller fires renderDrawer
+// (or renderHistory) afterwards. Exported so ctxmenu's "history" action
+// can flip the drawer in persistent mode.
+export function setDrawerMode(mode) {
+  drawerMode = (mode === 'history') ? 'history' : 'programs';
+  for (const el of document.querySelectorAll('.drawer-mode-programs')) {
+    el.style.display = drawerMode === 'programs' ? '' : 'none';
+  }
+  for (const el of document.querySelectorAll('.drawer-mode-history')) {
+    el.style.display = drawerMode === 'history' ? '' : 'none';
+  }
+  if (drawerModeProgramsBtn) {
+    drawerModeProgramsBtn.classList.toggle('active', drawerMode === 'programs');
+    drawerModeProgramsBtn.setAttribute('aria-selected', drawerMode === 'programs');
+  }
+  if (drawerModeHistoryBtn) {
+    drawerModeHistoryBtn.classList.toggle('active', drawerMode === 'history');
+    drawerModeHistoryBtn.setAttribute('aria-selected', drawerMode === 'history');
+  }
+  if (drawerTitleEl) {
+    drawerTitleEl.textContent = drawerMode === 'history'
+      ? `ep · history${currentProgramName ? ' · ' + currentProgramName : ''}`
+      : 'ep · programs';
+  }
+  if (drawerMode === 'history') renderHistoryList();
+  else                          renderDrawerList();
+}
 
 // Desktop persistent-drawer mode: when the viewport is desktop AND the
 // user hasn't opted out via Settings, the drawer is a sidebar that stays
@@ -85,7 +122,170 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && drawer.classList.contains('on')) closeDrawer();
 });
 window.addEventListener('ep:close-drawer', closeDrawer);
-window.addEventListener('ep:storage-changed', renderDrawerList);
+// Re-render whichever list is currently visible when storage changes
+// underneath us (another tab saved, a snapshot was taken/restored, etc).
+window.addEventListener('ep:storage-changed', () => {
+  if (drawerMode === 'history') renderHistoryList();
+  else                          renderDrawerList();
+});
+
+// snapshots.js dispatches this when the user opens "history" for a
+// program while the persistent drawer is active. Load that program if
+// it's not current, then flip the drawer to history mode.
+window.addEventListener('ep:open-snapshots-in-drawer', e => {
+  const name = e.detail && e.detail.name;
+  if (name && name !== currentProgramName) loadProgramByName(name);
+  setDrawerMode('history');
+});
+
+if (drawerModeProgramsBtn) {
+  drawerModeProgramsBtn.addEventListener('click', () => setDrawerMode('programs'));
+}
+if (drawerModeHistoryBtn) {
+  drawerModeHistoryBtn.addEventListener('click', () => setDrawerMode('history'));
+}
+if (drawerSnapshotNowBtn) {
+  drawerSnapshotNowBtn.addEventListener('click', async () => {
+    const name = currentProgramName;
+    if (!name) return;
+    const label = await epPrompt({
+      title: 'Take snapshot',
+      label: 'label (optional)',
+      value: '',
+      okLabel: 'Snapshot',
+    });
+    if (label === null) return;
+    takeSnapshot(name, (label || '').trim() || null);
+    renderHistoryList();
+  });
+}
+
+// Snapshot list rendering. Reuses the same row shape as the slide-in
+// snapshots panel (label-or-"auto" + pin glyph + meta line + restore/
+// pin/delete actions) so users see consistent UI regardless of which
+// surface they reach snapshots from.
+function renderHistoryList() {
+  if (!drawerHistoryListEl) return;
+  const name = currentProgramName;
+  drawerHistoryListEl.innerHTML = '';
+  if (!name) {
+    const empty = document.createElement('div');
+    empty.className = 'settings-row-hint';
+    empty.style.padding = '14px';
+    empty.textContent = 'No program loaded.';
+    drawerHistoryListEl.appendChild(empty);
+    if (drawerHistoryHdrEl) drawerHistoryHdrEl.textContent = 'snapshots';
+    return;
+  }
+  const snaps = listSnapshots(name);
+  if (drawerHistoryHdrEl) {
+    drawerHistoryHdrEl.textContent = snaps.length
+      ? `${snaps.length} snapshot${snaps.length === 1 ? '' : 's'}`
+      : 'no snapshots yet';
+  }
+  if (!snaps.length) {
+    const empty = document.createElement('div');
+    empty.className = 'settings-row-hint';
+    empty.style.padding = '14px';
+    empty.textContent = 'Take one with "snapshot now…" above, or wait — ep auto-snapshots each program the first time you load it in a session.';
+    drawerHistoryListEl.appendChild(empty);
+    return;
+  }
+  for (const snap of snaps) {
+    drawerHistoryListEl.appendChild(renderSnapshotRow(name, snap));
+  }
+}
+
+function renderSnapshotRow(programName, snap) {
+  const row = document.createElement('div');
+  row.className = 'drawer-item snapshot-row';
+
+  const info = document.createElement('div');
+  info.className = 'drawer-item-info';
+
+  const headline = document.createElement('div');
+  headline.className = 'drawer-item-name';
+  if (snap.label) {
+    const lbl = document.createElement('span');
+    lbl.className = 'snapshot-label';
+    lbl.textContent = snap.label;
+    headline.appendChild(lbl);
+  } else {
+    const auto = document.createElement('span');
+    auto.className = 'snapshot-auto';
+    auto.textContent = 'auto';
+    headline.appendChild(auto);
+  }
+  if (snap.pinned) {
+    const pin = document.createElement('span');
+    pin.className = 'snapshot-pin-glyph';
+    pin.textContent = '◆';
+    pin.title = 'pinned (never auto-purged)';
+    headline.appendChild(pin);
+  }
+  info.appendChild(headline);
+
+  const meta = document.createElement('div');
+  meta.className = 'drawer-item-meta';
+  const lineCount = snap.body.length;
+  meta.textContent = `${formatAgo(snap.takenAt)} · ${lineCount} line${lineCount === 1 ? '' : 's'}`;
+  info.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'snapshot-actions';
+
+  const restoreBtn = document.createElement('button');
+  restoreBtn.className = 'settings-btn';
+  restoreBtn.textContent = 'restore';
+  restoreBtn.title = 'replace current program with this snapshot (auto-saves a "before restore" first)';
+  restoreBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const ok = await epConfirm({
+      title: 'Restore snapshot?',
+      message: snap.label
+        ? `Replace the current program with the snapshot "${snap.label}"? Your current state will be saved as a "before restore" snapshot first.`
+        : `Replace the current program with this snapshot? Your current state will be saved as a "before restore" snapshot first.`,
+      okLabel: 'Restore',
+    });
+    if (!ok) return;
+    restoreSnapshot(programName, snap.id);
+    renderHistoryList();
+  });
+  actions.appendChild(restoreBtn);
+
+  const pinBtn = document.createElement('button');
+  pinBtn.className = 'settings-btn';
+  pinBtn.textContent = snap.pinned ? 'unpin' : 'pin';
+  pinBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    pinSnapshot(programName, snap.id, !snap.pinned);
+    renderHistoryList();
+  });
+  actions.appendChild(pinBtn);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'settings-btn danger';
+  delBtn.textContent = 'delete';
+  delBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const ok = await epConfirm({
+      title: 'Delete snapshot?',
+      message: snap.label
+        ? `Delete the snapshot "${snap.label}"? This can't be undone.`
+        : `Delete this snapshot? This can't be undone.`,
+      okLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    deleteSnapshot(programName, snap.id);
+    renderHistoryList();
+  });
+  actions.appendChild(delBtn);
+
+  row.appendChild(info);
+  row.appendChild(actions);
+  return row;
+}
 
 // React to viewport-band changes (window resized across the 1024 boundary,
 // or device orientation flipped). Also fired by the setting toggle in

@@ -1524,6 +1524,39 @@ body {
 .ep-drawer-persistent #paramsPanel .chip-grid {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 }
+/* Segmented control directly below the drawer header: switches the
+ * drawer between "programs" (saved-programs list, current default) and
+ * "history" (snapshots of the current program). On desktop with the
+ * persistent drawer this absorbs the slide-over snapshots panel —
+ * snapshots live in the left rail where navigational/historical things
+ * belong, no layout shift on toggle. */
+.drawer-modes {
+  display: flex;
+  padding: 0 12px 8px;
+  gap: 4px;
+  border-bottom: 1px solid var(--sw-border-soft);
+}
+.drawer-mode-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--sw-border-soft);
+  color: var(--sw-text-soft);
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.drawer-mode-btn:hover { color: var(--sw-text); border-color: var(--sw-border); }
+.drawer-mode-btn.active {
+  background: var(--sw-bg-bright);
+  color: var(--sw-orange);
+  border-color: var(--sw-orange);
+}
+
 .drawer-hdr {
   padding: 10px 12px;
   background: var(--sw-bg-raised);

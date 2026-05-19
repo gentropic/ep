@@ -20,6 +20,15 @@ const snapListEl   = document.getElementById('snapshotsList');
 let _currentName = null;
 
 export function openSnapshots(name) {
+  // When the persistent desktop drawer is active, snapshots live as a
+  // mode of the drawer itself (left rail) — not a slide-over panel.
+  // Dispatch into drawer.js via a custom event so we don't need to
+  // cross-import. The slide-over remains the mobile / non-persistent
+  // experience.
+  if (document.documentElement.classList.contains('ep-drawer-persistent')) {
+    window.dispatchEvent(new CustomEvent('ep:open-snapshots-in-drawer', { detail: { name } }));
+    return;
+  }
   if (!snapPanel) return;
   _currentName = name;
   if (snapTitle) snapTitle.textContent = `history · ${name}`;

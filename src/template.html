@@ -122,7 +122,7 @@
 <div class="drawer-scrim" id="drawerScrim"></div>
 <aside class="drawer" id="drawer">
   <div class="drawer-hdr">
-    <span class="drawer-title">ep · programs</span>
+    <span class="drawer-title" id="drawerTitle">ep · programs</span>
     <button class="hbtn icon-btn" id="drawerCloseBtn" aria-label="close menu">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
         <line x1="3" y1="3" x2="11" y2="11"/>
@@ -131,21 +131,38 @@
     </button>
   </div>
 
-  <div class="drawer-section">
+  <div class="drawer-modes" role="tablist" aria-label="drawer mode">
+    <button class="drawer-mode-btn active" id="drawerModeProgramsBtn" data-mode="programs" role="tab" aria-selected="true">programs</button>
+    <button class="drawer-mode-btn" id="drawerModeHistoryBtn" data-mode="history" role="tab" aria-selected="false">history</button>
+  </div>
+
+  <div class="drawer-section drawer-mode-programs">
     <button class="drawer-action" id="newProgBtn">
       <span class="drawer-action-icon">＋</span>
       <span>new program</span>
     </button>
   </div>
 
-  <div class="drawer-section drawer-search-wrap">
+  <div class="drawer-section drawer-search-wrap drawer-mode-programs">
     <input class="drawer-search" id="drawerSearch" placeholder="search programs…" spellcheck="false" autocapitalize="off" autocomplete="off">
     <button class="drawer-sort-btn" id="drawerSortBtn" title="toggle sort" aria-label="toggle sort">recent</button>
   </div>
 
-  <div class="drawer-section drawer-list-wrap">
+  <div class="drawer-section drawer-list-wrap drawer-mode-programs">
     <div class="drawer-section-hdr">saved programs</div>
     <div class="drawer-list" id="drawerList"></div>
+  </div>
+
+  <div class="drawer-section drawer-mode-history" style="display:none">
+    <button class="drawer-action" id="drawerSnapshotNowBtn">
+      <span class="drawer-action-icon">＋</span>
+      <span>snapshot now…</span>
+    </button>
+  </div>
+
+  <div class="drawer-section drawer-list-wrap drawer-mode-history" style="display:none">
+    <div class="drawer-section-hdr" id="drawerHistoryHdr">snapshots</div>
+    <div class="drawer-list" id="drawerHistoryList"></div>
   </div>
 
   <div class="drawer-section">
