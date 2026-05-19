@@ -832,18 +832,30 @@ function mountCm6() {
   // the accessory bar. CSS owns the desktop/mobile visibility split —
   // see .sighelp-strip rules in style.css. Passing name=null clears /
   // hides the strip.
+  //
+  // Also maintains --ep-sighelp-h: the strip's current rendered height.
+  // The mobile .app rule reads this and extends its padding-bottom by
+  // that amount, so when the strip overlaps the @outputs panel the user
+  // can still scroll the outputs into view above the strip. 0px when
+  // hidden, ~strip.offsetHeight when shown. rAF defers the read until
+  // after layout has settled so we don't measure mid-frame.
   function updateSigHelpStrip(name, argIndex) {
     const strip = document.getElementById('sighelpStrip');
     if (!strip) return;
+    const setInsetVar = (px) => {
+      document.documentElement.style.setProperty('--ep-sighelp-h', px + 'px');
+    };
     if (!name) {
       strip.hidden = true;
       strip.replaceChildren();
+      setInsetVar(0);
       return;
     }
     const inner = buildSigTooltipDom(name, argIndex);
     if (!inner) {
       strip.hidden = true;
       strip.replaceChildren();
+      setInsetVar(0);
       return;
     }
     // buildSigTooltipDom returns a `.cm-tooltip.cm-ep-sighelp` div —
@@ -853,6 +865,13 @@ function mountCm6() {
     inner.className = 'cm-ep-sighelp cm-ep-sighelp--strip';
     strip.replaceChildren(inner);
     strip.hidden = false;
+    requestAnimationFrame(() => {
+      // Visible only on mobile (CSS @media handles the display: block).
+      // On desktop offsetHeight will still be measurable, but the var
+      // doesn't matter there since the .app rule scoping it lives
+      // inside the same mobile media query.
+      setInsetVar(strip.offsetHeight || 0);
+    });
   }
 
   const initialDoc = state.body.map(r => r.src).join('\n');

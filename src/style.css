@@ -1217,20 +1217,26 @@ body {
 /* Mobile docked sig-help strip. Lives just above the accessory bar,
  * which is itself pinned above the soft keyboard via --ep-kbd-inset.
  * Hidden on desktop (the floating cursor-anchored tooltip handles
- * that case better — see media query at the end of this block). */
+ * that case better — see media query at the end of this block).
+ *
+ * The OUTER .sighelp-strip element owns the background + border so it
+ * covers the viewport edge-to-edge — the previous version put bg on
+ * the inner div, which left vertical gutters showing through to the
+ * outputs panel behind. */
 .sighelp-strip {
   display: none;  /* default; mobile media-query below flips this on */
 }
 .cm-ep-sighelp--strip {
-  /* Drop the floating tooltip's max-width and shadow — the strip spans
-   * the viewport edge-to-edge and sits on its own row. */
+  /* Inner div is just a content wrapper inside the strip now — the
+   * outer .sighelp-strip carries the background. Drop the floating
+   * tooltip's frame styles so the inner div doesn't double-up the
+   * border/shadow. */
+  background: transparent !important;
   box-shadow: none !important;
   max-width: 100% !important;
-  border-left: none !important;
-  border-right: none !important;
-  border-bottom: none !important;
+  border: none !important;
   border-radius: 0 !important;
-  padding: 6px 10px !important;
+  padding: 0 !important;
 }
 @media (max-width: 1023px) {
   /* Show the docked strip; hide the floating tooltip — its anchor
@@ -1248,6 +1254,15 @@ body {
     z-index: 49;  /* below accessory's 50, so accessory wins overlap */
     transition: bottom 180ms ease;  /* match accessory's slide */
     pointer-events: none;
+    /* Opaque background — covers the @outputs panel cleanly when the
+     * strip overlaps it, instead of letting chip values bleed through
+     * around the inner div's edges. */
+    background: var(--sw-bg-bright);
+    border-top: 1px solid var(--sw-border);
+    padding: 6px 10px;
+    /* Subtle top shadow so the strip clearly reads as ABOVE the
+     * outputs panel rather than mixed in. */
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.25);
   }
   .cm-tooltip.cm-ep-sighelp {
     display: none !important;
@@ -1293,16 +1308,20 @@ body {
   }
   .app {
     /* Reserve enough room at the bottom so the editor's last lines
-     * aren't covered by the now-floating accessory bar. ~44px is the
-     * accessory's typical rendered height; safe approximation that
-     * doesn't require measuring at runtime. */
-    padding-bottom: 44px;
+     * aren't covered by the now-floating accessory bar (~44px), AND
+     * by the sig-help strip when it's showing (--ep-sighelp-h, 0 when
+     * hidden). With both reserved, the @outputs panel can be scrolled
+     * up past the strip when the user wants to peek at a result while
+     * editing a function call. render.js's updateSigHelpStrip keeps
+     * --ep-sighelp-h in sync with the strip's measured height. */
+    padding-bottom: calc(44px + var(--ep-sighelp-h, 0px));
   }
   /* When the accessory is toggled off in settings (.no-accessory),
-   * drop the reserved padding too — empty space at the bottom of the
-   * editor reads as a bug. */
+   * drop the accessory's slice of the reserved padding but keep the
+   * sig-help reservation — the strip still floats above the keyboard
+   * regardless of whether the accessory bar is on. */
   .app.no-accessory {
-    padding-bottom: 0;
+    padding-bottom: var(--ep-sighelp-h, 0px);
   }
 }
 .accessory::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
