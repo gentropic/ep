@@ -412,7 +412,7 @@ export function getCompletionData() {
     'let', 'fn', 'if', 'then', 'else', 'where', 'dimension', 'unit',
     'struct', 'use', 'to', 'per', 'and', 'or', 'not', 'true', 'false',
   ];
-  const decorators = ['@input', '@output', '@options'];
+  const decorators = ['@input', '@output', '@options', '@range'];
   return { units, functions, dimensions, keywords, decorators };
 }
 
@@ -701,9 +701,26 @@ export function evaluate(body) {
     const isInput   = stmt.decorators.some(d => d.name === 'input');
     const outDec    = stmt.decorators.find(d => d.name === 'output');
     const optDec    = stmt.decorators.find(d => d.name === 'options');
+    const rangeDec  = stmt.decorators.find(d => d.name === 'range');
     const isOutput  = !!outDec;
     const outputUnit = isOutput && outDec.args.length ? outDec.args[0] : null;
     const decoratorOptions = optDec ? optDec.args : null;
+    // @range(min, max [, step]) — when present, the chip renders as a
+    // numeric slider instead of a text input. Bare numbers only for v1
+    // (no unit-bearing range bounds); the slider operates on the value's
+    // numeric part and the unit comes from the binding's source itself.
+    // Invalid args (NaN, max <= min, negative step) silently fall back
+    // to no slider — the chip stays a text input.
+    let chipRange = null;
+    if (rangeDec && rangeDec.args.length >= 2) {
+      const min  = parseFloat(rangeDec.args[0].replace(/_/g, ''));
+      const max  = parseFloat(rangeDec.args[1].replace(/_/g, ''));
+      const step = rangeDec.args.length >= 3 ? parseFloat(rangeDec.args[2].replace(/_/g, '')) : null;
+      if (Number.isFinite(min) && Number.isFinite(max) && max > min &&
+          (step === null || (Number.isFinite(step) && step > 0))) {
+        chipRange = { min, max, step };
+      }
+    }
     const wantsChip = isInput || !!decoratorOptions;
 
     const ownerIdx = stmt.bindingLine - 1;
@@ -724,6 +741,7 @@ export function evaluate(body) {
       if (wantsChip && finalOptions && finalOptions.length) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
+          range: chipRange,
           bodyIdx: ownerIdx, result: null, error: null,
         });
         if (isOutput) { outputs.push({ name, unit: outputUnit }); row.outputs = [name]; }
@@ -793,6 +811,7 @@ export function evaluate(body) {
       if (wantsChip) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
+          range: chipRange,
           bodyIdx: ownerIdx, result: q, error: err,
         });
       }
@@ -810,6 +829,7 @@ export function evaluate(body) {
         const err = recExpr ? `couldn't parse: ${recExpr}` : 'empty expression';
         params.push({
           name: recName, valueSrc: recExpr, anno: recAnno, options: decoratorOptions || null,
+          range: chipRange,
           bodyIdx: ownerIdx, result: null, error: err,
         });
         row.kind  = 'binding';

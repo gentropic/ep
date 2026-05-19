@@ -463,20 +463,36 @@ function syncCmFromState() {
 }
 
 function syncChipInputsFromState() {
-  // Detect widget-kind drift first — if any chip is mounted as a <select>
-  // but its current valueSrc isn't in the enum set (or vice versa), the
-  // existing element can't carry the value cleanly and we have to do a
-  // full re-render. This handles source-side edits that switch a chip
-  // from enum-style ("NQ_core") to freeform ("5 cm") and back.
+  // Detect widget-kind drift first — if any chip is mounted with the wrong
+  // kind (e.g. source-side edit switched from "200 m" to "NQ_core", or
+  // added/removed an @range decorator), the existing element can't
+  // carry the new shape and we full-rebuild via renderChips. dataset.kind
+  // is set by makeChipControl when the chip is created.
   for (const p of state.params) {
     if (!p._inputEl) continue;
     const want = chipWidgetKind(p);
-    const have = p._inputEl.tagName === 'SELECT' ? 'select' : 'input';
+    const have = p._inputEl.dataset.kind ||
+                 (p._inputEl.tagName === 'SELECT' ? 'select' : 'input');
     if (want !== have) { renderChips(); return; }
   }
+  // Per-chip value sync. Slider chips have a wrapper + nested range +
+  // text input; sync both when the source changes externally (chip-side
+  // edits already update both via makeChipControl's listeners).
   for (const p of state.params) {
     if (!p._inputEl) continue;
     if (p._inputEl === document.activeElement) continue;
+    if (p._inputEl.dataset.kind === 'slider') {
+      const text = p._inputEl.querySelector('.chip-slider-val');
+      const range = p._inputEl.querySelector('.chip-slider');
+      if (text && text !== document.activeElement && text.value !== p.valueSrc) {
+        text.value = p.valueSrc;
+      }
+      if (range) {
+        const info = chipSliderInfo(p);
+        if (info && range.value !== String(info.num)) range.value = String(info.num);
+      }
+      continue;
+    }
     if (p._inputEl.value !== p.valueSrc) p._inputEl.value = p.valueSrc;
   }
 }
@@ -491,7 +507,28 @@ const DCDMA_CODES = ['AQ','BQ','NQ','NQ2','NQ3','HQ','HQ3','PQ','PQ3'];
 const SIEVE_MESHES = [635,500,450,400,325,270,230,200,170,150,120,100,80,70,60,50,45,40,35,30,25,20,18,16,14,12,10,8,7,6,5,4];
 
 function chipWidgetKind(p) {
-  return chipWidgetOptions(p) ? 'select' : 'input';
+  // Priority: options (enum-style) wins over range (slider) wins over
+  // freeform text input. Options + range is incoherent (you can't both
+  // pick from a list and drag a slider), so we honor the more specific
+  // signal — options — when both are present.
+  if (chipWidgetOptions(p))   return 'select';
+  if (chipSliderInfo(p))      return 'slider';
+  return 'input';
+}
+
+// Returns {min, max, step, num, unit} if the chip should render as a
+// numeric slider, else null. Requires the @range decorator on the binding
+// AND a parseable numeric value (current source like "200 m" — the leading
+// number is the slider position, the rest is the preserved unit).
+function chipSliderInfo(p) {
+  if (!p || !p.range) return null;
+  const v = (p.valueSrc || '').trim();
+  const m = v.match(/^(-?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)\s*(.*)$/);
+  if (!m) return null;
+  const num = parseFloat(m[1].replace(/_/g, ''));
+  if (!Number.isFinite(num)) return null;
+  const unit = m[2].trim();
+  return { min: p.range.min, max: p.range.max, step: p.range.step, num, unit };
 }
 
 // Returns {options: [...]} if the param should render as a select, else null.
@@ -527,6 +564,7 @@ function makeChipControl(p, onChange) {
     const sel = document.createElement('select');
     sel.className = 'chip-val chip-val-select';
     sel.dataset.paramName = p.name;
+    sel.dataset.kind = 'select';
     for (const opt of widget.options) {
       const o = document.createElement('option');
       o.value = opt;
@@ -538,6 +576,69 @@ function makeChipControl(p, onChange) {
     sel.addEventListener('focus', () => { state._lastFocused = sel; });
     return sel;
   }
+  const slider = chipSliderInfo(p);
+  if (slider) {
+    // Slider chip: a <div> wrapper holding a range input + a small
+    // editable text label. Drag the slider OR type into the label —
+    // both fire onChange with a reconstructed "<number> <unit>" string.
+    // Returning the wrapper keeps the slot-replacement pattern intact
+    // (caller appends it like any other control).
+    const wrap = document.createElement('div');
+    wrap.className = 'chip-val chip-val-slider';
+    wrap.dataset.paramName = p.name;
+    wrap.dataset.kind = 'slider';
+
+    const range = document.createElement('input');
+    range.type = 'range';
+    range.className = 'chip-slider';
+    range.min = String(slider.min);
+    range.max = String(slider.max);
+    if (slider.step != null) range.step = String(slider.step);
+    range.value = String(slider.num);
+    range.dataset.paramName = p.name;
+
+    const text = document.createElement('input');
+    text.type = 'text';
+    text.className = 'chip-slider-val';
+    text.value = p.valueSrc;
+    text.spellcheck = false;
+    text.autocapitalize = 'off';
+    text.autocomplete = 'off';
+    text.dataset.paramName = p.name;
+
+    const fmtVal = (num) => {
+      // Cap displayed precision to step granularity; otherwise float
+      // arithmetic gives "200.00000000000003 m" on slider drag.
+      let s;
+      if (slider.step != null && slider.step > 0) {
+        const decimals = Math.max(0, -Math.floor(Math.log10(slider.step) - 1e-9));
+        s = num.toFixed(decimals);
+      } else {
+        s = String(parseFloat(num.toPrecision(8)));
+      }
+      return slider.unit ? `${s} ${slider.unit}` : s;
+    };
+
+    range.addEventListener('input', () => {
+      const num = parseFloat(range.value);
+      const v = fmtVal(num);
+      text.value = v;
+      onChange(v);
+    });
+    text.addEventListener('input', () => {
+      const m = text.value.trim().match(/^(-?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)/);
+      if (m) {
+        const n = parseFloat(m[1].replace(/_/g, ''));
+        if (Number.isFinite(n)) range.value = String(n);
+      }
+      onChange(text.value);
+    });
+    range.addEventListener('focus', () => { state._lastFocused = range; });
+    text.addEventListener('focus',  () => { state._lastFocused = text; });
+
+    wrap.append(range, text);
+    return wrap;
+  }
   const inp = document.createElement('input');
   inp.className = 'chip-val';
   inp.value = p.valueSrc;
@@ -545,6 +646,7 @@ function makeChipControl(p, onChange) {
   inp.autocapitalize = 'off';
   inp.autocomplete = 'off';
   inp.dataset.paramName = p.name;
+  inp.dataset.kind = 'input';
   inp.addEventListener('input', () => onChange(inp.value));
   inp.addEventListener('focus', () => { state._lastFocused = inp; });
   return inp;

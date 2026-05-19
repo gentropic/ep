@@ -304,6 +304,69 @@ body {
   background: var(--sw-bg-raised);
   color: var(--sw-text);
 }
+
+/* Slider-flavored chip — for @input bindings with an @range(min, max [, step])
+ * decorator. Two stacked controls: the range slider on top (drag for
+ * coarse adjustment), and a text input below carrying the exact value
+ * (type for precise adjustment). Both edit the same underlying source
+ * binding; makeChipControl keeps them in sync. */
+.chip-val.chip-val-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chip-val-slider .chip-slider {
+  width: 100%;
+  margin: 0;
+  /* Native range input — minimal restyling so OS feel is preserved.
+   * Just recolor the track + thumb to match the orange accent so it
+   * reads as part of the chip rather than a system widget. */
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  height: 18px;
+  cursor: pointer;
+}
+.chip-val-slider .chip-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--sw-border);
+  border-radius: 2px;
+}
+.chip-val-slider .chip-slider::-moz-range-track {
+  height: 4px;
+  background: var(--sw-border);
+  border-radius: 2px;
+}
+.chip-val-slider .chip-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--sw-orange);
+  border: none;
+  margin-top: -5px;
+  cursor: pointer;
+}
+.chip-val-slider .chip-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--sw-orange);
+  border: none;
+  cursor: pointer;
+}
+.chip-val-slider .chip-slider-val {
+  font-family: var(--sw-mono);
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--sw-text);
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+}
 .chip-out-val {
   font-family: var(--sw-mono);
   font-size: 15px;
@@ -1517,6 +1580,14 @@ body {
 .ep-drawer-persistent #outputsPanel .chip-grid {
   grid-template-columns: 1fr;
 }
+
+/* In the 3-pane layout the params + outputs panels are structural
+ * columns/rows — collapsing them when empty makes the whole layout
+ * jump on add/remove of an @input or @output decorator. Override the
+ * auto-hide-empty default for desktop persistent mode so the panel
+ * headers stay visible ("@outputs · 0 results") as stable orientation
+ * cues. Higher-specificity selector wins over the mobile rule. */
+.ep-drawer-persistent .app.auto-hide-empty .panel.empty { display: block; }
 
 /* Input chips flow horizontally on desktop: as many per row as fit at
  * ~180px each. With a typical center column of 700-1200px, that's 3-6
