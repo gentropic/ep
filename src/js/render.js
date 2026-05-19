@@ -21,6 +21,8 @@ import { state, evaluateAll } from './state.js';
 import { fmt, fmtNum, dEq, fmtDim } from './units.js';
 import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './evaluator.js';
 import { attachLongPress, showMenu } from './menu.js';
+import { takeSnapshot, currentProgramName } from './storage.js';
+import { epPrompt } from './dialogs.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -430,6 +432,21 @@ function mountCm6() {
   });
 
   bodyEl.addEventListener('focusin', () => { state._lastFocused = cmView; });
+
+  // Right-click in the body opens ep's body-row context menu (snapshot,
+  // copy result as, format document). Skipped when the user has an
+  // active text selection — the browser-native menu (with copy/paste)
+  // is more useful when there's a selection to act on.
+  bodyEl.addEventListener('contextmenu', e => {
+    if (!cmView) return;
+    const sel = cmView.state.selection.main;
+    if (!sel.empty) return;  // let browser native menu win
+    const pos = cmView.posAtCoords({ x: e.clientX, y: e.clientY });
+    if (pos == null) return;
+    const lineNo = cmView.state.doc.lineAt(pos).number;
+    e.preventDefault();
+    openBodyRowMenu(lineNo - 1, e.clientX, e.clientY);
+  });
 }
 
 function syncCmFromState() {
@@ -849,10 +866,11 @@ function flashCopied(btn) {
   setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1200);
 }
 
-function openCopyAsMenu(name, q, plainText, x, y, anchorBtn) {
-  // `plainText` is the already-computed "value with unit" string (commas
-  // stripped, ² / ³ down-converted) that quick-tap copies. We derive the
-  // other formats from it + q's canonical value and dim.
+// Pure helper: build the copy-format items array from a result. Used by
+// both the output-chip copy-as menu (which anchors to a copy button it
+// can flash on success) and the body-row right-click menu (which has no
+// anchor — onCopied is omitted).
+function copyAsItems(name, q, plainText, onCopied) {
   const parts = plainText.split(' ');
   const numStr = parts[0];
   const unitAscii = parts.slice(1).join(' ');   // empty if dimensionless
@@ -873,11 +891,70 @@ function openCopyAsMenu(name, q, plainText, x, y, anchorBtn) {
     { label: 'as LaTeX',           text: numStr },
   ];
 
-  showMenu(formats.map(f => ({
+  return formats.map(f => ({
     label: f.label,
     action: async () => {
-      try { await copyToClipboard(f.text); flashCopied(anchorBtn); }
+      try { await copyToClipboard(f.text); if (onCopied) onCopied(); }
       catch { /* swallow — the menu has closed */ }
     },
-  })), x, y, { alignRight: true });
+  }));
+}
+
+function openCopyAsMenu(name, q, plainText, x, y, anchorBtn) {
+  showMenu(copyAsItems(name, q, plainText, () => flashCopied(anchorBtn)),
+           x, y, { alignRight: true });
+}
+
+// ── Body-row context menu (§4 — desktop scope 2) ─────────────────
+// Right-click on a body line opens this menu. Items depend on what
+// the row holds: rows with a Quantity result get "copy result as"
+// (a submenu of formats); all rows get program-level actions
+// (snapshot now, format document). On rows that are comments or
+// have no result, the "copy result as" item is just absent.
+//
+// Plays nicely with CM6's own behavior: the listener is on the body
+// container, intercepts contextmenu, and only fires when there's no
+// active text selection in the editor (so right-click on selected
+// text still surfaces the browser-native copy/paste menu).
+async function snapshotNowFromBodyMenu() {
+  const name = currentProgramName;
+  if (!name) return;
+  const label = await epPrompt({
+    title: 'Take snapshot',
+    label: 'label (optional)',
+    value: '',
+    okLabel: 'Snapshot',
+  });
+  if (label === null) return;
+  takeSnapshot(name, (label || '').trim() || null);
+}
+
+function openBodyRowMenu(lineIdx, x, y) {
+  const row = state.body[lineIdx];
+  const items = [];
+
+  // Copy result as — only when there's a Quantity-shaped result. Reuse
+  // the same plain-text format the gutter cell shows, so what the user
+  // copies matches what they see.
+  if (row && row.result && typeof row.result === 'object' && row.result.dim != null) {
+    const marker = resultMarkerHtml(lineIdx);
+    const plainText = marker ? marker.text : '';
+    if (plainText) {
+      items.push({
+        label: 'copy result as',
+        submenu: copyAsItems(row.name || '', row.result, plainText),
+      });
+      items.push({ separator: true });
+    }
+  }
+
+  items.push({ label: 'snapshot now…',  action: snapshotNowFromBodyMenu });
+  items.push({ label: 'format document', action: () => {
+    // Late-bound — format-cmd.js is concatenated into the same flat
+    // scope at build time, so this resolves at call time even though
+    // we don't import it (avoiding a circular-import risk).
+    if (typeof formatCurrentProgram === 'function') formatCurrentProgram();
+  } });
+
+  showMenu(items, x, y);
 }
