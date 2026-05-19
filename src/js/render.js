@@ -58,7 +58,7 @@ function escapeHtml(s) {
 //
 // All drawing is in CSS pixels (we apply ctx.scale(dpr, dpr) once at
 // the top), so coordinate math elsewhere uses CSS px directly.
-function drawPlot(canvas, descriptor, dpr) {
+function drawPlot(canvas, descriptor, dpr, opts) {
   const ctx = canvas.getContext('2d');
   if (!ctx || !descriptor) return;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -66,6 +66,13 @@ function drawPlot(canvas, descriptor, dpr) {
   const cssW = canvas.width  / dpr;
   const cssH = canvas.height / dpr;
   ctx.clearRect(0, 0, cssW, cssH);
+
+  // Compact mode strips all chrome — title, tick labels, axis labels,
+  // frame — leaving just the data shape on a subtle background. Used
+  // by the @output chip thumbnail where the user wants a symbolic
+  // representation, not a readable chart. Hit "tap" on the chip to
+  // see the full version.
+  const compact = !!(opts && opts.compact);
 
   // Read theme colors from CSS variables on the document. Falls back
   // to muted neutrals when the variable isn't defined (e.g. canvas
@@ -83,17 +90,20 @@ function drawPlot(canvas, descriptor, dpr) {
 
   // Plot area inset for axes + tick labels. Extra space at top for a
   // title (when given), and at left/bottom for axis labels (when given).
-  const hasTitle  = !!descriptor.title;
-  const hasXLabel = !!descriptor.xLabel;
-  const hasYLabel = !!descriptor.yLabel;
-  const ML = hasYLabel ? 50 : 36;
-  const MR = 12;
-  const MT = hasTitle  ? 26 : 10;
-  const MB = hasXLabel ? 38 : 24;
+  // Compact mode collapses every margin to a small uniform inset so the
+  // data spans almost the whole canvas.
+  const hasTitle  = !compact && !!descriptor.title;
+  const hasXLabel = !compact && !!descriptor.xLabel;
+  const hasYLabel = !compact && !!descriptor.yLabel;
+  const ML = compact ? 4 : (hasYLabel ? 50 : 36);
+  const MR = compact ? 4 : 12;
+  const MT = compact ? 4 : (hasTitle  ? 26 : 10);
+  const MB = compact ? 4 : (hasXLabel ? 38 : 24);
   const PW = cssW - ML - MR;
   const PH = cssH - MT - MB;
 
-  // Title — top-center, slightly larger
+  // Title — top-center, slightly larger. compact mode forces hasTitle
+  // false above, so this block is naturally skipped.
   if (hasTitle) {
     ctx.fillStyle = cssVar('--sw-text', '#232322');
     ctx.font = '600 12px var(--sw-mono, monospace)';
@@ -163,33 +173,39 @@ function drawPlot(canvas, descriptor, dpr) {
   const xPix = x => ML + ((x - xLo) / (xHi - xLo)) * PW;
   const yPix = y => MT + PH - ((y - yLo) / (yHi - yLo)) * PH;
 
-  // Frame
-  ctx.strokeStyle = colAxis;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(ML, MT, PW, PH);
+  // Frame. Compact mode skips this — the data shape carries enough
+  // visual signal without the rectangle around it.
+  if (!compact) {
+    ctx.strokeStyle = colAxis;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ML, MT, PW, PH);
+  }
 
   // Axis tick labels — 3 on each side, formatted to a few sig digits.
-  ctx.fillStyle = colText;
-  ctx.font = '10px var(--sw-mono, monospace)';
-  ctx.textBaseline = 'middle';
-  const fmtTick = v => {
-    if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2)) return v.toExponential(1);
-    return parseFloat(v.toPrecision(3)).toString();
-  };
-  // y-axis: 3 ticks (low, mid, hi)
-  for (let i = 0; i <= 2; i++) {
-    const v = yLo + (yHi - yLo) * (i / 2);
-    const py = yPix(v);
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtTick(v), ML - 4, py);
-  }
-  // x-axis: 3 ticks
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  for (let i = 0; i <= 2; i++) {
-    const v = xLo + (xHi - xLo) * (i / 2);
-    const px = xPix(v);
-    ctx.fillText(fmtTick(v), px, MT + PH + 4);
+  // Compact mode skips ticks entirely (it's a thumbnail, not a chart).
+  if (!compact) {
+    ctx.fillStyle = colText;
+    ctx.font = '10px var(--sw-mono, monospace)';
+    ctx.textBaseline = 'middle';
+    const fmtTick = v => {
+      if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2)) return v.toExponential(1);
+      return parseFloat(v.toPrecision(3)).toString();
+    };
+    // y-axis: 3 ticks (low, mid, hi)
+    for (let i = 0; i <= 2; i++) {
+      const v = yLo + (yHi - yLo) * (i / 2);
+      const py = yPix(v);
+      ctx.textAlign = 'right';
+      ctx.fillText(fmtTick(v), ML - 4, py);
+    }
+    // x-axis: 3 ticks
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i <= 2; i++) {
+      const v = xLo + (xHi - xLo) * (i / 2);
+      const px = xPix(v);
+      ctx.fillText(fmtTick(v), px, MT + PH + 4);
+    }
   }
 
   // Axis labels — drawn after ticks so they sit further out. xLabel
@@ -242,6 +258,95 @@ function drawPlot(canvas, descriptor, dpr) {
       const h = baselinePx - top;
       ctx.fillRect(cx - wPx / 2, top, wPx, h);
     }
+  }
+}
+
+// Open a centered overlay showing the plot at a comfortable size with
+// full chrome (labels, ticks, title). Dismiss on Esc, backdrop click,
+// or the explicit close button. Reuses the global keydown handler we
+// add here for one modal at a time — calling again while one's open
+// just closes the existing and reopens.
+function openPlotModal(descriptor, name) {
+  // Close any pre-existing modal first so re-tapping a chip doesn't
+  // stack overlays.
+  const existing = document.getElementById('plotModalScrim');
+  if (existing) existing.remove();
+
+  const scrim = document.createElement('div');
+  scrim.id = 'plotModalScrim';
+  scrim.className = 'plot-modal-scrim';
+
+  const card = document.createElement('div');
+  card.className = 'plot-modal-card';
+  scrim.appendChild(card);
+
+  const titleRow = document.createElement('div');
+  titleRow.className = 'plot-modal-title';
+  titleRow.textContent = name || 'plot';
+  card.appendChild(titleRow);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'plot-modal-close';
+  closeBtn.type = 'button';
+  closeBtn.setAttribute('aria-label', 'close');
+  closeBtn.textContent = '×';
+  card.appendChild(closeBtn);
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'plot-modal-canvas';
+  card.appendChild(canvas);
+
+  // Size canvas to fit the viewport with sensible caps.
+  const cssW = Math.min(720, window.innerWidth  - 64);
+  const cssH = Math.min(420, Math.floor(cssW * 9 / 16));
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    scrim.remove();
+  };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
+  closeBtn.addEventListener('click', close);
+
+  document.body.appendChild(scrim);
+  // Defer the draw so the canvas is in the DOM (some browsers measure
+  // CSS variables off-tree as empty strings).
+  requestAnimationFrame(() => drawPlot(canvas, descriptor, dpr));
+}
+
+// Scroll the CM6 editor so the row defining this named plot is in
+// view, and briefly highlight it so the user sees what jumped. Used
+// by the long-press handler on the @output chip thumbnail. cmView is
+// the module-scope EditorView from mountCm6().
+function scrollToPlotRow(name) {
+  if (!cmView) return;
+  const idx = state.body.findIndex(r => r && r.name === name && r.plot);
+  if (idx < 0) return;
+  const line = cmView.state.doc.line(idx + 1);
+  // EditorView.scrollIntoView is a static helper that returns a state
+  // effect. cmView.constructor works too, but reaching through the
+  // global IIFE namespace is clearer and survives any future minifier
+  // mangling of constructor.name.
+  const EV = (typeof CM6 !== 'undefined' && CM6.EditorView) || cmView.constructor;
+  cmView.dispatch({
+    selection: { anchor: line.from },
+    effects: EV.scrollIntoView(line.from, { y: 'center' }),
+  });
+  cmView.focus();
+  // Brief highlight flash on the target line so the jump is obvious.
+  // Uses a one-shot decoration cleared by a timer; no StateField
+  // needed for something this transient.
+  const dom = cmView.domAtPos(line.from).node;
+  const lineEl = dom && (dom.nodeType === 1 ? dom : dom.parentNode);
+  if (lineEl && lineEl.classList) {
+    lineEl.classList.add('ep-line-flash');
+    setTimeout(() => lineEl.classList.remove('ep-line-flash'), 900);
   }
 }
 
@@ -1463,12 +1568,29 @@ export function renderOutputs() {
     if (plotRow) {
       const canvas = document.createElement('canvas');
       canvas.className = 'cm-ep-plot-canvas chip-out-plot';
-      const cssW = 240, cssH = 120;
+      // Smaller than the in-editor block — chrome's been stripped so
+      // less area is needed to read the shape. Wider than tall keeps
+      // line plots legible.
+      const cssW = 200, cssH = 90;
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       canvas.width  = cssW * dpr;
       canvas.height = cssH * dpr;
       const desc = plotRow.plot;
-      requestAnimationFrame(() => drawPlot(canvas, desc, dpr));
+      requestAnimationFrame(() => drawPlot(canvas, desc, dpr, { compact: true }));
+      canvas.title = 'tap to enlarge · long-press to jump to source';
+      // Tap → modal with full-chrome version. Long-press → scroll the
+      // editor to the source line. attachLongPress fires before the
+      // tap so it gets first dibs; the click handler short-circuits
+      // when long-press fired.
+      let longPressed = false;
+      attachLongPress(canvas, () => {
+        longPressed = true;
+        scrollToPlotRow(name);
+      });
+      canvas.addEventListener('click', () => {
+        if (longPressed) { longPressed = false; return; }
+        openPlotModal(desc, name);
+      });
       chip.append(lbl, canvas);
       outChipsEl.append(chip);
       continue;
