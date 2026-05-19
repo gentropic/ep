@@ -282,6 +282,23 @@ export function renderDrawerList() {
     });
     actions.appendChild(ellipsis);
 
+    // Hover preview — desktop affordance, no effect on touch. The first
+    // few non-blank lines of the program land as the item's title, so
+    // pausing the cursor over the row surfaces what's actually inside
+    // without having to switch to it. Capped at ~6 lines / 400 chars to
+    // keep the native tooltip readable.
+    const previewLines = (prog.body || [])
+      .map(r => (r && r.src) || '')
+      .filter(s => s.trim())
+      .slice(0, 6);
+    if (previewLines.length) {
+      let preview = previewLines.join('\n');
+      if (preview.length > 400) preview = preview.slice(0, 397) + '…';
+      const extra = (prog.body || []).filter(r => r && r.src && r.src.trim()).length - previewLines.length;
+      if (extra > 0) preview += `\n… +${extra} more lines`;
+      item.title = preview;
+    }
+
     item.appendChild(info);
     item.appendChild(actions);
 

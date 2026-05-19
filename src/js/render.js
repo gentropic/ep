@@ -627,19 +627,35 @@ export function renderBody() {
 
 // ── Results ───────────────────────────────────────────────────────
 
+// Build the hover-tooltip text for a Quantity-shaped result. Shows the
+// canonical value (raw number in canonical units — g, m, s, etc.,
+// pre-sig-digit-trimming) plus the dim signature. Useful when the chip
+// display is auto-scaled to "12.5 t" and you want to know it's actually
+// 12,500,000 g, or when you want to confirm "200 m" really did parse
+// as Length and not something weird.
+function chipTooltip(q) {
+  if (!q || typeof q !== 'object' || q.dim == null) return '';
+  const canonical = String(q.value);
+  const dimStr = fmtDim(q.dim);
+  return dimStr ? `${canonical}  [${dimStr}]` : canonical;
+}
+
 function renderChipResults() {
   for (const p of state.params) {
     if (!p._resEl) continue;
     if (p.error) {
       p._resEl.className = 'chip-res error';
       p._resEl.textContent = p.error;
+      p._resEl.title = p.error;
     } else if (p.result) {
       const [n, u] = fmt(p.result);
       p._resEl.className = 'chip-res';
       p._resEl.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
+      p._resEl.title = chipTooltip(p.result);
     } else {
       p._resEl.className = 'chip-res';
       p._resEl.textContent = '';
+      p._resEl.removeAttribute('title');
     }
   }
 }
@@ -810,6 +826,7 @@ export function renderOutputs() {
         val.title = err;
       } else {
         val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
+        val.title = chipTooltip(q);  // canonical + dim — see chipTooltip()
         copyText = n.replace(/,/g, '') + (u ? ' ' + u.replace(/²/g, '^2').replace(/³/g, '^3') : '');
       }
     }
