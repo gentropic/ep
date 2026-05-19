@@ -509,6 +509,7 @@ export function inferExpr(node, env, ctx) {
     case 'Field':     return inferField(node, env, ctx);
     case 'StructInit':return inferStructInit(node, env, ctx);
     case 'Factorial': return inferFactorial(node, env, ctx);
+    case 'Lambda':    return inferLambda(node, env, ctx);
     default:
       throw withSpan(new Error(`inferExpr: unsupported node type ${node.type}`), node.span);
   }
@@ -677,6 +678,32 @@ function inferList(node, env, ctx) {
     cAdd(ctx.cs, cEqual(first, ti, spanOf(node.items[i])));
   }
   return tList(first);
+}
+
+// Arrow-function lambda inference. Each param gets a fresh type var
+// (or its annotated type, if given), then the body is inferred in an
+// env extended with those bindings. Returns TFn(paramTypes, bodyType).
+// Monomorphic — captured fn values aren't let-generalized (the caller
+// supplies arg types at the call site, and HM unification handles the
+// rest). Matches what fnDecl does for top-level fns, minus the
+// recursion-scheme bit (lambdas can't reference themselves by name).
+function inferLambda(node, env, ctx) {
+  const paramTypes = node.params.map(p => {
+    if (p.type) {
+      // Annotated lambda param. Type annotations in expression position
+      // are parsed but rare; reuse the same evaluator the let-anno path
+      // uses if it's available, otherwise fall back to a fresh TVar.
+      try { return evalTypeAnno(p.type, env, ctx); }
+      catch { return freshTVar(); }
+    }
+    return freshTVar();
+  });
+  const bodyEnv = typeEnvExtend(env);
+  for (let i = 0; i < node.params.length; i++) {
+    typeEnvBindValue(bodyEnv, node.params[i].name, paramTypes[i]);
+  }
+  const bodyType = inferExpr(node.body, bodyEnv, ctx);
+  return tFn(paramTypes, bodyType);
 }
 
 function inferField(node, env, ctx) {

@@ -22,7 +22,7 @@ export const KEYWORDS = new Set([
 
 // Multi-character operators, sorted longest-first so the tokenizer prefers
 // the longer match (`::` before `:`, `->` before `-`).
-const MULTI_OPS = ['->', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
+const MULTI_OPS = ['->', '=>', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
 
 // Single-character operators / punctuation.
 const SINGLE_OPS = '+-*/^=(){}[],:.<>!;';

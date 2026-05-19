@@ -947,6 +947,33 @@ export function evalValueExpr(node, env) {
   if (node.type === 'List') {
     return node.items.map(item => evalValueExpr(item, env));
   }
+  if (node.type === 'Lambda') {
+    // Anonymous fn → JS closure capturing the lexical env at the
+    // lambda's definition site. When called (via env.values higher-order
+    // dispatch in evalCall, or directly when handed to a BUILTIN_PROC
+    // like map), it binds each arg to the corresponding param on top of
+    // the captured env's values, then evaluates the body. Same shape as
+    // the wrappers `lookupValue` produces for named fns — interchangeable
+    // wherever a fn value is expected.
+    const closedEnv = env;
+    const params = node.params;
+    const body = node.body;
+    return (...args) => {
+      const innerValues = new Map(closedEnv.values);
+      for (let i = 0; i < params.length; i++) {
+        innerValues.set(params[i].name, args[i]);
+      }
+      const innerEnv = { ...closedEnv, values: innerValues };
+      // Also override lookupValue so identifiers inside the body resolve
+      // against the extended `values` map (otherwise the closure'd env
+      // would see params as missing and fall through to units/builtins).
+      innerEnv.lookupValue = (n) => {
+        if (innerValues.has(n)) return innerValues.get(n);
+        return closedEnv.lookupValue(n);
+      };
+      return evalValueExpr(body, innerEnv);
+    };
+  }
   if (node.type === 'StructInit') {
     // v0.5 stores structs as plain JS objects with a __struct tag for the
     // type name. Field types from the declaration aren't enforced at runtime.

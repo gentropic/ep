@@ -386,7 +386,65 @@ export function parse(tokens, sourceName = '<input>') {
 
   function parseExpr() {
     if (atKw('if')) return parseIfExpr();
+    // Arrow-function lambda — single-param `x => body` form. The
+    // multi-param `(x, y) => body` form is detected in parsePrimary
+    // when it sees `(` (since `(x, y)` isn't a valid paren-expression
+    // and would otherwise parse-fail). ep-flavored extension; upstream
+    // Numbat doesn't currently have anonymous-fn syntax.
+    if (peek() && peek().type === 'id' && peek(1) && peek(1).type === 'op' && peek(1).op === '=>') {
+      const paramTok = eat();
+      eat();  // '=>'
+      const body = parseExpr();
+      return { type: 'Lambda', params: [{ name: paramTok.name }], body, span: paramTok.span };
+    }
     return parsePipe();
+  }
+
+  // Lookahead helper: from a `(` position, scan forward tracking paren
+  // depth to find the matching `)`; return true iff `=>` follows it.
+  // Used to disambiguate `(x, y) => body` (lambda) from `(x)` (paren-expr).
+  function isParenLambdaAhead() {
+    let depth = 0;
+    let i = p;
+    while (i < tokens.length) {
+      const t = tokens[i];
+      if (t.type === 'op' && t.op === '(') depth++;
+      else if (t.type === 'op' && t.op === ')') {
+        depth--;
+        if (depth === 0) {
+          const next = tokens[i + 1];
+          return !!(next && next.type === 'op' && next.op === '=>');
+        }
+      }
+      i++;
+    }
+    return false;
+  }
+
+  // Parse a multi-param lambda: positioned at the opening `(`.
+  // Form: `(name [: TypeAnno], name [: TypeAnno], ...) => body`
+  function parseParenLambda() {
+    const openTok = eat();   // '('
+    const params = [];
+    while (!atOp(')')) {
+      const nameTok = peek();
+      if (!nameTok || nameTok.type !== 'id') {
+        throw err(nameTok, 'expected lambda parameter name');
+      }
+      eat();
+      const param = { name: nameTok.name };
+      if (atOp(':')) {
+        eat();
+        param.type = parseTypeAnno();
+      }
+      params.push(param);
+      if (atOp(',')) eat();
+      else break;
+    }
+    expectOp(')');
+    expectOp('=>');
+    const body = parseExpr();
+    return { type: 'Lambda', params, body, span: openTok.span };
   }
 
   // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [x, ...args]).
@@ -576,6 +634,13 @@ export function parse(tokens, sourceName = '<input>') {
       return { type: 'Ident', name: t.name, span: t.span };
     }
     if (t.type === 'op' && t.op === '(') {
+      // Multi-param lambda: `(x, y) => body`. Detect via lookahead so
+      // we don't try to parse `(x, y)` as a paren-expr first (the
+      // comma would fail the regular expression grammar). Single-
+      // param lambdas without parens land in parseExpr instead.
+      if (isParenLambdaAhead()) {
+        return parseParenLambda();
+      }
       const openTok  = eat();
       const inner    = parseExpr();
       const closeTok = expectOp(')');

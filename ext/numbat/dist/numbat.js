@@ -396,7 +396,7 @@ const KEYWORDS = new Set([
 
 // Multi-character operators, sorted longest-first so the tokenizer prefers
 // the longer match (`::` before `:`, `->` before `-`).
-const MULTI_OPS = ['->', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
+const MULTI_OPS = ['->', '=>', '::', '|>', '!=', '<=', '>=', '==', '&&', '||', '**'];
 
 // Single-character operators / punctuation.
 const SINGLE_OPS = '+-*/^=(){}[],:.<>!;';
@@ -977,7 +977,65 @@ function parse(tokens, sourceName = '<input>') {
 
   function parseExpr() {
     if (atKw('if')) return parseIfExpr();
+    // Arrow-function lambda — single-param `x => body` form. The
+    // multi-param `(x, y) => body` form is detected in parsePrimary
+    // when it sees `(` (since `(x, y)` isn't a valid paren-expression
+    // and would otherwise parse-fail). ep-flavored extension; upstream
+    // Numbat doesn't currently have anonymous-fn syntax.
+    if (peek() && peek().type === 'id' && peek(1) && peek(1).type === 'op' && peek(1).op === '=>') {
+      const paramTok = eat();
+      eat();  // '=>'
+      const body = parseExpr();
+      return { type: 'Lambda', params: [{ name: paramTok.name }], body, span: paramTok.span };
+    }
     return parsePipe();
+  }
+
+  // Lookahead helper: from a `(` position, scan forward tracking paren
+  // depth to find the matching `)`; return true iff `=>` follows it.
+  // Used to disambiguate `(x, y) => body` (lambda) from `(x)` (paren-expr).
+  function isParenLambdaAhead() {
+    let depth = 0;
+    let i = p;
+    while (i < tokens.length) {
+      const t = tokens[i];
+      if (t.type === 'op' && t.op === '(') depth++;
+      else if (t.type === 'op' && t.op === ')') {
+        depth--;
+        if (depth === 0) {
+          const next = tokens[i + 1];
+          return !!(next && next.type === 'op' && next.op === '=>');
+        }
+      }
+      i++;
+    }
+    return false;
+  }
+
+  // Parse a multi-param lambda: positioned at the opening `(`.
+  // Form: `(name [: TypeAnno], name [: TypeAnno], ...) => body`
+  function parseParenLambda() {
+    const openTok = eat();   // '('
+    const params = [];
+    while (!atOp(')')) {
+      const nameTok = peek();
+      if (!nameTok || nameTok.type !== 'id') {
+        throw err(nameTok, 'expected lambda parameter name');
+      }
+      eat();
+      const param = { name: nameTok.name };
+      if (atOp(':')) {
+        eat();
+        param.type = parseTypeAnno();
+      }
+      params.push(param);
+      if (atOp(',')) eat();
+      else break;
+    }
+    expectOp(')');
+    expectOp('=>');
+    const body = parseExpr();
+    return { type: 'Lambda', params, body, span: openTok.span };
   }
 
   // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [x, ...args]).
@@ -1167,6 +1225,13 @@ function parse(tokens, sourceName = '<input>') {
       return { type: 'Ident', name: t.name, span: t.span };
     }
     if (t.type === 'op' && t.op === '(') {
+      // Multi-param lambda: `(x, y) => body`. Detect via lookahead so
+      // we don't try to parse `(x, y)` as a paren-expr first (the
+      // comma would fail the regular expression grammar). Single-
+      // param lambdas without parens land in parseExpr instead.
+      if (isParenLambdaAhead()) {
+        return parseParenLambda();
+      }
       const openTok  = eat();
       const inner    = parseExpr();
       const closeTok = expectOp(')');
@@ -2125,6 +2190,7 @@ function inferExpr(node, env, ctx) {
     case 'Field':     return inferField(node, env, ctx);
     case 'StructInit':return inferStructInit(node, env, ctx);
     case 'Factorial': return inferFactorial(node, env, ctx);
+    case 'Lambda':    return inferLambda(node, env, ctx);
     default:
       throw withSpan(new Error(`inferExpr: unsupported node type ${node.type}`), node.span);
   }
@@ -2293,6 +2359,32 @@ function inferList(node, env, ctx) {
     cAdd(ctx.cs, cEqual(first, ti, spanOf(node.items[i])));
   }
   return tList(first);
+}
+
+// Arrow-function lambda inference. Each param gets a fresh type var
+// (or its annotated type, if given), then the body is inferred in an
+// env extended with those bindings. Returns TFn(paramTypes, bodyType).
+// Monomorphic — captured fn values aren't let-generalized (the caller
+// supplies arg types at the call site, and HM unification handles the
+// rest). Matches what fnDecl does for top-level fns, minus the
+// recursion-scheme bit (lambdas can't reference themselves by name).
+function inferLambda(node, env, ctx) {
+  const paramTypes = node.params.map(p => {
+    if (p.type) {
+      // Annotated lambda param. Type annotations in expression position
+      // are parsed but rare; reuse the same evaluator the let-anno path
+      // uses if it's available, otherwise fall back to a fresh TVar.
+      try { return evalTypeAnno(p.type, env, ctx); }
+      catch { return freshTVar(); }
+    }
+    return freshTVar();
+  });
+  const bodyEnv = typeEnvExtend(env);
+  for (let i = 0; i < node.params.length; i++) {
+    typeEnvBindValue(bodyEnv, node.params[i].name, paramTypes[i]);
+  }
+  const bodyType = inferExpr(node.body, bodyEnv, ctx);
+  return tFn(paramTypes, bodyType);
 }
 
 function inferField(node, env, ctx) {
@@ -4454,6 +4546,33 @@ function evalValueExpr(node, env) {
   }
   if (node.type === 'List') {
     return node.items.map(item => evalValueExpr(item, env));
+  }
+  if (node.type === 'Lambda') {
+    // Anonymous fn → JS closure capturing the lexical env at the
+    // lambda's definition site. When called (via env.values higher-order
+    // dispatch in evalCall, or directly when handed to a BUILTIN_PROC
+    // like map), it binds each arg to the corresponding param on top of
+    // the captured env's values, then evaluates the body. Same shape as
+    // the wrappers `lookupValue` produces for named fns — interchangeable
+    // wherever a fn value is expected.
+    const closedEnv = env;
+    const params = node.params;
+    const body = node.body;
+    return (...args) => {
+      const innerValues = new Map(closedEnv.values);
+      for (let i = 0; i < params.length; i++) {
+        innerValues.set(params[i].name, args[i]);
+      }
+      const innerEnv = { ...closedEnv, values: innerValues };
+      // Also override lookupValue so identifiers inside the body resolve
+      // against the extended `values` map (otherwise the closure'd env
+      // would see params as missing and fall through to units/builtins).
+      innerEnv.lookupValue = (n) => {
+        if (innerValues.has(n)) return innerValues.get(n);
+        return closedEnv.lookupValue(n);
+      };
+      return evalValueExpr(body, innerEnv);
+    };
   }
   if (node.type === 'StructInit') {
     // v0.5 stores structs as plain JS objects with a __struct tag for the
