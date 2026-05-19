@@ -3074,7 +3074,73 @@ const BUILTIN_PROC_SCHEMES = {
   scatter:    schemePlot2,
   bar_chart:  schemePlot1,  // NOT `bar` — conflicts with the `bar` pressure unit
   hist:       schemePlot1,
+  // Iterative list ops — schemes mirror the script-level signatures in
+  // core::lists. ep deletes the recursive user-fn defs after loading
+  // the module so these native versions win dispatch; the schemes here
+  // keep typecheck happy.
+  range:      schemeRange,
+  map:        schemeMap,
+  map2:       schemeMap2,
+  filter:     schemeFilter,
+  foldl:      schemeFoldl,
+  concat:     schemeConcat,
+  take:       schemeListSlice,
+  drop:       schemeListSlice,
+  reverse:    schemeReverse,
+  element_at: schemeElementAt,
 };
+
+function schemeRange() {
+  // (Scalar, Scalar) -> List<Scalar>
+  return generalize(tFn([T_SCALAR, T_SCALAR], tList(T_SCALAR)), [], []);
+}
+function schemeMap() {
+  // <A, B>(Fn[(A) -> B], List<A>) -> List<B>
+  const a = freshTVar();
+  const b = freshTVar();
+  return generalize(tFn([tFn([a], b), tList(a)], tList(b)), [a, b], []);
+}
+function schemeMap2() {
+  // <A, B, C>(Fn[(A, B) -> C], A, List<B>) -> List<C>  — simpler shape
+  // than upstream allows (upstream accepts `other: A | List<A>`), but
+  // covers the common case. Scheme is the strict shape; permissive
+  // runtime handles the list-of-other variant too.
+  const a = freshTVar();
+  const b = freshTVar();
+  const c = freshTVar();
+  return generalize(tFn([tFn([a, b], c), a, tList(b)], tList(c)), [a, b, c], []);
+}
+function schemeFilter() {
+  // <A>(Fn[(A) -> Bool], List<A>) -> List<A>
+  const a = freshTVar();
+  return generalize(tFn([tFn([a], tBool()), tList(a)], tList(a)), [a], []);
+}
+function schemeFoldl() {
+  // <A, B>(Fn[(A, B) -> A], A, List<B>) -> A
+  const a = freshTVar();
+  const b = freshTVar();
+  return generalize(tFn([tFn([a, b], a), a, tList(b)], a), [a, b], []);
+}
+function schemeConcat() {
+  // <A>(List<A>, List<A>) -> List<A>
+  const a = freshTVar();
+  return generalize(tFn([tList(a), tList(a)], tList(a)), [a], []);
+}
+function schemeListSlice() {
+  // <A>(Scalar, List<A>) -> List<A>  — for take / drop
+  const a = freshTVar();
+  return generalize(tFn([T_SCALAR, tList(a)], tList(a)), [a], []);
+}
+function schemeReverse() {
+  // <A>(List<A>) -> List<A>
+  const a = freshTVar();
+  return generalize(tFn([tList(a)], tList(a)), [a], []);
+}
+function schemeElementAt() {
+  // <A>(Scalar, List<A>) -> A
+  const a = freshTVar();
+  return generalize(tFn([T_SCALAR, tList(a)], a), [a], []);
+}
 
 function schemePlot2() {
   // <X, Y>(List<X>, List<Y>, String?, String?, String?) -> Scalar
@@ -4172,6 +4238,21 @@ function coerceXY(xsArg, ysArg) {
 function coerceValues(valuesArg) {
   const v = _listToNumbers(valuesArg);
   return { values: v.values, valueUnit: v.unit };
+}
+
+// Pull optional trailing strings off a plot/scatter/bar_chart/hist
+// args array starting at `start`. Order is [xlabel, ylabel, title] —
+// users can pass any prefix. Non-string args are coerced via String()
+// so a misplaced number ends up shown verbatim rather than crashing.
+function labelOpts(args, start) {
+  const labels = ['xLabel', 'yLabel', 'title'];
+  const out = {};
+  for (let i = 0; i < labels.length; i++) {
+    const v = args[start + i];
+    if (v === undefined) break;
+    out[labels[i]] = String(v);
+  }
+  return out;
 }
 
 // ── Datetime formatting ──────────────────────────────────────────

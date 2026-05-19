@@ -756,6 +756,21 @@ function coerceValues(valuesArg) {
   return { values: v.values, valueUnit: v.unit };
 }
 
+// Pull optional trailing strings off a plot/scatter/bar_chart/hist
+// args array starting at `start`. Order is [xlabel, ylabel, title] —
+// users can pass any prefix. Non-string args are coerced via String()
+// so a misplaced number ends up shown verbatim rather than crashing.
+function labelOpts(args, start) {
+  const labels = ['xLabel', 'yLabel', 'title'];
+  const out = {};
+  for (let i = 0; i < labels.length; i++) {
+    const v = args[start + i];
+    if (v === undefined) break;
+    out[labels[i]] = String(v);
+  }
+  return out;
+}
+
 // ── Datetime formatting ──────────────────────────────────────────
 // strftime-ish formatter used by BUILTIN_PROCS.format_datetime. Recognized
 // tokens: %Y (4-digit year), %y (2-digit year), %m (zero-padded month),

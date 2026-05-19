@@ -952,6 +952,20 @@ export function evaluate(body) {
       // Typecheck via the same `let __ep__ = expr` wrap used at eval.
       // Bare expr wrapped with `let __ep__ = `. Prefix length is 13.
       typecheckStatementSrc(`let __ep__ = ${c.expr}`, tcEnv, ownerIdx, 13, tcErrorsByLine);
+      // @output on a bare expression: only meaningful when the expr
+      // produces a plot (the plot sink fired during evaluation). The
+      // row has no name, so synthesize one based on line number —
+      // `plot_<N>` — so the output chip / outputs panel has something
+      // to label the thumbnail with. Bare @output on non-plot exprs
+      // (which would just show "0" or whatever the expr evaluated to)
+      // is intentionally skipped — a name-less arbitrary expr in the
+      // outputs panel is more confusing than missing.
+      if (isOutput && plotsByRow.has(ownerIdx)) {
+        const synth = `plot_${ownerIdx + 1}`;
+        row.name = synth;
+        outputs.push({ name: synth, unit: outputUnit });
+        row.outputs = [synth];
+      }
       continue;
     }
   }
