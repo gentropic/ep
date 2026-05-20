@@ -417,7 +417,7 @@ config is stored as **asset metadata** — it travels with the program
 (embedded or referenced), so the program stays fully reproducible. The
 ep-script stays clean: `load_csv("deposit")`, no parsing arguments.
 
-`parseConfig` fields (all per-asset):
+`parseConfig` — file-level fields (all per-asset):
 
 | field | default | notes |
 |---|---|---|
@@ -426,6 +426,16 @@ ep-script stays clean: `load_csv("deposit")`, no parsing arguments.
 | `skipRows` | `0` | leading preamble lines to drop before the header. Hard to auto-detect; easy to set visually against the preview |
 | `hasHeader` | `true` | off ⇒ columns become `col1, col2, …` |
 | `decimal` | `.` | `.` vs `,`; auto-paired with the delimiter (a `;` delimiter ⇒ likely `,` decimal) |
+
+`parseConfig.columns` — an optional **per-column override map**, keyed
+by the column's position (or its original header name): `{ name?,
+unit? }`. The header is the default source — `grade (g/t)` gives name
+`grade` + unit `g/t` — but the user can override both in the attach
+dialog (see §8): rename a column (a CSV with a cryptic or duplicate
+header), or set / change / clear a column's unit (a file with bare
+numeric headers and the unit known only out-of-band, or a wrong
+header). `parseCsv` consults `columns[i]` ahead of the header. Stored
+with the asset, so it travels with the program.
 
 A code-level escape hatch (a `load_csv` options-struct) can be added
 later if a real need appears — YAGNI for Phase 1; the attach dialog
@@ -575,16 +585,25 @@ Opening any attach flow (see entry points below) brings up one dialog:
   with the current `parseConfig`.
 - **Auto-detected** delimiter, comment char, decimal separator filled
   in; the preview reflects them immediately.
-- **Manual overrides** for every `parseConfig` field (§3) — change one,
-  the preview re-parses live so the user *sees* the result instead of
-  guessing flags.
+- **Manual overrides** for every file-level `parseConfig` field (§3) —
+  change one, the preview re-parses live so the user *sees* the result
+  instead of guessing flags.
+- **Per-column controls.** Each column header in the preview table is
+  editable: **rename** the column (cryptic / duplicate headers) and
+  **set / change / clear its unit**. These write into
+  `parseConfig.columns` (§3). The preview re-parses live — change a
+  column's unit and its cells re-display in that unit immediately.
+  This is the home for the unit decisions the header alone can't make:
+  a file with bare numeric headers whose unit is known out-of-band, or
+  a header whose `(unit)` is wrong.
 - **Embed vs reference** choice — *embed* copies the CSV text into the
   program (self-contained, travels with exports); *reference* keeps a
   file handle (desktop) or session `File` (mobile).
 - **Asset name** — the key `load_csv("…")` resolves against.
 
-On confirm, the `parseConfig` + detected `schema` + `rowCount` are
-written to the asset record (always persisted; §4).
+On confirm, the `parseConfig` (file-level fields + the `columns`
+override map) + detected `schema` + `rowCount` are written to the
+asset record (always persisted; §4).
 
 ### Entry points
 
