@@ -68,6 +68,7 @@ const updateLastCheckedHint = document.getElementById('updateLastCheckedHint');
 const gcuShareControl   = document.getElementById('gcuShareControl');
 const desktopDrawerControl = document.getElementById('desktopDrawerControl');
 const suggestAnnotationsControl = document.getElementById('suggestAnnotationsControl');
+const lineNumbersControl        = document.getElementById('lineNumbersControl');
 
 export function openSettings() {
   if (!panel) return;
@@ -179,6 +180,17 @@ function renderControls() {
       const on = v === 'on';
       setSetting('suggestAnnotations', on);
       window.dispatchEvent(new CustomEvent('ep:params-changed'));
+      renderControls();
+    });
+
+  // Line-number gutter toggle. render.js holds the editor's lineNumbers
+  // compartment and listens for this event to reconfigure it live.
+  // Default off — ep stays visually light unless the user opts in.
+  renderPillRow(lineNumbersControl, ON_OFF,
+    getSetting('lineNumbers', false) ? 'on' : 'off', v => {
+      const on = v === 'on';
+      setSetting('lineNumbers', on);
+      window.dispatchEvent(new CustomEvent('ep:line-numbers-setting-changed'));
       renderControls();
     });
 

@@ -503,6 +503,7 @@ function mountCm6() {
     autocompletion, CompletionContext, acceptCompletion,
     search, searchKeymap, highlightSelectionMatches,
     showTooltip, hoverTooltip,
+    lineNumbers, Compartment,
   } = CM6;
 
   // Inline-error block widget — renders BELOW the offending line so the
@@ -1083,6 +1084,15 @@ function mountCm6() {
 
   const initialDoc = state.body.map(r => r.src).join('\n');
 
+  // Line-number gutter, in a Compartment so the settings toggle can
+  // switch it on/off live without rebuilding the editor. CM6 numbers
+  // document lines only — the inline error / print / plot block
+  // widgets are decorations, not lines, so they're skipped and the
+  // numbering stays 1:1 with state.body rows.
+  const lineNumberCompartment = new Compartment();
+  const lineNumbersExt = () =>
+    getSetting('lineNumbers', false) ? lineNumbers() : [];
+
   bodyEl.innerHTML = '';
   cmView = new EditorView({
     state: EditorState.create({
@@ -1098,6 +1108,7 @@ function mountCm6() {
           closeOnBlur: true,
           maxRenderedOptions: 60,
         }),
+        lineNumberCompartment.of(lineNumbersExt()),
         foldGutter(),
         EditorView.lineWrapping,
         history(),
@@ -1166,6 +1177,14 @@ function mountCm6() {
   });
 
   bodyEl.addEventListener('focusin', () => { state._lastFocused = cmView; });
+
+  // Line-number setting toggled in Settings — reconfigure the
+  // compartment so the gutter appears / disappears immediately.
+  window.addEventListener('ep:line-numbers-setting-changed', () => {
+    if (cmView) {
+      cmView.dispatch({ effects: lineNumberCompartment.reconfigure(lineNumbersExt()) });
+    }
+  });
 
   // When settings change (e.g., toggling "annotation suggestions"
   // off), re-run the inline-block dispatch so widgets that depend on
