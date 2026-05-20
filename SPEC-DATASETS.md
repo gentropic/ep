@@ -367,15 +367,20 @@ A small RFC-4180-ish parser (~80 LOC, no library):
 
 - Handles quoted fields, embedded commas / newlines inside quotes,
   CRLF and LF line endings.
-- **Header unit suffix.** A header of the form `grade (g/t)` is split:
-  column name `grade`, and the unit `g/t` is applied to that column's
-  otherwise-bare-number cells. Without a suffix, a numeric column is
-  dimensionless `Scalar` (the user can re-dimension later with
-  broadcasting: `grade = model.grade * 1 g/t`).
+- **Header unit suffix — documentation only.** A header of the form
+  `grade (g/t)` is split: the column name becomes `grade`, and the
+  `(g/t)` is dropped. The unit is **not** folded into the cell values.
+  *Revised from the original design (which applied it):* folding a
+  dimensionless ratio like `g/t` in turns a `2.5` cell into `2.5e-6`,
+  and then `grade > 1` silently matches nothing — a calculator-notepad
+  trap with no dim-mismatch error to catch it. So every numeric column
+  is dimensionless and holds exactly the numbers in the file; the user
+  reasons in the column's own units and re-dimensions explicitly when
+  needed (`grade_real = model.grade * 1 g/t`). A future attach-dialog
+  toggle could opt a column into a real dimension.
 - **Per-column type inference.** Sample the first N non-empty cells of
-  each column: all parse as numbers → quantity column (dim from the
-  header suffix, else Scalar); all `true`/`false` → Bool column; else
-  String column.
+  each column: all parse as numbers → dimensionless quantity column;
+  all `true`/`false` → Bool column; else String column.
 - **Cells** parse as a number with an optional inline unit
   (`2.5`, `2.5 g/t`). Empty cells become a hole — see open questions on
   missing-value semantics; Phase 1 starting point: empty numeric cell →

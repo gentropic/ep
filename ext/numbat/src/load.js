@@ -296,13 +296,12 @@ function normalizeNumberCell(s, decimal) {
 
 const CSV_NUM_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
-// Parse CSV text into a Dataset. `config` is merged over auto-detection;
-// `opts.resolveUnit(text) -> Quantity` applies header unit suffixes
-// (omit it and unit-suffixed columns stay dimensionless — the unit
-// suffix is still stripped from the column name).
-export function parseCsv(text, config, opts) {
+// Parse CSV text into a Dataset. `config` is merged over auto-detection.
+// Numeric columns become dimensionless quantities — header unit
+// suffixes are documentation, not a value transform (see the column-
+// build comment below).
+export function parseCsv(text, config) {
   const cfg = { ...detectCsvConfig(text), ...(config || {}) };
-  const resolveUnit = opts && opts.resolveUnit;
 
   let raw = text;
   if (cfg.skipRows > 0) {
@@ -355,25 +354,25 @@ export function parseCsv(text, config, opts) {
     return 'string';  // mixed
   });
 
-  // Resolve each numeric column's header unit once (mul + dim).
-  const colUnit = headers.map((h, ci) => {
-    if (colType[ci] !== 'number' || !h.unitText || !resolveUnit) return { mul: 1, dim: {} };
-    const u = resolveUnit(h.unitText);
-    return { mul: u.value, dim: u.dim };
-  });
-
-  // Build the columns.
+  // Build the columns. Numeric cells become dimensionless quantities —
+  // the value the user sees in the file, untransformed. A header unit
+  // suffix (`grade (g/t)`) is documentation only: it cleans the column
+  // name but is NOT folded into the values. Folding it in would mean a
+  // `2.5` cell under a `(g/t)` header becomes 2.5e-6 (g/t is a
+  // dimensionless ratio), and then `grade > 1` silently matches
+  // nothing — a calculator-notepad trap. The user reasons in the
+  // column's own units; explicit `grade * 1 g/t` re-dimensions when
+  // genuinely needed.
   const columns = new Map();
   headers.forEach((h, ci) => {
     const t = colType[ci];
-    const { mul, dim } = colUnit[ci];
     const out = new Array(dataRows.length);
     for (let ri = 0; ri < dataRows.length; ri++) {
       const v = cellAt(dataRows[ri], ci).trim();
       if (t === 'number') {
         out[ri] = v === ''
-          ? new Quantity(NaN, dim)
-          : new Quantity(parseFloat(normalizeNumberCell(v, cfg.decimal)) * mul, dim);
+          ? new Quantity(NaN, {})
+          : new Quantity(parseFloat(normalizeNumberCell(v, cfg.decimal)), {});
       } else if (t === 'bool') {
         out[ri] = v.toLowerCase() === 'true';
       } else {

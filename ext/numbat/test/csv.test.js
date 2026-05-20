@@ -3,7 +3,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCsv, detectCsvConfig } from '../src/load.js';
-import { Quantity } from '../src/quantity.js';
 
 // Convenience: pull a column's plain values (Quantity → .value).
 const col = (ds, name) => ds.columns.get(name);
@@ -97,20 +96,20 @@ test('parseCsv: duplicate header names are de-duped', () => {
 });
 
 test('parseCsv: header unit suffix is split off the column name', () => {
-  // No resolver passed — the suffix is stripped, column stays Scalar.
   const ds = parseCsv('grade (g/t),depth (m)\n2,100');
   assert.deepEqual([...ds.columns.keys()], ['grade', 'depth']);
 });
 
-test('parseCsv: header unit applied when a resolver is supplied', () => {
-  // Stub resolver: g/t → 1e-6 dimensionless, m → 1 with a length dim.
-  const resolveUnit = (u) =>
-    u === 'g/t' ? new Quantity(1e-6, {}) : new Quantity(1, { length: 1 });
-  const ds = parseCsv('grade (g/t),depth (m)\n2.5,100', {}, { resolveUnit });
-  // 2.5 * 1e-6 — compare with tolerance (float multiply isn't exact).
-  assert.ok(Math.abs(col(ds, 'grade')[0].value - 2.5e-6) < 1e-15);
-  assert.deepEqual(col(ds, 'depth')[0].dim, { length: 1 });
+test('parseCsv: header units are documentation, not a value transform', () => {
+  // A `(g/t)` header must NOT scale the cell — folding the dimensionless
+  // g/t ratio in would turn 2.5 into 2.5e-6 and silently break
+  // `grade > 1`. Values stay exactly as written; columns are
+  // dimensionless.
+  const ds = parseCsv('grade (g/t),depth (m)\n2.5,100');
+  assert.equal(col(ds, 'grade')[0].value, 2.5);
   assert.equal(col(ds, 'depth')[0].value, 100);
+  assert.deepEqual(col(ds, 'grade')[0].dim, {});
+  assert.deepEqual(col(ds, 'depth')[0].dim, {});
 });
 
 // ── type inference ───────────────────────────────────────────────
