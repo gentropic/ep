@@ -18163,9 +18163,16 @@ function attachCsvFile(filename, text) {
   window.dispatchEvent(new CustomEvent('ep:params-changed'));
 }
 
+// Registered in the CAPTURE phase: a file drop reaches `window` before
+// it descends to the CodeMirror editor. stopPropagation() then keeps
+// CM6's own drop handler from also firing — otherwise CM6 would insert
+// the dropped file's raw text into the body (a CSV would dump all its
+// rows into the editor). Non-file drags (text selection drag inside
+// the editor) pass straight through.
 window.addEventListener('drop', async (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
+  e.stopPropagation();
   dragDepth = 0;
   dropOverlay.classList.remove('on');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
@@ -18189,7 +18196,7 @@ window.addEventListener('drop', async (e) => {
   } catch (err) {
     console.error('Failed to read dropped file:', err);
   }
-});
+}, true);   // capture phase — intercept before CM6's editor drop handler
 
 // ─── settings.js ─────────────────────────────────────────────────
 // User-level settings panel — full-screen slide-in opened from the drawer
@@ -18569,7 +18576,7 @@ if (resetBtn) {
 // In dev (when loading via dev.html with no build step), the placeholder
 // survives and the runtime check below collapses it to 'dev'.
 
-const _EP_VERSION_RAW = "2026-05-19 (9d11200+dirty)";
+const _EP_VERSION_RAW = "2026-05-19 (42d7689+dirty)";
 const EP_VERSION = _EP_VERSION_RAW.includes('__EP_VERSION__') ? 'dev' : _EP_VERSION_RAW;
 
 const INSTALLED_AT_KEY = 'ep:installedAt';

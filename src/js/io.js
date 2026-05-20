@@ -96,9 +96,16 @@ function attachCsvFile(filename, text) {
   window.dispatchEvent(new CustomEvent('ep:params-changed'));
 }
 
+// Registered in the CAPTURE phase: a file drop reaches `window` before
+// it descends to the CodeMirror editor. stopPropagation() then keeps
+// CM6's own drop handler from also firing — otherwise CM6 would insert
+// the dropped file's raw text into the body (a CSV would dump all its
+// rows into the editor). Non-file drags (text selection drag inside
+// the editor) pass straight through.
 window.addEventListener('drop', async (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
+  e.stopPropagation();
   dragDepth = 0;
   dropOverlay.classList.remove('on');
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
@@ -122,4 +129,4 @@ window.addEventListener('drop', async (e) => {
   } catch (err) {
     console.error('Failed to read dropped file:', err);
   }
-});
+}, true);   // capture phase — intercept before CM6's editor drop handler
