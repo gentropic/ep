@@ -178,6 +178,7 @@ const BUILTIN_PROC_SCHEMES = {
   any:        schemeMaskReduceBool,
   all:        schemeMaskReduceBool,
   count:      schemeMaskReduceScalar,
+  dataset:    schemeDataset,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
@@ -192,6 +193,14 @@ function schemeMaskReduceBool() {
 function schemeMaskReduceScalar() {
   // (List<Bool>) -> Scalar — count
   return generalize(tFn([tList(tBool())], T_SCALAR), [], []);
+}
+function schemeDataset() {
+  // <A>(List<A>) -> List<A> — loose. A Dataset is conceptually a list
+  // of rows; the runtime columnarizes it. Column access on the result
+  // isn't statically verified (the schema is runtime-only) — the
+  // "drop tc errors when runtime succeeds" policy covers it.
+  const a = freshTVar();
+  return generalize(tFn([tList(a)], tList(a)), [a], []);
 }
 
 function schemeRandomList() {

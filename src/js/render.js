@@ -387,6 +387,15 @@ function resultMarkerHtml(lineIdx) {
       && r.result.dim && Object.keys(r.result.dim).length === 0) {
     return null;
   }
+  // Dataset value — show a `rows × cols` summary in the gutter rather
+  // than the generic "object" placeholder.
+  if (typeof r.result === 'object' && r.result.__dataset) {
+    const rows = r.result.length;
+    const cols = r.result.columns ? r.result.columns.size : 0;
+    const label = `${fmtNum(rows)} × ${cols}`;
+    return { html: `<span class="u">${escapeHtml(label)}</span>`,
+             text: `dataset ${label}`, cls: '' };
+  }
   // Non-Quantity values (Bool / String / fn-ref / struct) reach this
   // path when a binding's RHS evaluates to something other than a
   // dimensioned number. fmt() expects a Quantity; show a typed

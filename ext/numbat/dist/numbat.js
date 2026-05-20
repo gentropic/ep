@@ -3183,6 +3183,7 @@ const BUILTIN_PROC_SCHEMES = {
   any:        schemeMaskReduceBool,
   all:        schemeMaskReduceBool,
   count:      schemeMaskReduceScalar,
+  dataset:    schemeDataset,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
@@ -3197,6 +3198,14 @@ function schemeMaskReduceBool() {
 function schemeMaskReduceScalar() {
   // (List<Bool>) -> Scalar — count
   return generalize(tFn([tList(tBool())], T_SCALAR), [], []);
+}
+function schemeDataset() {
+  // <A>(List<A>) -> List<A> — loose. A Dataset is conceptually a list
+  // of rows; the runtime columnarizes it. Column access on the result
+  // isn't statically verified (the schema is runtime-only) — the
+  // "drop tc errors when runtime succeeds" policy covers it.
+  const a = freshTVar();
+  return generalize(tFn([tList(a)], tList(a)), [a], []);
 }
 
 function schemeRandomList() {
@@ -3765,6 +3774,37 @@ function mustBeAngleOrScalar(q, fnName) {
   throw new Error(`${fnName}: argument must be dimensionless or an angle`);
 }
 
+// Build a columnar Dataset from a list of struct rows. The column set
+// is taken from the first row; every row must carry at least those
+// fields (extras are ignored). Shared by the `dataset(...)` builtin and
+// the CSV loader (Phase 1.3). Returns a frozen tagged object:
+//   { __dataset: true, columns: Map<name, Array>, length: N }
+// Column order is the Map's insertion order = the first row's field
+// order. An empty input is a valid empty Dataset (no columns).
+function datasetFromRows(rows) {
+  if (!Array.isArray(rows)) throw new Error('dataset: expected a list of struct rows');
+  const isStruct = (v) => v !== null && typeof v === 'object'
+    && !Array.isArray(v) && ('__struct' in v);
+  if (rows.length === 0) {
+    return Object.freeze({ __dataset: true, columns: new Map(), length: 0 });
+  }
+  if (!isStruct(rows[0])) {
+    throw new Error('dataset: list elements must be structs');
+  }
+  const names = Object.keys(rows[0]).filter(k => k !== '__struct');
+  const columns = new Map();
+  for (const n of names) columns.set(n, []);
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!isStruct(r)) throw new Error(`dataset: list element ${i} is not a struct`);
+    for (const n of names) {
+      if (!(n in r)) throw new Error(`dataset: row ${i} is missing field '${n}'`);
+      columns.get(n).push(r[n]);
+    }
+  }
+  return Object.freeze({ __dataset: true, columns, length: rows.length });
+}
+
 // Variadic built-in procedures. Differ from BUILTIN_FNS in that they accept
 // an args array directly (so they can be 1/2/3-arg overloaded) and may return
 // a "void" sentinel — we use Quantity(0, {}) since v0.3 doesn't have a
@@ -3950,6 +3990,15 @@ const BUILTIN_PROCS = {
       else if (x !== false) throw new Error('count: list element must be Bool');
     }
     return new Quantity(n, {});
+  },
+  // dataset(rows) — columnarize a list of struct records into a Dataset.
+  // The eager dataset value (SPEC-DATASETS Phase 1.2): a tagged object
+  // holding one typed array per column. Column access (`d.grade`) is
+  // then an O(1) Map lookup. The CSV loader (Phase 1.3) produces a
+  // Dataset the same way via datasetFromRows.
+  dataset(args) {
+    if (args.length !== 1) throw new Error(`dataset: expected 1 arg, got ${args.length}`);
+    return datasetFromRows(args[0]);
   },
   foldl(args) {
     const [f, acc0, xs] = args;
@@ -4250,7 +4299,11 @@ const BUILTIN_PROCS = {
     const xs = args[0];
     if (Array.isArray(xs)) return new Quantity(xs.length, {});
     if (typeof xs === 'string') return new Quantity(xs.length, {});
-    throw new Error('len: expected List or String');
+    // Dataset row count.
+    if (xs !== null && typeof xs === 'object' && xs.__dataset) {
+      return new Quantity(xs.length, {});
+    }
+    throw new Error('len: expected List, String, or Dataset');
   },
   head(args) {
     if (args.length !== 1) throw new Error(`head: expected 1 arg, got ${args.length}`);
@@ -4683,6 +4736,16 @@ function evalValueExpr(node, env) {
         }
         return el[node.name];
       });
+    }
+    // Dataset column access: `model.grade` on a columnar Dataset returns
+    // the grade column directly — O(1), no per-row projection. (A plain
+    // List<Struct> reaches the same result via the broadcast branch
+    // above; the Dataset is the columnar form + the Phase-2 seam.)
+    if (o !== null && typeof o === 'object' && o.__dataset) {
+      if (!o.columns.has(node.name)) {
+        throw new Error(`no column '${node.name}' in dataset (have: ${[...o.columns.keys()].join(', ')})`);
+      }
+      return o.columns.get(node.name);
     }
     if (o === null || typeof o !== 'object') {
       throw new Error(`field access on non-struct value`);
