@@ -159,3 +159,35 @@ test('upstream-style: concat fn defined recursively', () => {
   assert.equal(r[0].value, 1);
   assert.equal(r[4].value, 5);
 });
+
+// ── native maximum / minimum / median (datasets Phase 1.6) ───────
+
+test('maximum / minimum: largest / smallest element', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource('let hi = maximum([3, 9, 1, 7, 2])');
+  n.loadSource('let lo = minimum([3, 9, 1, 7, 2])');
+  assert.equal(n.values.get('hi').value, 9);
+  assert.equal(n.values.get('lo').value, 1);
+});
+
+test('median: odd length picks the middle, even averages the pair', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource('let m_odd = median([5, 1, 3])');
+  n.loadSource('let m_even = median([1, 2, 3, 4])');
+  assert.equal(n.values.get('m_odd').value, 3);
+  assert.equal(n.values.get('m_even').value, 2.5);
+});
+
+test('maximum / minimum / median: empty list throws', () => {
+  const n = new Numbat({ prelude: 'none' });
+  assert.throws(() => n.loadSource('let bad = maximum([])'), /empty list/);
+  assert.throws(() => n.loadSource('let bad = minimum([])'), /empty list/);
+  assert.throws(() => n.loadSource('let bad = median([])'),  /empty list/);
+});
+
+test('maximum: stack-safe on a long list (native, not recursive)', () => {
+  const n = new Numbat({ prelude: 'none' });
+  const big = '[' + Array.from({ length: 5000 }, (_, i) => i).join(', ') + ']';
+  n.loadSource(`let hi = maximum(${big})`);
+  assert.equal(n.values.get('hi').value, 4999);
+});

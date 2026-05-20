@@ -35,6 +35,10 @@ CLAUDE.md
 /tmp/
 /scratch/
 
+# Local test data (sample CSVs for trying load_csv — not part of the repo)
+*.local.csv
+/sample-deposit.csv
+
 # Build artifact — dist/viewer.html is regenerated on each `node build.js`
 # and embedded into index.html as the VIEWER_HTML constant. No need to
 # commit the intermediate.

@@ -3185,6 +3185,9 @@ const BUILTIN_PROC_SCHEMES = {
   count:      schemeMaskReduceScalar,
   dataset:    schemeDataset,
   load_csv:   schemeLoadCsv,
+  maximum:    schemeListReduceDim,
+  minimum:    schemeListReduceDim,
+  median:     schemeListReduceDim,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
@@ -3214,6 +3217,13 @@ function schemeLoadCsv() {
   // an opaque list of rows; column access falls to the runtime.
   const a = freshTVar();
   return generalize(tFn([tString()], tList(a)), [a], []);
+}
+function schemeListReduceDim() {
+  // <D>(List<D>) -> D — maximum / minimum / median. Native shadows of
+  // the recursive math::statistics defs; the scheme keeps the
+  // typechecker happy after evaluator.js deletes the .nbt versions.
+  const a = freshTVar();
+  return generalize(tFn([tList(a)], a), [a], []);
 }
 
 function schemeRandomList() {
@@ -4190,6 +4200,44 @@ const BUILTIN_PROCS = {
   dataset(args) {
     if (args.length !== 1) throw new Error(`dataset: expected 1 arg, got ${args.length}`);
     return datasetFromRows(args[0]);
+  },
+  // maximum / minimum / median — list reductions. Upstream's
+  // math::statistics defines maximum/minimum by direct head/tail
+  // recursion and median via a recursive sort, so all three overflow
+  // the tree-walker's stack on a few-thousand-element column. ep ships
+  // iterative natives and shadows the recursive defs (same pattern as
+  // range/map/filter). Empty list throws — an empty List<D> carries no
+  // D to return. (sum / mean / variance / stdev stay as the upstream
+  // math::statistics fns: they bottom out in native foldl/map, so
+  // they're already O(n) and stack-safe.)
+  maximum(args) {
+    if (args.length !== 1) throw new Error(`maximum: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('maximum: expected a list');
+    if (xs.length === 0) throw new Error('maximum: empty list');
+    let best = xs[0];
+    for (let i = 1; i < xs.length; i++) if (xs[i].value > best.value) best = xs[i];
+    return best;
+  },
+  minimum(args) {
+    if (args.length !== 1) throw new Error(`minimum: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('minimum: expected a list');
+    if (xs.length === 0) throw new Error('minimum: empty list');
+    let best = xs[0];
+    for (let i = 1; i < xs.length; i++) if (xs[i].value < best.value) best = xs[i];
+    return best;
+  },
+  median(args) {
+    if (args.length !== 1) throw new Error(`median: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('median: expected a list');
+    if (xs.length === 0) throw new Error('median: empty list');
+    const sorted = xs.slice().sort((a, b) => a.value - b.value);
+    const n = sorted.length;
+    if (n % 2 === 1) return sorted[(n - 1) / 2];
+    const lo = sorted[n / 2 - 1], hi = sorted[n / 2];
+    return new Quantity((lo.value + hi.value) / 2, lo.dim);
   },
   // load_csv(name) — resolve a named CSV asset to a Dataset. numbat-js
   // owns no files; the host (ep) registers a resolver via setCsvResolver

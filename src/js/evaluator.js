@@ -58,6 +58,14 @@ function host() {
   catch (e) { console.warn('ep: core::strings load failed:', e && e.message || e); }
   try { _host.use('core::lists'); }
   catch (e) { console.warn('ep: core::lists load failed:', e && e.message || e); }
+  // math::statistics — mean / variance / stdev / maximum / minimum /
+  // median. The dataset lane wants these for column reductions
+  // (`mean(model.grade)`). They're defined in terms of sum / map /
+  // foldl, which resolve to numbat-js's iterative natives, so they're
+  // O(n) and stack-safe even on a 10^5-row column. (median is the one
+  // exception — it sorts; fine for now, native-shadow later if needed.)
+  try { _host.use('math::statistics'); }
+  catch (e) { console.warn('ep: math::statistics load failed:', e && e.message || e); }
   // core::lists ships RECURSIVE definitions of range/map/filter/foldl/
   // etc. — every iteration is a JS stack frame in numbat-js's tree-
   // walker, so a 500-element list blows Safari's stack and a few-
@@ -68,7 +76,12 @@ function host() {
   // compatibility is preserved at the source level — the script defs
   // still live in core::lists.nbt for anyone who wants to read them.
   for (const name of ['range', 'map', 'map2', 'filter', 'foldl', 'concat',
-                      'take', 'drop', 'reverse', 'element_at']) {
+                      'take', 'drop', 'reverse', 'element_at',
+                      // math::statistics ships maximum/minimum (head/tail
+                      // recursion) and median (recursive sort) — same
+                      // stack-overflow risk; numbat-js has iterative
+                      // natives for these too.
+                      'maximum', 'minimum', 'median']) {
     _host.fns.delete(name);
   }
 

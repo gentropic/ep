@@ -180,6 +180,9 @@ const BUILTIN_PROC_SCHEMES = {
   count:      schemeMaskReduceScalar,
   dataset:    schemeDataset,
   load_csv:   schemeLoadCsv,
+  maximum:    schemeListReduceDim,
+  minimum:    schemeListReduceDim,
+  median:     schemeListReduceDim,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
@@ -209,6 +212,13 @@ function schemeLoadCsv() {
   // an opaque list of rows; column access falls to the runtime.
   const a = freshTVar();
   return generalize(tFn([tString()], tList(a)), [a], []);
+}
+function schemeListReduceDim() {
+  // <D>(List<D>) -> D — maximum / minimum / median. Native shadows of
+  // the recursive math::statistics defs; the scheme keeps the
+  // typechecker happy after evaluator.js deletes the .nbt versions.
+  const a = freshTVar();
+  return generalize(tFn([tList(a)], a), [a], []);
 }
 
 function schemeRandomList() {
