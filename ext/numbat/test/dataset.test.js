@@ -213,3 +213,33 @@ test('schema: on a non-dataset errors', () => {
   assert.throws(() => n.loadSource('let _ = schema([1, 2, 3])'),
     /expected a dataset/);
 });
+
+// ── reductions carry the column's display unit ───────────────────
+// sum / mean / stdev / maximum / minimum / median keep a uniform disp
+// tag from the input, so mean(grade) reads "1.62 g/t", not "1.62e-6".
+
+test('reductions: sum / mean carry a uniform disp tag', () => {
+  const n = new Numbat();
+  n.loadSource('let xs = [10 cm -> mm, 20 cm -> mm, 30 cm -> mm]');
+  n.loadSource('let s = sum(xs)');
+  n.loadSource('let m = mean(xs)');
+  assert.equal(n.values.get('s').disp, 'mm');
+  assert.equal(n.values.get('m').disp, 'mm');
+  assert.ok(Math.abs(n.values.get('m').value - 0.2) < 1e-12);  // mean of 0.1/0.2/0.3 m
+});
+
+test('reductions: maximum / minimum / median keep the disp tag', () => {
+  const n = new Numbat();
+  n.loadSource('let xs = [10 cm -> mm, 20 cm -> mm, 30 cm -> mm, 40 cm -> mm]');
+  assert.equal((n.loadSource('let a = maximum(xs)'), n.values.get('a').disp), 'mm');
+  assert.equal((n.loadSource('let b = minimum(xs)'), n.values.get('b').disp), 'mm');
+  // even length → median averages the middle pair; disp still kept.
+  assert.equal((n.loadSource('let c = median(xs)'),  n.values.get('c').disp), 'mm');
+});
+
+test('reductions: a mixed-disp list drops the tag', () => {
+  const n = new Numbat();
+  n.loadSource('let xs = [10 cm -> mm, 20 cm -> cm]');   // mm vs cm
+  n.loadSource('let m = mean(xs)');
+  assert.equal(n.values.get('m').disp, null);
+});

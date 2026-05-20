@@ -81,7 +81,12 @@ function host() {
                       // recursion) and median (recursive sort) — same
                       // stack-overflow risk; numbat-js has iterative
                       // natives for these too.
-                      'maximum', 'minimum', 'median']) {
+                      'maximum', 'minimum', 'median',
+                      // sum/mean/stdev: the upstream foldl-based defs
+                      // drop the `disp` tag, so `mean(grade)` reads
+                      // 1.62e-6 instead of 1.62 g/t. numbat-js's natives
+                      // carry the column's display unit through.
+                      'sum', 'mean', 'stdev']) {
     _host.fns.delete(name);
   }
 

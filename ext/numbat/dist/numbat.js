@@ -3223,6 +3223,9 @@ const BUILTIN_PROC_SCHEMES = {
   maximum:    schemeListReduceDim,
   minimum:    schemeListReduceDim,
   median:     schemeListReduceDim,
+  sum:        schemeListReduceDim,
+  mean:       schemeListReduceDim,
+  stdev:      schemeListReduceDim,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
@@ -4289,15 +4292,58 @@ const BUILTIN_PROCS = {
     if (args.length !== 1) throw new Error(`dataset: expected 1 arg, got ${args.length}`);
     return datasetFromRows(args[0]);
   },
+  // sum / mean / stdev — list reductions, native so they can carry the
+  // input column's display unit through to the result. Upstream's
+  // sum (core::lists) / mean / stdev (math::statistics) bottom out in
+  // foldl arithmetic, which drops the `disp` tag — so `mean(grade)`
+  // would read `1.62e-6` instead of `1.62 g/t`. These natives compute
+  // the same values but re-attach the column's uniform disp.
+  //
+  // `uniformDisp` is the shared display unit of a quantity list, or
+  // null when the elements disagree (or aren't all quantities).
+  sum(args) {
+    if (args.length !== 1) throw new Error(`sum: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('sum: expected a list');
+    if (xs.length === 0) return new Quantity(0, {});   // additive identity
+    const dim = xs[0].dim;
+    let total = 0;
+    let disp = xs[0].disp ?? null;
+    for (const q of xs) {
+      if (!(q instanceof Quantity)) throw new Error('sum: list elements must be quantities');
+      if (!dimEq(q.dim, dim)) throw new Error('sum: list has mixed dimensions');
+      total += q.value;
+      if ((q.disp ?? null) !== disp) disp = null;
+    }
+    return new Quantity(total, dim, disp);
+  },
+  mean(args) {
+    if (args.length !== 1) throw new Error(`mean: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('mean: expected a list');
+    if (xs.length === 0) throw new Error('mean: empty list');
+    const s = BUILTIN_PROCS.sum([xs]);
+    return new Quantity(s.value / xs.length, s.dim, s.disp);
+  },
+  stdev(args) {
+    if (args.length !== 1) throw new Error(`stdev: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('stdev: expected a list');
+    if (xs.length === 0) throw new Error('stdev: empty list');
+    const m = BUILTIN_PROCS.mean([xs]);   // also dim-checks + finds the disp
+    let sumsq = 0;
+    for (const q of xs) sumsq += (q.value - m.value) ** 2;
+    // Population standard deviation — matches upstream math::statistics.
+    return new Quantity(Math.sqrt(sumsq / xs.length), m.dim, m.disp);
+  },
   // maximum / minimum / median — list reductions. Upstream's
   // math::statistics defines maximum/minimum by direct head/tail
   // recursion and median via a recursive sort, so all three overflow
   // the tree-walker's stack on a few-thousand-element column. ep ships
   // iterative natives and shadows the recursive defs (same pattern as
   // range/map/filter). Empty list throws — an empty List<D> carries no
-  // D to return. (sum / mean / variance / stdev stay as the upstream
-  // math::statistics fns: they bottom out in native foldl/map, so
-  // they're already O(n) and stack-safe.)
+  // D to return. maximum/minimum return an element directly, so they
+  // keep its disp; median re-attaches it on the even-length average.
   maximum(args) {
     if (args.length !== 1) throw new Error(`maximum: expected 1 arg, got ${args.length}`);
     const xs = args[0];
@@ -4325,7 +4371,10 @@ const BUILTIN_PROCS = {
     const n = sorted.length;
     if (n % 2 === 1) return sorted[(n - 1) / 2];
     const lo = sorted[n / 2 - 1], hi = sorted[n / 2];
-    return new Quantity((lo.value + hi.value) / 2, lo.dim);
+    // Keep the column's display unit when both straddling elements
+    // agree on it (they will, for a uniform column).
+    const disp = (lo.disp ?? null) === (hi.disp ?? null) ? (lo.disp ?? null) : null;
+    return new Quantity((lo.value + hi.value) / 2, lo.dim, disp);
   },
   // load_csv(name) — resolve a named CSV asset to a Dataset. numbat-js
   // owns no files; the host (ep) registers a resolver via setCsvResolver

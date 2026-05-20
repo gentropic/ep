@@ -88,13 +88,36 @@ function drawPlot(canvas, descriptor, dpr, opts) {
   ctx.fillStyle = colBg;
   ctx.fillRect(0, 0, cssW, cssH);
 
+  // Chart type + axis units. coerceXY / coerceValues tagged the
+  // descriptor with the source columns' display units (xUnit / yUnit /
+  // valueUnit); the values themselves are canonical. Resolve each
+  // unit's multiplier so the axes — and the plotted values — read in
+  // that unit (g/t, m, …) rather than 1e-6-scale canonical numbers.
+  // valueUnit drives the Y axis for a bar chart, the X axis for a
+  // histogram (whose value range is binned).
+  const type = descriptor.type || 'line';
+  const unitFactor = (u) => {
+    if (!u) return 1;
+    try { return resolveUnitExpression(u).mul || 1; } catch { return 1; }
+  };
+  let xUnit = '', yUnit = '';
+  if (type === 'line' || type === 'scatter') {
+    xUnit = descriptor.xUnit || ''; yUnit = descriptor.yUnit || '';
+  } else if (type === 'bar')  { yUnit = descriptor.valueUnit || ''; }
+  else if (type === 'hist')   { xUnit = descriptor.valueUnit || ''; }
+  const xFactor = unitFactor(xUnit), yFactor = unitFactor(yUnit);
+  // Axis labels: an explicit label from the plot call wins; otherwise
+  // the unit string stands in.
+  const xLabel = descriptor.xLabel || xUnit;
+  const yLabel = descriptor.yLabel || yUnit;
+
   // Plot area inset for axes + tick labels. Extra space at top for a
   // title (when given), and at left/bottom for axis labels (when given).
   // Compact mode collapses every margin to a small uniform inset so the
   // data spans almost the whole canvas.
   const hasTitle  = !compact && !!descriptor.title;
-  const hasXLabel = !compact && !!descriptor.xLabel;
-  const hasYLabel = !compact && !!descriptor.yLabel;
+  const hasXLabel = !compact && !!xLabel;
+  const hasYLabel = !compact && !!yLabel;
   const ML = compact ? 4 : (hasYLabel ? 50 : 36);
   const MR = compact ? 4 : 12;
   const MT = compact ? 4 : (hasTitle  ? 26 : 10);
@@ -112,25 +135,25 @@ function drawPlot(canvas, descriptor, dpr, opts) {
     ctx.fillText(descriptor.title, cssW / 2, 6);
   }
 
-  // Pull data into (xs, ys) form depending on chart type. Bar/hist
-  // synthesize xs from value index / bin centers.
+  // Pull data into (xs, ys) form depending on chart type, scaling each
+  // axis by its unit factor so the plot reads in the column's unit.
+  // Bar/hist synthesize xs from value index / bin centers.
   let xs = [], ys = [];
-  const type = descriptor.type || 'line';
 
   if (type === 'line' || type === 'scatter') {
-    xs = descriptor.xs || [];
-    ys = descriptor.ys || [];
+    xs = (descriptor.xs || []).map(v => v / xFactor);
+    ys = (descriptor.ys || []).map(v => v / yFactor);
     if (xs.length !== ys.length) {
       const n = Math.min(xs.length, ys.length);
       xs = xs.slice(0, n);
       ys = ys.slice(0, n);
     }
   } else if (type === 'bar') {
-    const values = descriptor.values || [];
+    const values = (descriptor.values || []).map(v => v / yFactor);
     xs = values.map((_, i) => i);
     ys = values.slice();
   } else if (type === 'hist') {
-    const values = descriptor.values || [];
+    const values = (descriptor.values || []).map(v => v / xFactor);
     if (values.length) {
       const n = Math.max(2, Math.min(50, Math.ceil(Math.sqrt(values.length))));
       let lo = Infinity, hi = -Infinity;
@@ -216,7 +239,7 @@ function drawPlot(canvas, descriptor, dpr, opts) {
     ctx.font = '500 11px var(--sw-mono, monospace)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(descriptor.xLabel, ML + PW / 2, cssH - 4);
+    ctx.fillText(xLabel, ML + PW / 2, cssH - 4);
   }
   if (hasYLabel) {
     ctx.save();
@@ -226,7 +249,7 @@ function drawPlot(canvas, descriptor, dpr, opts) {
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(descriptor.yLabel, 0, 0);
+    ctx.fillText(yLabel, 0, 0);
     ctx.restore();
   }
 
@@ -513,6 +536,9 @@ function mountCm6() {
           && a.title  === b.title
           && a.xLabel === b.xLabel
           && a.yLabel === b.yLabel
+          && a.xUnit  === b.xUnit
+          && a.yUnit  === b.yUnit
+          && a.valueUnit === b.valueUnit
           && (a.xs?.length || 0) === (b.xs?.length || 0)
           && (a.ys?.length || 0) === (b.ys?.length || 0)
           && (a.values?.length || 0) === (b.values?.length || 0)
