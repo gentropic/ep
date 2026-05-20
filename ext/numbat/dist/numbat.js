@@ -3981,11 +3981,11 @@ function normalizeNumberCell(s, decimal) {
 const CSV_NUM_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
 // Parse CSV text into a Dataset. `config` is merged over auto-detection.
-// Numeric columns become dimensionless quantities — header unit
-// suffixes are documentation, not a value transform (see the column-
-// build comment below).
-function parseCsv(text, config) {
+// `opts.resolveUnit(text) -> Quantity` resolves a header unit suffix;
+// see the column-build comment for which suffixes are actually applied.
+function parseCsv(text, config, opts) {
   const cfg = { ...detectCsvConfig(text), ...(config || {}) };
+  const resolveUnit = opts && opts.resolveUnit;
 
   let raw = text;
   if (cfg.skipRows > 0) {
@@ -4038,25 +4038,40 @@ function parseCsv(text, config) {
     return 'string';  // mixed
   });
 
-  // Build the columns. Numeric cells become dimensionless quantities —
-  // the value the user sees in the file, untransformed. A header unit
-  // suffix (`grade (g/t)`) is documentation only: it cleans the column
-  // name but is NOT folded into the values. Folding it in would mean a
-  // `2.5` cell under a `(g/t)` header becomes 2.5e-6 (g/t is a
-  // dimensionless ratio), and then `grade > 1` silently matches
-  // nothing — a calculator-notepad trap. The user reasons in the
-  // column's own units; explicit `grade * 1 g/t` re-dimensions when
-  // genuinely needed.
+  // Resolve each numeric column's header unit — but only KEEP it when
+  // it carries a real dimension. A `(g/t)` / `(%)` / `(ppm)` suffix is
+  // a dimensionless ratio: folding it in would turn a `2.5` cell into
+  // 2.5e-6, and then `grade > 1` silently matches nothing — a trap
+  // with no dim-mismatch to catch it. A dimensioned unit (`m`, `kg`,
+  // `g/cm3`) is safe AND useful to apply: the column gets a real
+  // dimension, so `depth > 100` errors loudly (length vs scalar),
+  // guiding the user to `depth > 100 m`. So: apply dimensioned units,
+  // leave dimensionless-ratio suffixes as documentation only.
+  const colUnit = headers.map((h, ci) => {
+    if (colType[ci] !== 'number' || !h.unitText || !resolveUnit) return null;
+    let u;
+    try { u = resolveUnit(h.unitText); } catch { return null; }
+    if (!u || !u.dim || Object.keys(u.dim).length === 0) return null;  // dimensionless → skip
+    return { mul: u.value, dim: u.dim };
+  });
+
+  // Build the columns.
   const columns = new Map();
   headers.forEach((h, ci) => {
     const t = colType[ci];
+    const cu = colUnit[ci];
     const out = new Array(dataRows.length);
     for (let ri = 0; ri < dataRows.length; ri++) {
       const v = cellAt(dataRows[ri], ci).trim();
       if (t === 'number') {
-        out[ri] = v === ''
-          ? new Quantity(NaN, {})
-          : new Quantity(parseFloat(normalizeNumberCell(v, cfg.decimal)), {});
+        if (v === '') {
+          out[ri] = new Quantity(NaN, cu ? cu.dim : {});
+        } else {
+          const num = parseFloat(normalizeNumberCell(v, cfg.decimal));
+          out[ri] = cu
+            ? new Quantity(num * cu.mul, cu.dim)
+            : new Quantity(num, {});
+        }
       } else if (t === 'bool') {
         out[ri] = v.toLowerCase() === 'true';
       } else {

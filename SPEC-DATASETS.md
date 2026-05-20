@@ -367,20 +367,29 @@ A small RFC-4180-ish parser (~80 LOC, no library):
 
 - Handles quoted fields, embedded commas / newlines inside quotes,
   CRLF and LF line endings.
-- **Header unit suffix — documentation only.** A header of the form
-  `grade (g/t)` is split: the column name becomes `grade`, and the
-  `(g/t)` is dropped. The unit is **not** folded into the cell values.
-  *Revised from the original design (which applied it):* folding a
-  dimensionless ratio like `g/t` in turns a `2.5` cell into `2.5e-6`,
-  and then `grade > 1` silently matches nothing — a calculator-notepad
-  trap with no dim-mismatch error to catch it. So every numeric column
-  is dimensionless and holds exactly the numbers in the file; the user
-  reasons in the column's own units and re-dimensions explicitly when
-  needed (`grade_real = model.grade * 1 g/t`). A future attach-dialog
-  toggle could opt a column into a real dimension.
+- **Header unit suffix — applied only when dimensioned.** A header of
+  the form `grade (g/t)` is split: the column name becomes `grade`, and
+  the `(g/t)` is resolved as a unit. Then:
+  - **Dimensioned** unit (`m`, `kg`, `g/cm3`) → folded into the cells.
+    The column gets a real dimension, so a bare comparison like
+    `depth > 100` errors *loudly* (length vs scalar) — guiding the user
+    to `depth > 100 m`. Useful and safe.
+  - **Dimensionless ratio** unit (`g/t`, `%`, `ppm`) → NOT folded in;
+    the suffix is documentation only, the column stays a plain-number
+    column. Folding a dimensionless ratio would turn a `2.5` cell into
+    `2.5e-6`, and then `grade > 1` silently matches nothing — a trap
+    with no dim-mismatch to catch it (g/t is dimensionless either way).
+    So the user reasons in the column's own units (`grade > 1`).
+
+  *Revised twice from the original "always apply" design.* The honest
+  constraint: `1 g/t` is indistinguishable from the number `1e-6` at
+  runtime, so for a dimensionless-ratio column exactly one of
+  `grade > 1` and `grade > 1 g/t` must be wrong. Leaving the column
+  plain makes the natural bare form (`grade > 1`) the correct one.
 - **Per-column type inference.** Sample the first N non-empty cells of
-  each column: all parse as numbers → dimensionless quantity column;
-  all `true`/`false` → Bool column; else String column.
+  each column: all parse as numbers → quantity column (dim from the
+  header unit when it's dimensioned, else dimensionless); all
+  `true`/`false` → Bool column; else String column.
 - **Cells** parse as a number with an optional inline unit
   (`2.5`, `2.5 g/t`). Empty cells become a hole — see open questions on
   missing-value semantics; Phase 1 starting point: empty numeric cell →

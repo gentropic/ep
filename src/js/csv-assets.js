@@ -12,19 +12,34 @@
 // exports. File references / FSAA handles are a later enhancement.
 
 import { state } from './state.js';
-import { parseCsv, detectCsvConfig, setCsvResolver } from '../../ext/numbat/dist/numbat.js';
+import { parseCsv, detectCsvConfig, Quantity, setCsvResolver } from '../../ext/numbat/dist/numbat.js';
+import { resolveUnitExpression } from './evaluator.js';
 
 // name → { assetRef, dataset } — assetRef is the state.assets[name]
 // object the cached Dataset was parsed from. Identity mismatch (a
 // re-attach) forces a re-parse.
 const parseCache = new Map();
 
+// Adapter for parseCsv's resolveUnit hook — turns a header unit string
+// into a Quantity (value = multiplier, dim). parseCsv inspects the dim
+// to decide whether to apply the unit (dimensioned) or treat it as
+// documentation (dimensionless ratio). An unresolvable unit reads as
+// dimensionless, so the column stays a plain-number column.
+function resolveUnit(unitText) {
+  try {
+    const spec = resolveUnitExpression(unitText);
+    return new Quantity(spec.mul, spec.dim);
+  } catch {
+    return new Quantity(1, {});
+  }
+}
+
 function csvResolver(name) {
   const asset = state.assets && state.assets[name];
   if (!asset || typeof asset.text !== 'string') return null;
   const cached = parseCache.get(name);
   if (cached && cached.assetRef === asset) return cached.dataset;
-  const dataset = parseCsv(asset.text, asset.config || {});
+  const dataset = parseCsv(asset.text, asset.config || {}, { resolveUnit });
   parseCache.set(name, { assetRef: asset, dataset });
   return dataset;
 }
