@@ -105,3 +105,52 @@ test('struct: trailing commas in fields', () => {
   `);
   assert.ok(n.structs.get('Element'));
 });
+
+// ── field-access broadcasting (ep dataset extension) ─────────────
+
+test('field broadcast: List<Struct>.field projects the column', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(`
+    struct Point { x: Scalar, y: Scalar }
+    let ps = [Point { x: 1, y: 10 }, Point { x: 2, y: 20 }, Point { x: 3, y: 30 }]
+    let xs = ps.x
+    let ys = ps.y
+  `);
+  assert.deepEqual(n.values.get('xs').map(q => q.value), [1, 2, 3]);
+  assert.deepEqual(n.values.get('ys').map(q => q.value), [10, 20, 30]);
+});
+
+test('field broadcast: empty list projects to empty list', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(`
+    struct Point { x: Scalar }
+    let empty: List<Point> = []
+    let xs = empty.x
+  `);
+  assert.deepEqual(n.values.get('xs'), []);
+});
+
+test('field broadcast: composes with arithmetic broadcasting', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(`
+    struct Row { grade: Scalar, tonnage: Scalar }
+    let rows = [Row { grade: 2, tonnage: 100 }, Row { grade: 4, tonnage: 50 }]
+    let metal = rows.grade * rows.tonnage
+  `);
+  assert.deepEqual(n.values.get('metal').map(q => q.value), [200, 200]);
+});
+
+test('field broadcast: unknown field on a list element throws', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(`
+    struct Point { x: Scalar }
+    let ps = [Point { x: 1 }]
+  `);
+  assert.throws(() => n.loadSource('let bad = ps.y'), /field 'y' not in struct Point/);
+});
+
+test('field broadcast: non-struct list element throws', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource('let xs = [1, 2, 3]');
+  assert.throws(() => n.loadSource('let bad = xs.foo'), /list element 0 is not a struct/);
+});

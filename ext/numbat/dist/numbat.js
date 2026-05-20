@@ -4662,7 +4662,29 @@ function evalValueExpr(node, env) {
   }
   if (node.type === 'Field') {
     const o = evalValueExpr(node.obj, env);
-    if (o === null || typeof o !== 'object' || Array.isArray(o)) {
+    // Field-access broadcasting (ep dataset extension): `.field` over a
+    // list of structs projects the column — `[s1, s2, s3].grade` →
+    // `[s1.grade, s2.grade, s3.grade]`. Same shape as the arithmetic /
+    // comparison broadcasting; it's what makes `model.grade` work once
+    // `model` is a list of records (a CSV-loaded table). An empty list
+    // projects to an empty list — there's no element to validate the
+    // field name against, and that's the correct identity.
+    if (Array.isArray(o)) {
+      return o.map((el, i) => {
+        // A struct value is a tagged plain object (`__struct`). Quantity
+        // is also a JS object, so the tag check is what distinguishes
+        // "list of records" from "list of numbers".
+        if (el === null || typeof el !== 'object' || Array.isArray(el)
+            || !('__struct' in el)) {
+          throw new Error(`field access: list element ${i} is not a struct`);
+        }
+        if (!(node.name in el)) {
+          throw new Error(`field '${node.name}' not in struct ${el.__struct ?? '(unknown)'}`);
+        }
+        return el[node.name];
+      });
+    }
+    if (o === null || typeof o !== 'object') {
       throw new Error(`field access on non-struct value`);
     }
     if (!(node.name in o)) {
