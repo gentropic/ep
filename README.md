@@ -199,6 +199,38 @@ hist(random_list(1000))
 
 Plots render inline as canvas widgets below the calling line. Add `@output` above a plot to also surface it as a thumbnail in the outputs panel.
 
+### Datasets — CSV files (ep extension)
+
+Drag a `.csv` file onto ep and it attaches as a data asset; a `load_csv` binding appears:
+
+```ep
+model = load_csv("deposit")         # a Dataset — gutter shows "1772 × 7"
+```
+
+A `Dataset` is a table of columns. Access a column by name; it's a list, so everything above works on it:
+
+```ep
+model.grade                         # the grade column (a list)
+model.grade * model.tonnage         # broadcasts element-wise
+mean(model.grade)                   # sum / mean / stdev / maximum / minimum / median
+scatter(model.from, model.grade)    # plot two columns
+
+schema(model)                       # print the columns + their units / types
+```
+
+**Filter rows with `where`:**
+
+```ep
+ore  = model where grade > 1 g/t              # predicate sees the columns
+rich = (model where grade > 2 g/t).tonnage    # filter, then project a column
+deep = model where (depth > 100 m) && mineralized
+au   = mean((model where grade > cutoff).grade)
+```
+
+**Units.** A header like `grade (g/t)` or `depth (m)` is folded into that column — the cells carry the unit. So compare with a unit value: `grade > 1 g/t`, not a bare `grade > 1`. ep flags the bare-number mistake with a loud error naming the unit, rather than silently matching nothing. (The header `(unit)` is the only way to set a column's unit today; an attach dialog with per-column overrides is planned.)
+
+Embedded CSVs travel inside the program — a `.html` export of a `load_csv` program is self-contained.
+
 ### Built-in helpers
 
 ep's prelude adds a few domain-specific things on top of Numbat's standard units:
@@ -292,7 +324,7 @@ Honest take, written 2026-05-17:
 - The "scenarios" feature (named presets of input values) ships but its UX is rough.
 - No incremental DAG evaluation. Every keystroke re-evaluates the whole program. Fast enough for typical programs (sub-millisecond on the demo).
 - No automated UI tests. JSDOM or Playwright would be nice when there's specific behavior worth pinning.
-- Dataset-shaped values (lazy collections, masks, block models) — designed in `SPEC-DATASETS.md`, not built.
+- Datasets — the eager layer is built (`load_csv`, columns, `where`, reductions, `schema`; see "Datasets" above). Still designed-not-built in `SPEC-DATASETS.md`: the attach dialog (per-column unit/rename overrides, file references), lazy views, and block models.
 - `@gcu/pointer` Phase 2 reference loaders (`gh:` / `gist:` / `rentry:` / `url:`) aren't implemented — pointers using those schemes fall through to `EUNKNOWN`, which is the conforming graceful-degradation path per the spec.
 - Multi-tab consistency — IDB writes from one tab don't propagate to another tab's in-memory cache. `BroadcastChannel` install is the natural fix when it bites.
 
@@ -344,7 +376,7 @@ test/             ← Node-builtin test runner; pure-logic suite
 dist/
   viewer.html     ← purpose-built viewer artifact (built from src/viewer-template.html)
 SPEC.md           ← design spec; load-bearing for syntax + semantics
-SPEC-DATASETS.md  ← forward-looking design for lazy collections / block models (not implemented)
+SPEC-DATASETS.md  ← dataset design — eager layer (Phase 1) built; lazy collections / block models still forward-looking
 ```
 
 See `SPEC.md` for the full design rationale, decisions, and roadmap, and `SPEC-DATASETS.md` for the planned dataset/block-model extension. CLAUDE.md is local working-context for the AI assistant used during development and is gitignored.

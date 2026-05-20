@@ -10550,6 +10550,87 @@ The thumbnail is symbolic — no axes, no labels — just the shape of the data.
 `,
   },
 
+  // ── Datasets ─────────────────────────────────────────────────────
+  {
+    slug: 'datasets',
+    title: 'Datasets — CSV files',
+    summary: 'Load a CSV, work with its columns, filter rows with where.',
+    body: `
+# Datasets — CSV files
+
+Drag a \`.csv\` file onto ep. It attaches as a *data asset* and a
+\`load_csv\` binding appears:
+
+\`\`\`
+model = load_csv("deposit")
+\`\`\`
+
+The gutter shows \`1772 × 7\` — rows × columns. The value is a
+**Dataset**: a table of named columns.
+
+## Columns
+
+Access a column by name. A column is just a list, so everything from
+the broadcasting and list guides works on it:
+
+\`\`\`
+model.grade                      # the grade column
+model.grade * model.tonnage      # element-wise — the metal column
+mean(model.grade)                # sum / mean / stdev / maximum / minimum / median
+scatter(model.from, model.grade) # plot two columns
+\`\`\`
+
+## schema — inspect the columns
+
+\`schema(model)\` prints every column with its unit or type:
+
+\`\`\`
+schema(model)
+#   1772 rows × 7 columns
+#     hole_id      String
+#     grade        g/t
+#     depth        m
+#     mineralized  Bool
+\`\`\`
+
+## Filtering rows — the \`where\` clause
+
+\`where\` keeps the rows whose predicate is true. Inside the predicate,
+bare names resolve to the dataset's columns:
+
+\`\`\`
+ore  = model where grade > 1 g/t
+rich = (model where grade > 2 g/t).tonnage     # filter, then a column
+deep = model where (depth > 100 m) && mineralized
+avg  = mean((model where grade > cutoff).grade)
+\`\`\`
+
+\`where\` also works on a plain list, where the predicate is the mask
+directly: \`xs where xs > 5\`.
+
+## Units
+
+A CSV header like \`grade (g/t)\` or \`depth (m)\` folds that unit into
+the column — the cells *carry* the unit. So compare against a value
+**with** the unit:
+
+\`\`\`
+model where grade > 1 g/t        # right
+model where grade > 1            # error — names the unit for you
+\`\`\`
+
+A bare-number comparison against a unit-bearing column is flagged with
+a loud error rather than silently matching nothing. Today the header
+\`(unit)\` suffix is the only way to set a column's unit; an attach
+dialog with per-column overrides is planned.
+
+## Sharing
+
+An embedded CSV travels *inside* the program — a \`.html\` export of a
+\`load_csv\` program is self-contained, data and all.
+`,
+  },
+
   // ── Export ───────────────────────────────────────────────────────
   {
     slug: 'export',
@@ -18652,7 +18733,7 @@ if (resetBtn) {
 // In dev (when loading via dev.html with no build step), the placeholder
 // survives and the runtime check below collapses it to 'dev'.
 
-const _EP_VERSION_RAW = "2026-05-19 (24a541f+dirty)";
+const _EP_VERSION_RAW = "2026-05-20 (b7ff04d+dirty)";
 const EP_VERSION = _EP_VERSION_RAW.includes('__EP_VERSION__') ? 'dev' : _EP_VERSION_RAW;
 
 const INSTALLED_AT_KEY = 'ep:installedAt';
