@@ -79,6 +79,24 @@ speed_kmh = speed -> km/h
 energy = 0.5 * 10 kg * (3 m/s)^2   # → 45 J
 ```
 
+### Line references (ep extension)
+
+Reference earlier lines without naming them. `_N` is the result of line *N* (the gutter line number); `_` is the previous line; `above` is the list of numeric results since the last blank line:
+
+```ep
+10
+20
+subtotal = sum(above)     # 30 — sum / mean / maximum / … all work
+
+5
+7
+sum(above)                # 12 — the blank line started a fresh group
+
+_1 + _4                   # 15 — reference lines by number
+```
+
+A blank line resets the `above` group, so stacked subtotals don't double-count. Turn on the line-number gutter (Settings → display) to see the `_N` numbers.
+
 ### Decorators (ep extension)
 
 Three decorators adorn the binding *below* them. They use real Numbat decorator grammar, so a program using them parses cleanly through upstream Numbat too (decorators with unknown names are ignored at semantic time).

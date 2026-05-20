@@ -88,6 +88,10 @@ export const DOCS = {
   minimum: { signature: 'minimum<D>(xs: List<D>) -> D', description: 'Smallest element. Errors on an empty list.', example: 'minimum([3, 9, 1]) = 1' },
   median:  { signature: 'median<D>(xs: List<D>) -> D', description: 'Middle value (averages the middle pair for even length).', example: 'median([5, 1, 3]) = 3' },
 
+  // ── Line references (ep extension) ────────────────────────────────
+  above: { signature: 'above : List', description: 'The numeric results of the lines above this one, back to the last blank line. Pair with a reduction — sum(above), mean(above), maximum(above). A blank line starts a fresh group.', example: 'sum(above)' },
+  _:     { signature: '_   ·   _N   ·   ans', description: 'Line references. `_` is the previous line\'s result; `_N` is the result of line N (the gutter line number); `ans` is the last binding\'s result.', example: '_3 + _7' },
+
   // ── Datasets (ep extension) ───────────────────────────────────────
   load_csv: { signature: 'load_csv(name: String) -> Dataset', description: 'Load an attached CSV asset as a Dataset. Drag a .csv onto ep to attach it; the asset name is the filename without .csv.', example: 'model = load_csv("deposit")' },
   dataset:  { signature: 'dataset<R>(rows: List<R>) -> Dataset', description: 'Columnarize a list of struct records into a Dataset. Column access (d.field) is then O(1).', example: 'dataset([Row { grade: 2 }, Row { grade: 5 }])' },
@@ -177,6 +181,9 @@ export const DOC_GROUPS = [
   ]},
   { label: 'List reductions', names: [
     'sum','mean','variance','stdev','maximum','minimum','median',
+  ]},
+  { label: 'Line references (ep extension)', names: [
+    'above','_',
   ]},
   { label: 'Datasets (ep extension)', names: [
     'load_csv','dataset','schema',

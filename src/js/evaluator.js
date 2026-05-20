@@ -774,6 +774,22 @@ export function evaluate(body) {
   const outputs = [];
   const rows = body.map(() => ({kind: null, name: null, result: null, error: null, suspect: null, print: null, plot: null, outputs: null, inParams: false}));
 
+  // ── _N line references + the `above` running group ────────────────
+  // `_<n>` resolves to the result of body line n (the 1-indexed gutter
+  // number); `above` is the list of result values since the last blank
+  // line. Both are plain env bindings refreshed during the loop below —
+  // no numbat-js or parser change. `noteLineResult` records a row's
+  // result into both; a blank body line resets the `above` group (see
+  // the loop top). Plot / print rows (whose result is the void
+  // sentinel) and errored rows contribute nothing.
+  let aboveAccum = [];
+  let lastBindingIdx = -1;
+  const noteLineResult = (idx, q) => {
+    if (q == null || plotsByRow.has(idx) || printsByRow.has(idx)) return;
+    env.values.set('_' + (idx + 1), q);
+    if (q instanceof Quantity) aboveAccum.push(q);
+  };
+
   for (const stmt of statements) {
     const isInput   = stmt.decorators.some(d => d.name === 'input');
     const outDec    = stmt.decorators.find(d => d.name === 'output');
@@ -802,6 +818,15 @@ export function evaluate(body) {
 
     const ownerIdx = stmt.bindingLine - 1;
     currentRowIdx = ownerIdx;
+    // `above` group scoping: any blank body line since the previous
+    // statement resets the running group. Then expose the current
+    // group as `above` so `sum(above)` / `mean(above)` see it during
+    // this row's evaluation.
+    for (let k = lastBindingIdx + 1; k < ownerIdx; k++) {
+      if (classify(body[k].src).kind === 'empty') aboveAccum = [];
+    }
+    lastBindingIdx = ownerIdx;
+    env.values.set('above', aboveAccum.slice());
     const c = classify(stmt.bodyText);
     const row = rows[ownerIdx] || {kind: null, name: null, result: null, error: null, outputs: null, inParams: false};
     row.kind = c.kind;
@@ -885,6 +910,7 @@ export function evaluate(body) {
       bindingRowByName.set(name, ownerIdx);
       row.result = q;
       row.error  = err;
+      if (!err) noteLineResult(ownerIdx, q);
       // Annotation auto-suggest: when the row evaluates cleanly, has a
       // dim-shaped result, and the user hasn't already typed a `: Name`
       // annotation, propose a one-tap fixup that adds the matching named
@@ -967,6 +993,7 @@ export function evaluate(body) {
         // statement sees the right value.
         env.values.set('_',   q);
         env.values.set('ans', q);
+        noteLineResult(ownerIdx, q);
       } catch (e) { row.error = e.message; }
       // Typecheck via the same `let __ep__ = expr` wrap used at eval.
       // Bare expr wrapped with `let __ep__ = `. Prefix length is 13.
