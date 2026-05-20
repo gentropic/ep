@@ -173,6 +173,189 @@ function datasetFromRows(rows) {
   return Object.freeze({ __dataset: true, columns, length: rows.length });
 }
 
+// ── CSV parsing (SPEC-DATASETS Phase 1.3) ────────────────────────
+//
+// A small RFC-4180-ish parser: text → Dataset. Parsing is configured
+// by a `parseConfig` object (delimiter / commentChar / skipRows /
+// hasHeader / decimal); ep configures it at attach time, the parser
+// itself is pure. No library.
+
+export function csvDefaultConfig() {
+  return { delimiter: ',', commentChar: '#', skipRows: 0, hasHeader: true, decimal: '.' };
+}
+
+// Tokenize CSV text into rows of raw string cells. Double-quoted
+// fields may contain the delimiter and newlines; `""` is a literal
+// quote. A row whose first non-quoted character is the comment char is
+// dropped entirely (comment-aware so quoted newlines still work).
+function parseCsvRows(text, delimiter, commentChar) {
+  const rows = [];
+  let row = [], cell = '', inQuotes = false, atRowStart = true;
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      cell += c; i++; continue;
+    }
+    // Comment line: at row start, unquoted, first char is commentChar →
+    // skip to (and past) the next newline without emitting a row.
+    if (atRowStart && commentChar && c === commentChar) {
+      while (i < n && text[i] !== '\n') i++;
+      i++; // past the \n
+      continue;
+    }
+    if (c === '"') { inQuotes = true; atRowStart = false; i++; continue; }
+    if (c === delimiter) { row.push(cell); cell = ''; atRowStart = false; i++; continue; }
+    if (c === '\r') { i++; continue; }
+    if (c === '\n') {
+      row.push(cell); rows.push(row);
+      row = []; cell = ''; atRowStart = true; i++; continue;
+    }
+    cell += c; atRowStart = false; i++;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+// Best-guess parseConfig for a CSV text: sniff the delimiter, pair the
+// decimal separator. Everything else stays at defaults — skipRows and
+// hasHeader are set visually by the user against a preview (Phase 1.7).
+export function detectCsvConfig(text) {
+  const cfg = csvDefaultConfig();
+  const sample = text.split(/\r?\n/)
+    .filter(l => l.trim() && !l.trimStart().startsWith(cfg.commentChar))
+    .slice(0, 10);
+  if (sample.length) {
+    let best = null;
+    for (const d of [',', ';', '\t', '|']) {
+      const counts = sample.map(l => parseCsvRows(l, d, cfg.commentChar)[0]?.length ?? 0);
+      const max = Math.max(...counts);
+      if (max < 2) continue;
+      const modal = counts.filter(c => c === max).length;  // consistency
+      const score = modal * 100 + max;
+      if (!best || score > best.score) best = { d, score };
+    }
+    if (best) cfg.delimiter = best.d;
+  }
+  // European convention: a ';' delimiter usually pairs with ',' decimal.
+  if (cfg.delimiter === ';') cfg.decimal = ',';
+  return cfg;
+}
+
+// Split a header cell into a column name + optional unit text. A
+// trailing parenthesized group is treated as a unit: `grade (g/t)` →
+// { name: 'grade', unitText: 'g/t' }.
+function parseHeaderCell(raw) {
+  const m = raw.trim().match(/^(.*?)\s*\(([^()]+)\)\s*$/);
+  if (m && m[1]) return { name: m[1].trim(), unitText: m[2].trim() };
+  return { name: raw.trim(), unitText: null };
+}
+
+// Normalize a numeric cell for parseFloat: strip thousands separators,
+// fold the configured decimal separator to '.'.
+function normalizeNumberCell(s, decimal) {
+  s = s.trim();
+  if (decimal === ',') return s.replace(/\./g, '').replace(',', '.');
+  return s.replace(/,/g, '');
+}
+
+const CSV_NUM_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
+// Parse CSV text into a Dataset. `config` is merged over auto-detection;
+// `opts.resolveUnit(text) -> Quantity` applies header unit suffixes
+// (omit it and unit-suffixed columns stay dimensionless — the unit
+// suffix is still stripped from the column name).
+export function parseCsv(text, config, opts) {
+  const cfg = { ...detectCsvConfig(text), ...(config || {}) };
+  const resolveUnit = opts && opts.resolveUnit;
+
+  let raw = text;
+  if (cfg.skipRows > 0) {
+    raw = text.split(/\r?\n/).slice(cfg.skipRows).join('\n');
+  }
+  const rows = parseCsvRows(raw, cfg.delimiter, cfg.commentChar);
+  if (rows.length === 0) {
+    return Object.freeze({ __dataset: true, columns: new Map(), length: 0 });
+  }
+
+  // Column headers (+ unit suffixes). Synthesized col1..colN when the
+  // file has no header row. Duplicate names are de-duped (`x`, `x_2`).
+  const firstLen = rows[0].length;
+  let headers, dataRows;
+  if (cfg.hasHeader) {
+    headers = rows[0].map(parseHeaderCell);
+    dataRows = rows.slice(1);
+  } else {
+    headers = Array.from({ length: firstLen }, (_, i) => ({ name: `col${i + 1}`, unitText: null }));
+    dataRows = rows;
+  }
+  const seen = new Map();
+  for (const h of headers) {
+    if (seen.has(h.name)) {
+      const k = seen.get(h.name) + 1;
+      seen.set(h.name, k);
+      h.name = `${h.name}_${k}`;
+    } else {
+      seen.set(h.name, 1);
+    }
+  }
+
+  // Per-column type inference from a sample of non-empty cells.
+  const cellAt = (r, ci) => (ci < r.length ? r[ci] : '');
+  const colType = headers.map((_, ci) => {
+    let sawNumber = false, sawBool = false;
+    let count = 0;
+    for (const r of dataRows) {
+      const v = cellAt(r, ci).trim();
+      if (v === '') continue;
+      count++;
+      if (CSV_NUM_RE.test(normalizeNumberCell(v, cfg.decimal))) { sawNumber = true; }
+      else if (v.toLowerCase() === 'true' || v.toLowerCase() === 'false') { sawBool = true; }
+      else { return 'string'; }
+      if (count >= 50) break;
+    }
+    if (count === 0) return 'string';
+    if (sawNumber && !sawBool) return 'number';
+    if (sawBool && !sawNumber) return 'bool';
+    return 'string';  // mixed
+  });
+
+  // Resolve each numeric column's header unit once (mul + dim).
+  const colUnit = headers.map((h, ci) => {
+    if (colType[ci] !== 'number' || !h.unitText || !resolveUnit) return { mul: 1, dim: {} };
+    const u = resolveUnit(h.unitText);
+    return { mul: u.value, dim: u.dim };
+  });
+
+  // Build the columns.
+  const columns = new Map();
+  headers.forEach((h, ci) => {
+    const t = colType[ci];
+    const { mul, dim } = colUnit[ci];
+    const out = new Array(dataRows.length);
+    for (let ri = 0; ri < dataRows.length; ri++) {
+      const v = cellAt(dataRows[ri], ci).trim();
+      if (t === 'number') {
+        out[ri] = v === ''
+          ? new Quantity(NaN, dim)
+          : new Quantity(parseFloat(normalizeNumberCell(v, cfg.decimal)) * mul, dim);
+      } else if (t === 'bool') {
+        out[ri] = v.toLowerCase() === 'true';
+      } else {
+        out[ri] = v;
+      }
+    }
+    columns.set(h.name, out);
+  });
+
+  return Object.freeze({ __dataset: true, columns, length: dataRows.length });
+}
+
 // Variadic built-in procedures. Differ from BUILTIN_FNS in that they accept
 // an args array directly (so they can be 1/2/3-arg overloaded) and may return
 // a "void" sentinel — we use Quantity(0, {}) since v0.3 doesn't have a

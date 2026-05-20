@@ -61,6 +61,9 @@ const PUBLIC_API = [
   // Typechecker entry points — hosts (ep, future AIR integration) call
   // these to typecheck programs before/alongside evaluation.
   'typecheckStatement', 'typecheckModule', 'buildTypeEnv',
+  // CSV → Dataset parsing (datasets Phase 1). detectCsvConfig sniffs a
+  // best-guess parseConfig; parseCsv turns text + config into a Dataset.
+  'parseCsv', 'detectCsvConfig',
   // Bundled vendored .nbt modules (v0.2) — Numbat.loadVendoredPrelude uses this.
   'VENDORED_MODULES',
 ];
