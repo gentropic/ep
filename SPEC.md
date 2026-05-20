@@ -994,16 +994,18 @@ Tap a chip to swap all params to that scenario's values. The currently-active sc
 
 **Interaction with snapshots.** A snapshot captures everything including scenarios, so restoring an old snapshot brings back the scenario set as it was then. Switching scenarios doesn't create a snapshot (would be too noisy — scenario switches are everyday, not version-bump events).
 
-### 7.6 Date/time ergonomics (M) — **Future**
+### 7.6 Date/time ergonomics (M) — **Partially shipped**
 
-The datetime *substrate* exists — `now()`, `datetime("…")`, `tz("…")`, `format_datetime(…)`, Temporal-backed, with `now() + 1 hour`-style arithmetic (see "Datetime — Temporal-backed" above). What's thin is the friendly *surface* a notepad calculator wants:
+The datetime *substrate* exists — `now()`, `datetime("…")`, `tz("…")`, `format_datetime(…)`, Temporal-backed, with `now() + 1 hour`-style arithmetic (see "Datetime — Temporal-backed" above). What's thin is the friendly *surface* a notepad calculator wants. The surface is bounded by ep's Numbat-compatibility rule: a non-decorator program must either run identically on upstream Numbat *or fail loudly* — it must never silently diverge. That admits *additive* divergence (new identifiers/keywords Numbat rejects with a clear error) and forbids *collision* divergence (reinterpreting syntax that is already valid Numbat). The surviving surface:
 
-- **Date literals** — writing `2026-12-25` directly, not `datetime("2026-12-25")`.
-- **Friendly durations** — `3 weeks`, `2 days`, `90 minutes` as first-class quantities in date arithmetic.
-- **`today` / `now` as bare values**, not just `now()`.
-- **Common queries** — `days until 2026-12-25`, time between two dates, `3pm + 5h`.
+- **Friendly durations** — `3 weeks`, `2 days`, `90 minutes` in date arithmetic. Pure Numbat — `weeks`/`days`/`minutes` are units. **Shipped** (the `datetime::functions` module pulls `units::time`, so these resolve).
+- **Date functions** — `date("…")`, `time("…")`, `today()`, `weekday(…)`, `format_datetime(…)`. **Shipped** — ep's host now loads `datetime::functions` (`use datetime`). `DateTime` is aliased to the Time dimension so the module typechecks (numbat-js has no distinct DateTime type yet).
+- **`today` / `now` as bare values**, not just `now()`. **Shipped** — seeded as `{time:1}` quantities in `evaluate()`, the same env-binding pattern as `above` / `_N`. `now()` the function is untouched (separate namespace).
+- **Common queries** — `days until date("2026-12-25")`, time between two dates. **Future** (Tier 2). The `until` / time-between forms need new grammar; ep sends expressions verbatim to numbat-js's parser and has no desugar layer, so this needs either an ep-side preprocessor or a numbat-js parser change (which would cost numbat-js its own Numbat-compat goal). Low priority — `date("2026-12-25") - today -> days` already expresses the same thing.
 
-Comparison point is Soulver, which is strong here. Most of this is additive — it doesn't fight the dimensional model (a datetime is already a `{time: 1}` Quantity). The one piece that needs real work is **calendar-aware arithmetic** (`now() + 1 month`, where a month is variable-length) — that wants a dedicated Datetime value type, as the Temporal section notes. The friendly-literal / friendly-duration / query surface can land without it.
+**Rejected: bare date and clock literals.** Writing `2026-12-25` or `3pm` directly is the obvious Soulver-ism, but both *collide* with valid Numbat — `2026-12-25` parses as `2026 - 12 - 25` → `1989`, and `3pm` is `3` picometres. A non-decorator program using them would silently miscompute upstream, exactly the failure mode the compatibility rule forbids. Date and time values stay spelled `date("…")` / `time("…")`, which already work and round-trip cleanly.
+
+Comparison point is Soulver, which is strong here. Most of the surviving surface is additive — it doesn't fight the dimensional model (a datetime is already a `{time: 1}` Quantity). The one piece that still needs real work is **calendar-aware arithmetic** (`now() + 1 month`, where a month is variable-length): `calendar_add` is loaded but its `span == 0` guard hits a dim mismatch, and a datetime currently displays as a raw duration (`1.78 Gs`) rather than a date. Both want a dedicated Datetime value type, as the Temporal section notes — **Future**.
 
 Considered and *rejected* from the Soulver feature set:
 - **Contextual percentages** (`50 + 20%` → 60, `20% off 50`). `20%` is the number `0.2` at runtime, indistinguishable from a bare `0.2` — so making `+`/`-` reinterpret a percent RHS needs an AST-level special case, and then `50 + 20%` ≠ `p = 20%; 50 + p`. Same literal-vs-variable inconsistency as the CSV-unit / comparison-poison cases. The everyday utility doesn't outweigh the trap.

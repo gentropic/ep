@@ -66,6 +66,26 @@ function host() {
   // exception — it sorts; fine for now, native-shadow later if needed.)
   try { _host.use('math::statistics'); }
   catch (e) { console.warn('ep: math::statistics load failed:', e && e.message || e); }
+  // datetime::functions — date() / today() / time() / weekday() /
+  // calendar_add(). The FFI already provides now() / datetime() /
+  // format_datetime() / tz() unconditionally; this layers the .nbt
+  // convenience wrappers on top, and transitively pulls units::time so
+  // friendly durations (`3 weeks`, `90 minutes`) resolve. SPEC.md §7.6.
+  // calendar_add with month/year spans is still future work — a datetime
+  // is a bare {time:1} Quantity, so calendar-aware arithmetic doesn't
+  // round-trip yet. Loading this widens the unit namespace (units::si
+  // rides along via the module's own `use`); that's an accepted Tier-1
+  // tradeoff.
+  try { _host.use('datetime::functions'); }
+  catch (e) { console.warn('ep: datetime::functions load failed:', e && e.message || e); }
+  // `format_datetime`: the vendored datetime module declares it strictly
+  // 2-arg (`format_datetime(format, input)`), but numbat-js's FFI proc
+  // accepts an optional 3rd `tz` arg. Drop the .nbt fn record so calls
+  // fall through to the 3-arg BUILTIN_PROC — the same fall-through trick
+  // used for the recursive list defs below. The other datetime FFI fns
+  // (now / datetime / tz / get_local_timezone) have matching arity, so
+  // they can stay as fn records (and autocomplete picks them up).
+  _host.fns.delete('format_datetime');
   // core::lists ships RECURSIVE definitions of range/map/filter/foldl/
   // etc. — every iteration is a JS stack frame in numbat-js's tree-
   // walker, so a 500-element list blows Safari's stack and a few-
@@ -112,6 +132,17 @@ function host() {
   for (const [name, dim] of Object.entries(DIMENSION_OF)) {
     _host.dims.defineDerived(name, dim);
   }
+
+  // `DateTime` is not a distinct type in numbat-js yet — a datetime is a
+  // bare {time:1} Quantity (see ext/numbat load.js datetime stubs). The
+  // vendored datetime module annotates its fns `-> DateTime`, so the
+  // typechecker (buildTypeEnv → evalTypeAnno) needs the name to resolve
+  // or it throws `unknown type: DateTime` and aborts evaluate(). Alias it
+  // to the Time dimension — honest given the current substrate, and it
+  // keeps date arithmetic typechecking. SPEC.md §7.6. Not added to
+  // DIMENSION_OF: that table drives ep's `: Name` annotation surface and
+  // the unit picker; DateTime is a numbat-compat alias, not an ep dim.
+  _host.dims.defineDerived('DateTime', { time: 1 });
 
   // Register the 62 vendored .nbt modules so `use units::stoney` etc.
   // resolve. Modules are registered but NOT auto-loaded — the user
@@ -733,6 +764,19 @@ export function evaluate(body) {
     if (rows.length) { rows[0].error = e.message; rows[0].kind = 'expr'; }
     return { rows, params: [], outputs: [], scope: {}, blockComplete: false, blocks: [] };
   }
+
+  // §7.6 — bare `today` / `now` as values, not just the now() function.
+  // Seeded into the host's value map so freshEnv() copies them and the
+  // end-of-evaluate scope filter (`seeded.has`) treats them as built-ins
+  // rather than user bindings. Re-stamped every evaluate() so they track
+  // wall-clock; within one evaluate() they're a single fixed instant, so
+  // every row of a computation agrees. `now()` the function is untouched
+  // — it's a BUILTIN_PROC, a namespace separate from value identifiers.
+  const h = host();
+  h.values.set('now', new Quantity(Date.now() / 1000, { time: 1 }));
+  const _midnight = new Date();
+  _midnight.setHours(0, 0, 0, 0);
+  h.values.set('today', new Quantity(_midnight.getTime() / 1000, { time: 1 }));
 
   const env = freshEnv();
   // Parallel typed env for supplementary typecheck. Errors from typecheck
