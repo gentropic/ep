@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Numbat } from '../src/api.js';
+import { setPrintSink } from '../src/load.js';
 
 // A small program: declare a struct, build a list of rows, columnarize.
 const withRows = (tail) => `
@@ -187,4 +188,28 @@ test('poison: a plain value compared to a bare number is unaffected', () => {
   const n = new Numbat();
   n.loadSource('let ok = (2 + 3) > 4');         // no disp tag anywhere
   assert.equal(n.values.get('ok'), true);
+});
+
+// ── schema() — inspect a dataset's columns ───────────────────────
+
+test('schema: prints column listing with row/column counts', () => {
+  const n = new Numbat({ prelude: 'none' });
+  let out = '';
+  setPrintSink((t) => { out = t; });
+  try {
+    n.loadSource(withRows('let _ = schema(dataset(rows))'));
+  } finally {
+    setPrintSink(null);
+  }
+  assert.match(out, /3 rows . 2 columns/);
+  assert.match(out, /grade/);
+  assert.match(out, /tonnage/);
+  // Struct-literal columns carry no unit tag → reported as `number`.
+  assert.match(out, /number/);
+});
+
+test('schema: on a non-dataset errors', () => {
+  const n = new Numbat({ prelude: 'none' });
+  assert.throws(() => n.loadSource('let _ = schema([1, 2, 3])'),
+    /expected a dataset/);
 });

@@ -91,6 +91,7 @@ export const DOCS = {
   // ── Datasets (ep extension) ───────────────────────────────────────
   load_csv: { signature: 'load_csv(name: String) -> Dataset', description: 'Load an attached CSV asset as a Dataset. Drag a .csv onto ep to attach it; the asset name is the filename without .csv.', example: 'model = load_csv("deposit")' },
   dataset:  { signature: 'dataset<R>(rows: List<R>) -> Dataset', description: 'Columnarize a list of struct records into a Dataset. Column access (d.field) is then O(1).', example: 'dataset([Row { grade: 2 }, Row { grade: 5 }])' },
+  schema:   { signature: 'schema(d: Dataset)', description: 'Print the dataset\'s columns — each with its unit or type — plus the row/column counts. Shown in an info block below the line.', example: 'schema(model)' },
 
   // ── Plots ─────────────────────────────────────────────────────────
   plot:      { signature: 'plot(xs: List<X>, ys: List<Y> [, xlabel: String, ylabel: String, title: String])', description: 'Line chart of (x, y) pairs. Trailing strings are optional axis labels and a title.', example: 'plot(xs, sin(xs), "x", "sin(x)", "Sine wave")' },
@@ -178,7 +179,7 @@ export const DOC_GROUPS = [
     'sum','mean','variance','stdev','maximum','minimum','median',
   ]},
   { label: 'Datasets (ep extension)', names: [
-    'load_csv','dataset',
+    'load_csv','dataset','schema',
   ]},
   { label: 'Plots', names: [
     'plot','scatter','bar_chart','hist',

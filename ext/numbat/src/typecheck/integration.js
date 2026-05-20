@@ -180,6 +180,7 @@ const BUILTIN_PROC_SCHEMES = {
   count:      schemeMaskReduceScalar,
   dataset:    schemeDataset,
   load_csv:   schemeLoadCsv,
+  schema:     schemePolyUnary,   // (Dataset) -> Scalar (void); prints the listing
   maximum:    schemeListReduceDim,
   minimum:    schemeListReduceDim,
   median:     schemeListReduceDim,

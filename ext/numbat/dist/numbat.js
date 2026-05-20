@@ -3219,6 +3219,7 @@ const BUILTIN_PROC_SCHEMES = {
   count:      schemeMaskReduceScalar,
   dataset:    schemeDataset,
   load_csv:   schemeLoadCsv,
+  schema:     schemePolyUnary,   // (Dataset) -> Scalar (void); prints the listing
   maximum:    schemeListReduceDim,
   minimum:    schemeListReduceDim,
   median:     schemeListReduceDim,
@@ -4125,6 +4126,30 @@ const BUILTIN_PROCS = {
     return new Quantity(0, {});
   },
   println(args) { return BUILTIN_PROCS.print(args); },
+  // schema(dataset) — print the dataset's columns, one per line, each
+  // with its unit (from the disp tag a unit-loaded column carries) or
+  // its type. Routes through the print sink, so it shows in the info
+  // block below the line like print(). Returns the void sentinel.
+  schema(args) {
+    if (args.length !== 1) throw new Error(`schema: expected 1 arg, got ${args.length}`);
+    const ds = args[0];
+    if (!ds || typeof ds !== 'object' || !ds.__dataset) {
+      throw new Error('schema: expected a dataset');
+    }
+    let widest = 0;
+    for (const name of ds.columns.keys()) widest = Math.max(widest, name.length);
+    const lines = [`${ds.length} rows × ${ds.columns.size} columns`];
+    for (const [name, col] of ds.columns) {
+      const sample = col.find(v => v !== undefined && v !== null);
+      let kind = 'empty';
+      if (typeof sample === 'string')  kind = 'String';
+      else if (typeof sample === 'boolean') kind = 'Bool';
+      else if (sample instanceof Quantity) kind = sample.disp ? sample.disp : 'number';
+      lines.push('  ' + name.padEnd(widest + 2) + kind);
+    }
+    if (typeof _printSink === 'function') _printSink(lines.join('\n'));
+    return new Quantity(0, {});
+  },
 
   // plot()/scatter()/bar()/hist(): emit a plot descriptor to the host
   // via _plotSink. Same role as print() for canvas/SVG output. Return
