@@ -163,3 +163,28 @@ test('where: fn-body where-clauses still parse (not consumed as filter)', () => 
   n.loadSource('let r = poly(10)');
   assert.equal(n.values.get('r').value, 21);
 });
+
+// ── comparison poison: unit-tagged value vs bare number ──────────
+// A value that carries a display unit (a CSV column loaded with a
+// `(unit)` header, or a `->` conversion result) must not be compared
+// against a bare number — the bare number isn't in the value's unit.
+// `->` is the easiest way to get a disp-tagged value in a test.
+
+test('poison: a disp-tagged value compared to a bare number errors', () => {
+  const n = new Numbat();
+  n.loadSource('let x = 5 cm -> mm');           // x: 50, disp 'mm'
+  assert.throws(() => n.loadSource('let bad = x > 3'), /in 'mm'/);
+});
+
+test('poison: comparing against a value WITH a unit is fine', () => {
+  const n = new Numbat();
+  n.loadSource('let x = 5 cm -> mm');
+  n.loadSource('let ok = x > 3 mm');            // 50 mm > 3 mm
+  assert.equal(n.values.get('ok'), true);
+});
+
+test('poison: a plain value compared to a bare number is unaffected', () => {
+  const n = new Numbat();
+  n.loadSource('let ok = (2 + 3) > 4');         // no disp tag anywhere
+  assert.equal(n.values.get('ok'), true);
+});

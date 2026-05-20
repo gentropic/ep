@@ -354,21 +354,18 @@ export function parseCsv(text, config, opts) {
     return 'string';  // mixed
   });
 
-  // Resolve each numeric column's header unit — but only KEEP it when
-  // it carries a real dimension. A `(g/t)` / `(%)` / `(ppm)` suffix is
-  // a dimensionless ratio: folding it in would turn a `2.5` cell into
-  // 2.5e-6, and then `grade > 1` silently matches nothing — a trap
-  // with no dim-mismatch to catch it. A dimensioned unit (`m`, `kg`,
-  // `g/cm3`) is safe AND useful to apply: the column gets a real
-  // dimension, so `depth > 100` errors loudly (length vs scalar),
-  // guiding the user to `depth > 100 m`. So: apply dimensioned units,
-  // leave dimensionless-ratio suffixes as documentation only.
+  // Resolve each numeric column's header unit. A `(unit)` suffix is
+  // folded into the cells AND recorded as the value's display tag
+  // (`disp`) — `grade (g/t)` cells become `Quantity(2.5e-6, {}, 'g/t')`.
+  // The disp tag does double duty: the formatter shows `2.5 g/t`, and
+  // it marks the column as unit-bearing so comparisons against bare
+  // numbers can be flagged (see the poison check in evalCmp).
   const colUnit = headers.map((h, ci) => {
     if (colType[ci] !== 'number' || !h.unitText || !resolveUnit) return null;
     let u;
     try { u = resolveUnit(h.unitText); } catch { return null; }
-    if (!u || !u.dim || Object.keys(u.dim).length === 0) return null;  // dimensionless → skip
-    return { mul: u.value, dim: u.dim };
+    if (!u) return null;
+    return { mul: u.value, dim: u.dim, disp: h.unitText };
   });
 
   // Build the columns.
@@ -381,11 +378,11 @@ export function parseCsv(text, config, opts) {
       const v = cellAt(dataRows[ri], ci).trim();
       if (t === 'number') {
         if (v === '') {
-          out[ri] = new Quantity(NaN, cu ? cu.dim : {});
+          out[ri] = new Quantity(NaN, cu ? cu.dim : {}, cu ? cu.disp : null);
         } else {
           const num = parseFloat(normalizeNumberCell(v, cfg.decimal));
           out[ri] = cu
-            ? new Quantity(num * cu.mul, cu.dim)
+            ? new Quantity(num * cu.mul, cu.dim, cu.disp)
             : new Quantity(num, {});
         }
       } else if (t === 'bool') {
@@ -1677,6 +1674,29 @@ function broadcastLogic(op, l, r) {
   return r.map(x => apply(l, x));
 }
 
+// The display-unit tag of a value, or null. For a list, the tag of its
+// first element — a CSV column is uniform, so the first element speaks
+// for the column.
+function dispMarkOf(v) {
+  if (v instanceof Quantity) return v.disp ?? null;
+  if (Array.isArray(v) && v.length > 0 && v[0] instanceof Quantity) {
+    return v[0].disp ?? null;
+  }
+  return null;
+}
+
+// True when the AST node is a bare number literal — `5`, `(5)`, `-5` —
+// with no unit attached. `5 g/t` is `Binary(*, Num, Ident)` and is NOT
+// bare. Used by the comparison poison below.
+function isBareNumberLiteral(node) {
+  if (!node) return false;
+  if (node.type === 'Paren') return isBareNumberLiteral(node.expr);
+  if (node.type === 'Unary' && (node.op === '-' || node.op === '+')) {
+    return isBareNumberLiteral(node.expr);
+  }
+  return node.type === 'Num';
+}
+
 // Comparison dispatch:
 //
 //   ==/!= list-vs-list  → STRUCTURAL (returns Bool). Preserved so the
@@ -1691,6 +1711,21 @@ function evalCmp(node, env) {
   const l = evalValueExpr(node.left, env);
   const r = evalValueExpr(node.right, env);
   const op = node.op;
+  // Bare-number poison: a value carrying a display unit (a CSV column
+  // loaded with a `(unit)` header, or a `->` result) compared against a
+  // bare number literal is almost always a mistake — the bare number
+  // isn't in the value's unit. `grade (g/t)` cells are ~1e-6; `grade > 1`
+  // would silently match nothing. Flag it loudly instead, naming the
+  // unit so the fix (`grade > 1 g/t`) is obvious. A unit-bearing RHS
+  // (`1 g/t`) or a variable (`cutoff`) is trusted and passes through.
+  const lDisp = dispMarkOf(l);
+  if (lDisp && isBareNumberLiteral(node.right)) {
+    throw new Error(`comparison: the left side is in '${lDisp}' — compare against a value with that unit (e.g. \`<n> ${lDisp}\`), not a bare number`);
+  }
+  const rDisp = dispMarkOf(r);
+  if (rDisp && isBareNumberLiteral(node.left)) {
+    throw new Error(`comparison: the right side is in '${rDisp}' — compare against a value with that unit (e.g. \`<n> ${rDisp}\`), not a bare number`);
+  }
   const lArr = Array.isArray(l);
   const rArr = Array.isArray(r);
   if (lArr || rArr) {
