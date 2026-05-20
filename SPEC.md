@@ -994,6 +994,21 @@ Tap a chip to swap all params to that scenario's values. The currently-active sc
 
 **Interaction with snapshots.** A snapshot captures everything including scenarios, so restoring an old snapshot brings back the scenario set as it was then. Switching scenarios doesn't create a snapshot (would be too noisy — scenario switches are everyday, not version-bump events).
 
+### 7.6 Date/time ergonomics (M) — **Future**
+
+The datetime *substrate* exists — `now()`, `datetime("…")`, `tz("…")`, `format_datetime(…)`, Temporal-backed, with `now() + 1 hour`-style arithmetic (see "Datetime — Temporal-backed" above). What's thin is the friendly *surface* a notepad calculator wants:
+
+- **Date literals** — writing `2026-12-25` directly, not `datetime("2026-12-25")`.
+- **Friendly durations** — `3 weeks`, `2 days`, `90 minutes` as first-class quantities in date arithmetic.
+- **`today` / `now` as bare values**, not just `now()`.
+- **Common queries** — `days until 2026-12-25`, time between two dates, `3pm + 5h`.
+
+Comparison point is Soulver, which is strong here. Most of this is additive — it doesn't fight the dimensional model (a datetime is already a `{time: 1}` Quantity). The one piece that needs real work is **calendar-aware arithmetic** (`now() + 1 month`, where a month is variable-length) — that wants a dedicated Datetime value type, as the Temporal section notes. The friendly-literal / friendly-duration / query surface can land without it.
+
+Considered and *rejected* from the Soulver feature set:
+- **Contextual percentages** (`50 + 20%` → 60, `20% off 50`). `20%` is the number `0.2` at runtime, indistinguishable from a bare `0.2` — so making `+`/`-` reinterpret a percent RHS needs an AST-level special case, and then `50 + 20%` ≠ `p = 20%; 50 + p`. Same literal-vs-variable inconsistency as the CSV-unit / comparison-poison cases. The everyday utility doesn't outweigh the trap.
+- **`of` as a multiply word** (`20% of 50`). Clean and unambiguous, but small enough that it's not worth a keyword; `0.2 * 50` already reads fine.
+
 ---
 
 ## 8. Roadmap out-of-scope
