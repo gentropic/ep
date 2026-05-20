@@ -119,10 +119,11 @@ test('parseCsv: header units are applied and tagged with their unit', () => {
   const ds = parseCsv('grade (g/t),depth (m)\n2.5,100', {}, { resolveUnit });
   assert.ok(Math.abs(col(ds, 'grade')[0].value - 2.5e-6) < 1e-15);
   assert.deepEqual(col(ds, 'grade')[0].dim, {});
-  assert.equal(col(ds, 'grade')[0].disp, 'g/t');
+  // disp is a pre-resolved { mul, name } object.
+  assert.equal(col(ds, 'grade')[0].disp.name, 'g/t');
   assert.equal(col(ds, 'depth')[0].value, 100);
   assert.deepEqual(col(ds, 'depth')[0].dim, { length: 1 });
-  assert.equal(col(ds, 'depth')[0].disp, 'm');
+  assert.equal(col(ds, 'depth')[0].disp.name, 'm');
 });
 
 // ── type inference ───────────────────────────────────────────────

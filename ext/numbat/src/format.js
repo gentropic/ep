@@ -11,15 +11,27 @@ export function format(q, registry, opts) {
 
 export function formatParts(q, registry, opts = {}) {
   const sig = opts.sig ?? 5;
-  if (dimEmpty(q.dim)) return { num: formatNumber(q.value, sig), unit: null };
 
-  // Explicit display unit (from -> conversion) wins over auto-scale.
+  // Explicit display unit. Two forms:
+  //   - a string unit name (set by a `->` conversion) — resolved via
+  //     the registry;
+  //   - a pre-resolved { mul, name } object (set by a unit-loaded CSV
+  //     column) — used directly, which also covers compound units like
+  //     `g/t` that registry.resolve can't look up by name.
+  // Checked BEFORE the dimensionless early-return: a dimensionless disp
+  // (g/t, ppm, %) is the only thing that makes 1.62e-6 read as
+  // "1.62 g/t".
   if (q.disp) {
+    if (typeof q.disp === 'object') {
+      return { num: formatNumber(q.value / q.disp.mul, sig), unit: q.disp.name };
+    }
     const u = registry.resolve(q.disp);
     if (u && dimEq(u.dim, q.dim)) {
       return { num: formatNumber(q.value / u.mul, sig), unit: u.displayName };
     }
   }
+
+  if (dimEmpty(q.dim)) return { num: formatNumber(q.value, sig), unit: null };
 
   const cands = registry.list(q.dim);
   if (!cands.length) return { num: formatNumber(q.value, sig), unit: `[${dimFormat(q.dim)}]` };

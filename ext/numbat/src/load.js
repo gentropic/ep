@@ -365,7 +365,10 @@ export function parseCsv(text, config, opts) {
     let u;
     try { u = resolveUnit(h.unitText); } catch { return null; }
     if (!u) return null;
-    return { mul: u.value, dim: u.dim, disp: h.unitText };
+    // disp is a pre-resolved { mul, name } object — the formatter can
+    // then display the column in its unit even when the unit is
+    // compound (`g/t`, `g/cm3`), which a name lookup can't resolve.
+    return { mul: u.value, dim: u.dim, disp: { mul: u.value, name: h.unitText } };
   });
 
   // Build the columns.
@@ -459,7 +462,10 @@ const BUILTIN_PROCS = {
       let kind = 'empty';
       if (typeof sample === 'string')  kind = 'String';
       else if (typeof sample === 'boolean') kind = 'Bool';
-      else if (sample instanceof Quantity) kind = sample.disp ? sample.disp : 'number';
+      else if (sample instanceof Quantity) {
+        const d = sample.disp;
+        kind = d ? (typeof d === 'object' ? d.name : d) : 'number';
+      }
       lines.push('  ' + name.padEnd(widest + 2) + kind);
     }
     if (typeof _printSink === 'function') _printSink(lines.join('\n'));
@@ -1748,11 +1754,13 @@ function broadcastLogic(op, l, r) {
 // first element — a CSV column is uniform, so the first element speaks
 // for the column.
 function dispMarkOf(v) {
-  if (v instanceof Quantity) return v.disp ?? null;
-  if (Array.isArray(v) && v.length > 0 && v[0] instanceof Quantity) {
-    return v[0].disp ?? null;
-  }
-  return null;
+  let d = null;
+  if (v instanceof Quantity) d = v.disp;
+  else if (Array.isArray(v) && v.length > 0 && v[0] instanceof Quantity) d = v[0].disp;
+  if (d == null) return null;
+  // disp may be a string (-> conversion) or a { mul, name } object
+  // (unit-loaded CSV column) — return the unit name either way.
+  return typeof d === 'object' ? d.name : d;
 }
 
 // True when the AST node is a bare number literal — `5`, `(5)`, `-5` —
