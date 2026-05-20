@@ -94,7 +94,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'n')                { e.preventDefault(); newProgram(); closeDrawer(); return; }
   if (k === 'o')                { e.preventDefault(); document.getElementById('fileInput').click(); return; }
-  if (k === 's')                { e.preventDefault(); saveCurrentProgram(); return; }
+  if (k === 's')                { e.preventDefault(); saveCurrentProgram({force: true}); return; }
   if (k === 'e')                { e.preventDefault(); document.getElementById('exportBtn').click(); return; }
   if (k === 'p' || k === 'k')   { e.preventDefault(); openDrawer({focusSearch: true}); return; }
 });

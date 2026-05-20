@@ -12819,7 +12819,7 @@ function applyEphemeralUI() {
 }
 
 if (saveEphemeralBtn) {
-  saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram());
+  saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram({force: true}));
 }
 
 // render.js fires ep:params-changed after any chip / body edit. We listen
@@ -18949,7 +18949,7 @@ if (resetBtn) {
 // In dev (when loading via dev.html with no build step), the placeholder
 // survives and the runtime check below collapses it to 'dev'.
 
-const _EP_VERSION_RAW = "2026-05-20 (053f433+dirty)";
+const _EP_VERSION_RAW = "2026-05-20 (6eac8a7+dirty)";
 const EP_VERSION = _EP_VERSION_RAW.includes('__EP_VERSION__') ? 'dev' : _EP_VERSION_RAW;
 
 const INSTALLED_AT_KEY = 'ep:installedAt';
@@ -19496,7 +19496,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'n')                { e.preventDefault(); newProgram(); closeDrawer(); return; }
   if (k === 'o')                { e.preventDefault(); document.getElementById('fileInput').click(); return; }
-  if (k === 's')                { e.preventDefault(); saveCurrentProgram(); return; }
+  if (k === 's')                { e.preventDefault(); saveCurrentProgram({force: true}); return; }
   if (k === 'e')                { e.preventDefault(); document.getElementById('exportBtn').click(); return; }
   if (k === 'p' || k === 'k')   { e.preventDefault(); openDrawer({focusSearch: true}); return; }
 });

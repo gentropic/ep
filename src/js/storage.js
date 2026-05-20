@@ -49,7 +49,7 @@ export function applyEphemeralUI() {
 }
 
 if (saveEphemeralBtn) {
-  saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram());
+  saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram({force: true}));
 }
 
 // render.js fires ep:params-changed after any chip / body edit. We listen
