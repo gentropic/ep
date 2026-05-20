@@ -91,3 +91,75 @@ test('dataset: a row missing a field is rejected', () => {
     let d = dataset([A { x: 1, y: 2 }, B { x: 3 }])
   `), /row 1 is missing field 'y'/);
 });
+
+// ── the `where` clause (datasets Phase 1.5) ──────────────────────
+
+test('where: filters a dataset, predicate scoped to its columns', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(withRows(`
+    let d = dataset(rows)
+    let big = d where grade > 4
+  `));
+  const big = n.values.get('big');
+  assert.equal(big.__dataset, true);
+  assert.equal(big.length, 2);                       // grades 5 and 8
+  assert.deepEqual(big.columns.get('grade').map(q => q.value), [5, 8]);
+  assert.deepEqual(big.columns.get('tonnage').map(q => q.value), [40, 25]);
+});
+
+test('where: predicate can reference outer-scope bindings', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(withRows(`
+    let cutoff = 4
+    let d = dataset(rows)
+    let big = d where grade > cutoff
+  `));
+  assert.equal(n.values.get('big').length, 2);
+});
+
+test('where: project a column after filtering', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(withRows(`
+    let d = dataset(rows)
+    let tons = (d where grade > 4).tonnage
+  `));
+  assert.deepEqual(n.values.get('tons').map(q => q.value), [40, 25]);
+});
+
+test('where: combined predicate with &&', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(withRows(`
+    let d = dataset(rows)
+    let mid = d where (grade > 3) && (tonnage > 30)
+  `));
+  // grade>3: rows 5/40 and 8/25. tonnage>30: only 5/40.
+  assert.equal(n.values.get('mid').length, 1);
+  assert.equal(n.values.get('mid').columns.get('grade')[0].value, 5);
+});
+
+test('where: on a plain list, the predicate is the mask', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource('let xs = [1, 5, 10, 15]');
+  n.loadSource('let big = xs where xs > 5');
+  assert.deepEqual(n.values.get('big').map(q => q.value), [10, 15]);
+});
+
+test('where: an unknown column in the predicate errors', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource(withRows('let d = dataset(rows)'));
+  assert.throws(() => n.loadSource('let bad = d where depth > 1'),
+    /unknown identifier: depth/);
+});
+
+test('where: on a non-collection errors', () => {
+  const n = new Numbat({ prelude: 'none' });
+  assert.throws(() => n.loadSource('let bad = 5 where true'),
+    /left side must be a dataset or a list/);
+});
+
+test('where: fn-body where-clauses still parse (not consumed as filter)', () => {
+  const n = new Numbat({ prelude: 'none' });
+  n.loadSource('fn poly(x: Scalar) -> Scalar = a * x + b where a = 2 and b = 1');
+  n.loadSource('let r = poly(10)');
+  assert.equal(n.values.get('r').value, 21);
+});

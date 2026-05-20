@@ -988,7 +988,35 @@ function parse(tokens, sourceName = '<input>') {
       const body = parseExpr();
       return { type: 'Lambda', params: [{ name: paramTok.name }], body, span: paramTok.span };
     }
-    return parsePipe();
+    return parseWhere();
+  }
+
+  // Filter `where` (ep dataset extension): `<expr> where <bool-expr>`.
+  // Postfix, lowest-precedence — the predicate to its right runs all the
+  // way down through comparison/logical operators. Distinct from
+  // Numbat's fn-body `where name = expr` clauses, which parseFn handles;
+  // the two are disambiguated by isFnBodyWhereAhead (a `=` or `:` right
+  // after the first identifier marks the fn-body form). When that's
+  // detected, parseWhere leaves the `where` token for parseFn.
+  function parseWhere() {
+    let l = parsePipe();
+    while (atKw('where') && !isFnBodyWhereAhead()) {
+      eat();  // 'where'
+      const pred = parsePipe();
+      l = { type: 'Where', source: l, pred, span: combineSpans(spanOfN(l), spanOfN(pred)) };
+    }
+    return l;
+  }
+
+  // True when the `where` at the cursor begins a fn-body where-clause
+  // (`where name = expr` / `where name: Type = expr`) rather than a
+  // filter predicate. p points at the `where` token.
+  function isFnBodyWhereAhead() {
+    const t1 = peek(1);
+    if (!t1 || t1.type !== 'id') return false;
+    const t2 = peek(2);
+    if (!t2 || t2.type !== 'op') return false;
+    return t2.op === '=' || t2.op === ':';
   }
 
   // Lookahead helper: from a `(` position, scan forward tracking paren
@@ -1971,7 +1999,7 @@ function isExprNode(n) {
   switch (n.type) {
     case 'Num': case 'Bool': case 'Str': case 'Ident': case 'Paren':
     case 'Unary': case 'Binary': case 'Call': case 'If': case 'List':
-    case 'Field': case 'StructInit': case 'Factorial':
+    case 'Field': case 'StructInit': case 'Factorial': case 'Where':
       return true;
     default: return false;
   }
@@ -2191,6 +2219,12 @@ function inferExpr(node, env, ctx) {
     case 'StructInit':return inferStructInit(node, env, ctx);
     case 'Factorial': return inferFactorial(node, env, ctx);
     case 'Lambda':    return inferLambda(node, env, ctx);
+    // Filter `where` (ep dataset extension): the result has the same
+    // type as the source (filtering preserves element type). The
+    // predicate is left unchecked — for a Dataset source it references
+    // columns whose schema is runtime-only, so any inference there is
+    // noise the runtime-success policy would drop anyway.
+    case 'Where':     return inferExpr(node.source, env, ctx);
     default:
       throw withSpan(new Error(`inferExpr: unsupported node type ${node.type}`), node.span);
   }
@@ -3823,6 +3857,36 @@ function datasetFromRows(rows) {
   return Object.freeze({ __dataset: true, columns, length: rows.length });
 }
 
+// Keep the elements of `xs` where the same-index entry of `mask` is
+// true. mask must be a List<Bool> the same length as xs. Shared by the
+// `where` clause and filter()'s mask form.
+function maskFilter(xs, mask) {
+  if (!Array.isArray(mask)) throw new Error('mask filter: predicate must produce a Bool mask');
+  if (mask.length !== xs.length) {
+    throw new Error(`mask filter: mask length ${mask.length} doesn't match list length ${xs.length}`);
+  }
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    if (mask[i] === true) out.push(xs[i]);
+    else if (mask[i] !== false) throw new Error('mask filter: mask elements must be Bool');
+  }
+  return out;
+}
+
+// Filter every column of a Dataset by a row mask, producing a new
+// Dataset with only the matching rows.
+function datasetFilter(ds, mask) {
+  if (!Array.isArray(mask)) throw new Error('where: predicate must produce a Bool mask');
+  if (mask.length !== ds.length) {
+    throw new Error(`where: predicate mask length ${mask.length} doesn't match dataset length ${ds.length}`);
+  }
+  const columns = new Map();
+  for (const [name, col] of ds.columns) columns.set(name, maskFilter(col, mask));
+  let length = 0;
+  for (const b of mask) if (b === true) length++;
+  return Object.freeze({ __dataset: true, columns, length });
+}
+
 // ── CSV parsing (SPEC-DATASETS Phase 1.3) ────────────────────────
 //
 // A small RFC-4180-ish parser: text → Dataset. Parsing is configured
@@ -4139,19 +4203,7 @@ const BUILTIN_PROCS = {
     // Mask form: first arg is a List<Bool> the same length as xs. Keeps
     // xs[i] where mask[i] is true. Natural pair with the comparison-
     // broadcasting we added: `filter(xs > 5, xs)` works.
-    if (Array.isArray(p)) {
-      if (p.length !== xs.length) {
-        throw new Error(`filter: mask length ${p.length} doesn't match list length ${xs.length}`);
-      }
-      const out = [];
-      for (let i = 0; i < xs.length; i++) {
-        if (p[i] === true) out.push(xs[i]);
-        else if (p[i] !== false) {
-          throw new Error('filter: mask elements must be Bool');
-        }
-      }
-      return out;
-    }
+    if (Array.isArray(p)) return maskFilter(xs, p);
     if (typeof p !== 'function') throw new Error('filter: first arg must be a predicate function or Bool mask');
     return xs.filter(x => p(x) === true);
   },
@@ -5020,6 +5072,34 @@ function evalValueExpr(node, env) {
       throw new Error(`field '${node.name}' not in struct ${o.__struct ?? '(unknown)'}`);
     }
     return o[node.name];
+  }
+  // Filter `where` (ep dataset extension): `<source> where <pred>`.
+  //   - source is a Dataset → the predicate is evaluated with the
+  //     dataset's columns bound as variables (columns-first scope), so
+  //     `model where grade > cutoff` reads `grade` as model.grade and
+  //     `cutoff` from the outer scope. Result: a row-filtered Dataset.
+  //   - source is a List → the predicate is evaluated in the normal
+  //     scope and must itself produce the Bool mask
+  //     (`xs where xs > 5`). Result: a filtered List.
+  // Either way the predicate must yield a List<Bool> matching the
+  // source's length. Eager: the filtered value is materialized now.
+  if (node.type === 'Where') {
+    const source = evalValueExpr(node.source, env);
+    if (source !== null && typeof source === 'object' && source.__dataset) {
+      // Columns-first child scope: an env whose lookupValue resolves the
+      // dataset's columns before delegating to the outer scope. So
+      // `model where grade > cutoff` reads `grade` as the grade column
+      // and `cutoff` from the surrounding program.
+      const childEnv = { ...env };
+      childEnv.lookupValue = (name) =>
+        source.columns.has(name) ? source.columns.get(name) : env.lookupValue(name);
+      const mask = evalValueExpr(node.pred, childEnv);
+      return datasetFilter(source, mask);
+    }
+    if (Array.isArray(source)) {
+      return maskFilter(source, evalValueExpr(node.pred, env));
+    }
+    throw new Error('where: left side must be a dataset or a list');
   }
   if (node.type === 'Unary' && node.op === '!') {
     const v = evalValueExpr(node.expr, env);

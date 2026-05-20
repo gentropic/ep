@@ -173,6 +173,36 @@ function datasetFromRows(rows) {
   return Object.freeze({ __dataset: true, columns, length: rows.length });
 }
 
+// Keep the elements of `xs` where the same-index entry of `mask` is
+// true. mask must be a List<Bool> the same length as xs. Shared by the
+// `where` clause and filter()'s mask form.
+function maskFilter(xs, mask) {
+  if (!Array.isArray(mask)) throw new Error('mask filter: predicate must produce a Bool mask');
+  if (mask.length !== xs.length) {
+    throw new Error(`mask filter: mask length ${mask.length} doesn't match list length ${xs.length}`);
+  }
+  const out = [];
+  for (let i = 0; i < xs.length; i++) {
+    if (mask[i] === true) out.push(xs[i]);
+    else if (mask[i] !== false) throw new Error('mask filter: mask elements must be Bool');
+  }
+  return out;
+}
+
+// Filter every column of a Dataset by a row mask, producing a new
+// Dataset with only the matching rows.
+function datasetFilter(ds, mask) {
+  if (!Array.isArray(mask)) throw new Error('where: predicate must produce a Bool mask');
+  if (mask.length !== ds.length) {
+    throw new Error(`where: predicate mask length ${mask.length} doesn't match dataset length ${ds.length}`);
+  }
+  const columns = new Map();
+  for (const [name, col] of ds.columns) columns.set(name, maskFilter(col, mask));
+  let length = 0;
+  for (const b of mask) if (b === true) length++;
+  return Object.freeze({ __dataset: true, columns, length });
+}
+
 // ── CSV parsing (SPEC-DATASETS Phase 1.3) ────────────────────────
 //
 // A small RFC-4180-ish parser: text → Dataset. Parsing is configured
@@ -489,19 +519,7 @@ const BUILTIN_PROCS = {
     // Mask form: first arg is a List<Bool> the same length as xs. Keeps
     // xs[i] where mask[i] is true. Natural pair with the comparison-
     // broadcasting we added: `filter(xs > 5, xs)` works.
-    if (Array.isArray(p)) {
-      if (p.length !== xs.length) {
-        throw new Error(`filter: mask length ${p.length} doesn't match list length ${xs.length}`);
-      }
-      const out = [];
-      for (let i = 0; i < xs.length; i++) {
-        if (p[i] === true) out.push(xs[i]);
-        else if (p[i] !== false) {
-          throw new Error('filter: mask elements must be Bool');
-        }
-      }
-      return out;
-    }
+    if (Array.isArray(p)) return maskFilter(xs, p);
     if (typeof p !== 'function') throw new Error('filter: first arg must be a predicate function or Bool mask');
     return xs.filter(x => p(x) === true);
   },
@@ -1370,6 +1388,34 @@ export function evalValueExpr(node, env) {
       throw new Error(`field '${node.name}' not in struct ${o.__struct ?? '(unknown)'}`);
     }
     return o[node.name];
+  }
+  // Filter `where` (ep dataset extension): `<source> where <pred>`.
+  //   - source is a Dataset → the predicate is evaluated with the
+  //     dataset's columns bound as variables (columns-first scope), so
+  //     `model where grade > cutoff` reads `grade` as model.grade and
+  //     `cutoff` from the outer scope. Result: a row-filtered Dataset.
+  //   - source is a List → the predicate is evaluated in the normal
+  //     scope and must itself produce the Bool mask
+  //     (`xs where xs > 5`). Result: a filtered List.
+  // Either way the predicate must yield a List<Bool> matching the
+  // source's length. Eager: the filtered value is materialized now.
+  if (node.type === 'Where') {
+    const source = evalValueExpr(node.source, env);
+    if (source !== null && typeof source === 'object' && source.__dataset) {
+      // Columns-first child scope: an env whose lookupValue resolves the
+      // dataset's columns before delegating to the outer scope. So
+      // `model where grade > cutoff` reads `grade` as the grade column
+      // and `cutoff` from the surrounding program.
+      const childEnv = { ...env };
+      childEnv.lookupValue = (name) =>
+        source.columns.has(name) ? source.columns.get(name) : env.lookupValue(name);
+      const mask = evalValueExpr(node.pred, childEnv);
+      return datasetFilter(source, mask);
+    }
+    if (Array.isArray(source)) {
+      return maskFilter(source, evalValueExpr(node.pred, env));
+    }
+    throw new Error('where: left side must be a dataset or a list');
   }
   if (node.type === 'Unary' && node.op === '!') {
     const v = evalValueExpr(node.expr, env);

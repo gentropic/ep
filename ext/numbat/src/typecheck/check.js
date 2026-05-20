@@ -290,7 +290,7 @@ function isExprNode(n) {
   switch (n.type) {
     case 'Num': case 'Bool': case 'Str': case 'Ident': case 'Paren':
     case 'Unary': case 'Binary': case 'Call': case 'If': case 'List':
-    case 'Field': case 'StructInit': case 'Factorial':
+    case 'Field': case 'StructInit': case 'Factorial': case 'Where':
       return true;
     default: return false;
   }
@@ -510,6 +510,12 @@ export function inferExpr(node, env, ctx) {
     case 'StructInit':return inferStructInit(node, env, ctx);
     case 'Factorial': return inferFactorial(node, env, ctx);
     case 'Lambda':    return inferLambda(node, env, ctx);
+    // Filter `where` (ep dataset extension): the result has the same
+    // type as the source (filtering preserves element type). The
+    // predicate is left unchecked — for a Dataset source it references
+    // columns whose schema is runtime-only, so any inference there is
+    // noise the runtime-success policy would drop anyway.
+    case 'Where':     return inferExpr(node.source, env, ctx);
     default:
       throw withSpan(new Error(`inferExpr: unsupported node type ${node.type}`), node.span);
   }

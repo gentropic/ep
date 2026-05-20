@@ -76,8 +76,21 @@ export const DOCS = {
   tail:     { signature: 'tail<A>(xs: List<A>) -> List<A>', description: 'All but the first element.', example: 'tail([10, 20, 30]) = [20, 30]' },
   cons:     { signature: 'cons<A>(x: A, xs: List<A>) -> List<A>', description: 'Prepend x to xs.', example: 'cons(0, [1, 2, 3]) = [0, 1, 2, 3]' },
   cons_end: { signature: 'cons_end<A>(x: A, xs: List<A>) -> List<A>', description: 'Append x to xs.', example: 'cons_end(4, [1, 2, 3]) = [1, 2, 3, 4]' },
-  len:      { signature: 'len<A>(xs: List<A>) -> Scalar', description: 'Number of elements.', example: 'len([1, 2, 3, 4]) = 4' },
+  len:      { signature: 'len<A>(xs: List<A> | Dataset) -> Scalar', description: 'Number of elements in a list, or rows in a dataset.', example: 'len([1, 2, 3, 4]) = 4' },
   is_empty: { signature: 'is_empty<A>(xs: List<A>) -> Bool', description: 'True if the list has zero elements.', example: 'is_empty([]) = true' },
+
+  // ── List reductions ───────────────────────────────────────────────
+  sum:     { signature: 'sum<D>(xs: List<D>) -> D', description: 'Sum of a list of quantities. All elements share the dim.', example: 'sum([10 kg, 5 kg, 2 kg]) = 17 kg' },
+  mean:    { signature: 'mean<D>(xs: List<D>) -> D', description: 'Arithmetic mean. Empty list → 0.', example: 'mean([2, 4, 9]) = 5' },
+  variance:{ signature: 'variance<D>(xs: List<D>) -> D^2', description: 'Population variance.' },
+  stdev:   { signature: 'stdev<D>(xs: List<D>) -> D', description: 'Population standard deviation. sqrt(variance).', example: 'stdev([2, 4, 9])' },
+  maximum: { signature: 'maximum<D>(xs: List<D>) -> D', description: 'Largest element. Errors on an empty list.', example: 'maximum([3, 9, 1]) = 9' },
+  minimum: { signature: 'minimum<D>(xs: List<D>) -> D', description: 'Smallest element. Errors on an empty list.', example: 'minimum([3, 9, 1]) = 1' },
+  median:  { signature: 'median<D>(xs: List<D>) -> D', description: 'Middle value (averages the middle pair for even length).', example: 'median([5, 1, 3]) = 3' },
+
+  // ── Datasets (ep extension) ───────────────────────────────────────
+  load_csv: { signature: 'load_csv(name: String) -> Dataset', description: 'Load an attached CSV asset as a Dataset. Drag a .csv onto ep to attach it; the asset name is the filename without .csv.', example: 'model = load_csv("deposit")' },
+  dataset:  { signature: 'dataset<R>(rows: List<R>) -> Dataset', description: 'Columnarize a list of struct records into a Dataset. Column access (d.field) is then O(1).', example: 'dataset([Row { grade: 2 }, Row { grade: 5 }])' },
 
   // ── Plots ─────────────────────────────────────────────────────────
   plot:      { signature: 'plot(xs: List<X>, ys: List<Y> [, xlabel: String, ylabel: String, title: String])', description: 'Line chart of (x, y) pairs. Trailing strings are optional axis labels and a title.', example: 'plot(xs, sin(xs), "x", "sin(x)", "Sine wave")' },
@@ -127,7 +140,7 @@ export const DOCS = {
   let:  { signature: 'let name [: Type] = expr', description: 'Bind a name to a value. The `let` keyword is optional in ep.' },
   fn:   { signature: 'fn name(params) [-> ReturnType] = body', description: 'Define a function. Parameters and return type can be annotated.' },
   if:   { signature: 'if cond then a else b', description: 'Conditional expression. Both branches must produce the same type.' },
-  where: { signature: 'fn ... = body where helper = expr', description: 'Local helper bindings within a function body.' },
+  where: { signature: 'collection where <bool-expr>   ·   fn ... = body where helper = expr', description: 'Two forms. Filter (ep extension): `dataset where grade > cutoff` keeps matching rows — the predicate sees the dataset\'s columns. On a plain list, `xs where xs > 5` filters by the mask. Fn-body form: local helper bindings within a function body.', example: 'ore = model where grade > 1 g/t' },
   to:   { signature: 'expr to UnitName', description: 'Convert to a different unit (same dim). Alias for `->`.' },
   per:  { signature: 'A per B', description: 'Unit division. `meters per second` is `m/s`.' },
   dimension: { signature: 'dimension Name = expr', description: 'Declare a derived dimension. Rarely needed — ep ships the common ones.' },
@@ -160,6 +173,12 @@ export const DOC_GROUPS = [
   ]},
   { label: 'List primitives', names: [
     'head','tail','cons','cons_end','len','is_empty',
+  ]},
+  { label: 'List reductions', names: [
+    'sum','mean','variance','stdev','maximum','minimum','median',
+  ]},
+  { label: 'Datasets (ep extension)', names: [
+    'load_csv','dataset',
   ]},
   { label: 'Plots', names: [
     'plot','scatter','bar_chart','hist',

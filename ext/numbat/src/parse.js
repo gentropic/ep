@@ -397,7 +397,35 @@ export function parse(tokens, sourceName = '<input>') {
       const body = parseExpr();
       return { type: 'Lambda', params: [{ name: paramTok.name }], body, span: paramTok.span };
     }
-    return parsePipe();
+    return parseWhere();
+  }
+
+  // Filter `where` (ep dataset extension): `<expr> where <bool-expr>`.
+  // Postfix, lowest-precedence — the predicate to its right runs all the
+  // way down through comparison/logical operators. Distinct from
+  // Numbat's fn-body `where name = expr` clauses, which parseFn handles;
+  // the two are disambiguated by isFnBodyWhereAhead (a `=` or `:` right
+  // after the first identifier marks the fn-body form). When that's
+  // detected, parseWhere leaves the `where` token for parseFn.
+  function parseWhere() {
+    let l = parsePipe();
+    while (atKw('where') && !isFnBodyWhereAhead()) {
+      eat();  // 'where'
+      const pred = parsePipe();
+      l = { type: 'Where', source: l, pred, span: combineSpans(spanOfN(l), spanOfN(pred)) };
+    }
+    return l;
+  }
+
+  // True when the `where` at the cursor begins a fn-body where-clause
+  // (`where name = expr` / `where name: Type = expr`) rather than a
+  // filter predicate. p points at the `where` token.
+  function isFnBodyWhereAhead() {
+    const t1 = peek(1);
+    if (!t1 || t1.type !== 'id') return false;
+    const t2 = peek(2);
+    if (!t2 || t2.type !== 'op') return false;
+    return t2.op === '=' || t2.op === ':';
   }
 
   // Lookahead helper: from a `(` position, scan forward tracking paren
