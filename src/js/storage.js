@@ -146,6 +146,7 @@ export function writeDraft() {
         collapsedBlocks: state.ui.collapsedBlocks || [],
         gutterUnits:     state.ui.gutterUnits     || {},
       },
+      assets: state.assets || {},
       ts: Date.now(),
     }));
   } catch (e) { console.warn('localStorage write (draft) failed:', e); }
@@ -371,6 +372,7 @@ export function saveCurrentProgram(opts = {}) {
     scenarios: state.ui.scenarios || {},
     activeScenario: state.ui.activeScenario || null,
     gutterUnits: state.ui.gutterUnits || {},
+    assets: state.assets || {},
   };
   writeStore(store);
   // Keep ep:current in sync — covers the case where an ephemeral example
@@ -403,6 +405,7 @@ export function loadProgramByName(name) {
   state.ui.scenarios       = prog.scenarios || {};
   state.ui.activeScenario  = prog.activeScenario || null;
   state.ui.gutterUnits     = prog.gutterUnits || {};
+  state.assets             = prog.assets || {};
   state._ephemeral         = false;
   setCurrentProgramName(name);
   evaluateAll();
@@ -443,6 +446,7 @@ export function newProgram() {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
+  state.assets             = {};       // a fresh program carries no data assets
   state._ephemeral         = true;     // ephemeral until first explicit save
   setCurrentProgramName(name, false);
   evaluateAll();
@@ -491,6 +495,7 @@ export function bootProgramFromStorage() {
       state.ui.collapsedBlocks = draft.ui.collapsedBlocks || [];
       state.ui.gutterUnits     = draft.ui.gutterUnits     || {};
     }
+    state.assets     = draft.assets || {};
     state._ephemeral = true;
     setCurrentProgramName(draft.name || 'untitled', false);
     return true;
@@ -506,6 +511,7 @@ export function bootProgramFromStorage() {
     state.ui.scenarios       = prog.scenarios || {};
     state.ui.activeScenario  = prog.activeScenario || null;
     state.ui.gutterUnits     = prog.gutterUnits || {};
+    state.assets             = prog.assets || {};
     state._ephemeral         = false;
     setCurrentProgramName(stored, false);
     maybeAutoSnapshot(stored);

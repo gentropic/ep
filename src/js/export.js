@@ -65,6 +65,10 @@ dlHtmlBtn.addEventListener('click', () => {
       scenarios:        state.ui.scenarios       || {},
       activeScenario:   state.ui.activeScenario  || null,
     },
+    // Embedded CSV assets ride along so a load_csv() program is
+    // self-contained in the exported form. (File-referenced assets,
+    // when those land, won't travel — only embedded ones.)
+    assets: state.assets || {},
   };
   const stateJs = 'const INITIAL_STATE = ' + JSON.stringify(newState, null, 2) + ';';
   const newHtml = VIEWER_HTML.replace(

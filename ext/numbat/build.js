@@ -54,7 +54,7 @@ const PUBLIC_API = [
   // formatter so `"speed: {v}"` renders as "speed: 60 mph" instead of
   // "speed: <canonical-value> [?]". setPrintSink does the same for
   // `print` — useful for tests that capture output.
-  'setQuantityFormatter', 'setPrintSink', 'setPlotSink',
+  'setQuantityFormatter', 'setPrintSink', 'setPlotSink', 'setCsvResolver',
   // formatParts is exposed so the unit-picker logic in ep can be
   // reused inside the interpolation hook.
   'formatParts',

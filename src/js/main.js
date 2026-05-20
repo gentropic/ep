@@ -15,6 +15,7 @@ import './export.js';
 import './io.js';
 import './dialogs.js';
 import './ctxmenu.js';
+import './csv-assets.js';
 import { applySettings } from './settings.js';
 import { formatCurrentProgram } from './format-cmd.js';
 import './gcu-announce.js';

@@ -551,6 +551,24 @@ const BUILTIN_PROCS = {
     if (args.length !== 1) throw new Error(`dataset: expected 1 arg, got ${args.length}`);
     return datasetFromRows(args[0]);
   },
+  // load_csv(name) — resolve a named CSV asset to a Dataset. numbat-js
+  // owns no files; the host (ep) registers a resolver via setCsvResolver
+  // that maps the name to a parsed Dataset (and owns asset storage +
+  // parse config + caching). Outside a host that registered one, this
+  // fails cleanly.
+  load_csv(args) {
+    if (args.length !== 1) throw new Error(`load_csv: expected 1 arg (asset name), got ${args.length}`);
+    const name = args[0];
+    if (typeof name !== 'string') throw new Error('load_csv: asset name must be a string');
+    if (typeof _csvResolver !== 'function') {
+      throw new Error(`load_csv: no CSV asset '${name}' (attach a file first)`);
+    }
+    const ds = _csvResolver(name);
+    if (!ds || ds.__dataset !== true) {
+      throw new Error(`load_csv: no CSV asset '${name}' (attach a file first)`);
+    }
+    return ds;
+  },
   foldl(args) {
     const [f, acc0, xs] = args;
     if (typeof f !== 'function') throw new Error('foldl: first arg must be a function');
@@ -1088,6 +1106,15 @@ export function setPrintSink(fn) { _printSink = fn; }
 // Defaults to no-op; hosts that don't render plots simply drop them.
 let _plotSink = null;
 export function setPlotSink(fn) { _plotSink = fn; }
+
+// CSV asset resolver — the host (ep) supplies a function that maps an
+// asset name to `{ text, config? }` (or null when no such asset). The
+// `load_csv(name)` builtin calls it, then parses the text into a
+// Dataset. numbat-js itself has no notion of files / storage; the host
+// owns the asset table. Defaults to a resolver that always reports
+// "no asset", so load_csv fails gracefully outside ep.
+let _csvResolver = null;
+export function setCsvResolver(fn) { _csvResolver = fn; }
 
 // Extract canonical numbers and unit string from a List<Quantity> arg.
 // numbat-js represents Lists as plain JS arrays whose entries are

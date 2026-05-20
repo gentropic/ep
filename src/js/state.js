@@ -16,6 +16,14 @@ state.ui.scenarios       = state.ui.scenarios || {};        // { scenarioName: {
 state.ui.activeScenario  = state.ui.activeScenario || null; // last-applied scenario name, or null
 state.ui.gutterUnits     = state.ui.gutterUnits || {};      // { bindingName: unitName } — per-binding gutter display override (click the gutter to set)
 
+// state.assets: attached CSV (and future) data assets, keyed by name.
+// Each entry is { text, config } — the raw file text plus its parsed
+// parseConfig. Embedded assets: the text rides along in the program
+// record and travels with .ep / .html exports. load_csv("name")
+// resolves against this map (see render.js / io.js wiring). Lives at
+// the top level (not under ui) since it's program data, not UI state.
+state.assets = state.assets || {};
+
 // state._ephemeral: when true, autosave is disabled and the program isn't
 // persisted to localStorage until the user explicitly saves (Cmd+S or the
 // header save button). Set by example loads and "+ new program"; cleared by

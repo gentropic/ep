@@ -216,6 +216,7 @@ export function loadExample(example) {
   state.ui.collapsedBlocks = [];
   state.ui.scenarios       = {};
   state.ui.activeScenario  = null;
+  state.assets             = {};
   state._ephemeral         = true;
   // Pick a non-colliding slot for when the user eventually commits, but
   // don't persist ep:current — the example is ephemeral until then.

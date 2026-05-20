@@ -179,6 +179,7 @@ const BUILTIN_PROC_SCHEMES = {
   all:        schemeMaskReduceBool,
   count:      schemeMaskReduceScalar,
   dataset:    schemeDataset,
+  load_csv:   schemeLoadCsv,
   random_list: schemeRandomList,
   zeros:    schemeZerosOnes,
   ones:     schemeZerosOnes,
@@ -201,6 +202,13 @@ function schemeDataset() {
   // "drop tc errors when runtime succeeds" policy covers it.
   const a = freshTVar();
   return generalize(tFn([tList(a)], tList(a)), [a], []);
+}
+function schemeLoadCsv() {
+  // <A>(String) -> List<A> — loose. The Dataset's columns/schema are
+  // runtime-only (the file is read at eval), so the result is typed as
+  // an opaque list of rows; column access falls to the runtime.
+  const a = freshTVar();
+  return generalize(tFn([tString()], tList(a)), [a], []);
 }
 
 function schemeRandomList() {

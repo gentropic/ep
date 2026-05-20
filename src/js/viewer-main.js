@@ -7,6 +7,7 @@
 import { evaluateAll } from './state.js';
 import { renderChips, renderResults } from './render.js';
 import { encodeInlineI } from './pointer.js';
+import './csv-assets.js';   // registers the load_csv resolver for embedded assets
 
 import { state } from './state.js';
 
