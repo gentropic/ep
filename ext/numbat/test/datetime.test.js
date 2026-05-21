@@ -18,6 +18,15 @@ const { Numbat } = await import('../src/api.js');
 
 const dur = (secs) => new Quantity(secs, { time: 1 });
 
+// A host with the datetime module loaded (calendar_add, has_unit, etc.).
+function mkHost() {
+  const n = new Numbat({ prelude: 'v0.1' });
+  n.registerAllVendoredModules();
+  n.use('core::strings');
+  n.use('datetime::functions');
+  return n;
+}
+
 // ── the DateTime class ────────────────────────────────────────────
 
 test('DateTime: is-a Quantity with the time dimension', () => {
@@ -133,4 +142,72 @@ test('datetime::functions loads; today / weekday / arithmetic evaluate', () => {
   assert.ok(n.values.get('later') instanceof DateTime);
   const span = n.values.get('span');
   assert.ok(span instanceof Quantity && !(span instanceof DateTime));
+});
+
+// ── calendar-aware arithmetic ─────────────────────────────────────
+
+test('calendar_add: a month lands on the same day-of-month', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let base = datetime("2026-01-15 12:00:00 UTC")',
+    'let plus1 = calendar_add(base, 1 month)',
+    'let expect = datetime("2026-02-15 12:00:00 UTC")',
+  ].join('\n'), '<t>');
+  assert.ok(n.values.get('plus1') instanceof DateTime);
+  assert.equal(n.values.get('plus1').value, n.values.get('expect').value);
+});
+
+test('calendar_add: a span of 0 returns the datetime unchanged', () => {
+  const n = mkHost();
+  n.loadSource('let b = datetime("2026-06-01 00:00:00 UTC")\nlet z = calendar_add(b, 0 seconds)', '<t>');
+  assert.equal(n.values.get('z').value, n.values.get('b').value);
+});
+
+test('calendar_add: years and days', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let base = datetime("2026-03-10 08:00:00 UTC")',
+    'let y = calendar_add(base, 1 year)',
+    'let d = calendar_add(base, 10 days)',
+    'let ey = datetime("2027-03-10 08:00:00 UTC")',
+    'let ed = datetime("2026-03-20 08:00:00 UTC")',
+  ].join('\n'), '<t>');
+  assert.equal(n.values.get('y').value, n.values.get('ey').value);
+  assert.equal(n.values.get('d').value, n.values.get('ed').value);
+});
+
+test('calendar_add: Jan 31 + 1 month constrains to Feb 29 in a leap year', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let base = datetime("2024-01-31 12:00:00 UTC")',
+    'let feb = calendar_add(base, 1 month)',
+    'let expect = datetime("2024-02-29 12:00:00 UTC")',
+  ].join('\n'), '<t>');
+  assert.equal(n.values.get('feb').value, n.values.get('expect').value);
+});
+
+test('has_unit: whole-unit approximation', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let a = has_unit(2 months, months)',
+    'let b = has_unit(1 month, days)',
+    'let c = has_unit(0 seconds, days)',
+  ].join('\n'), '<t>');
+  assert.equal(n.values.get('a'), true);
+  assert.equal(n.values.get('b'), false);
+  assert.equal(n.values.get('c'), true);
+});
+
+test('comparison: polymorphic zero compares across dimensions', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let a = (5 seconds) == 0',
+    'let b = (0 seconds) == 0',
+    'let c = (5 seconds) != 0',
+    'let d = (5 seconds) > 0',
+  ].join('\n'), '<t>');
+  assert.equal(n.values.get('a'), false);
+  assert.equal(n.values.get('b'), true);
+  assert.equal(n.values.get('c'), true);
+  assert.equal(n.values.get('d'), true);
 });

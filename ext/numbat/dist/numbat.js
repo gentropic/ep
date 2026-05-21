@@ -4811,6 +4811,16 @@ const BUILTIN_PROCS = {
         return new DateTime(Number(zdt.epochMilliseconds) / 1000, zdt.timeZoneId);
       } catch { /* fall through */ }
       try {
+        // "<wall-clock> <zone>" — e.g. "2026-06-15 09:00:00 Europe/Berlin"
+        // or "… UTC". Temporal's string parser wants `[zone]` bracket
+        // syntax, so split the trailing zone off and attach it explicitly.
+        const m = s.match(/^(.+?)\s+(UTC|[A-Za-z][\w+-]*(?:\/[\w+-]+)+)$/);
+        if (m) {
+          const zdt = globalThis.Temporal.PlainDateTime.from(m[1]).toZonedDateTime(m[2]);
+          return new DateTime(Number(zdt.epochMilliseconds) / 1000, m[2]);
+        }
+      } catch { /* fall through */ }
+      try {
         // A zoneless wall-clock string — interpret it in the host's zone
         // and stamp that zone, so it displays back at the same wall time
         // (e.g. `today()`'s "… 00:00:00" must render as midnight, not an
@@ -4847,6 +4857,35 @@ const BUILTIN_PROCS = {
     // accepts that directly.
     return { __struct: 'TzFn', name: String(args[0] ?? 'UTC') };
   },
+
+  // ── Calendar arithmetic — the FFI behind the datetime module ──────
+  // _add_days / _add_months / _add_years back calendar_add()'s day /
+  // month / year branches: calendar-aware shifts (a month lands on the
+  // same day-of-month; a day is DST-aware), done via Temporal.
+  _add_days(args)   { return calendarShift(args[0], args[1], 'days'); },
+  _add_months(args) { return calendarShift(args[0], args[1], 'months'); },
+  _add_years(args)  { return calendarShift(args[0], args[1], 'years'); },
+
+  // has_unit(quantity, unit_query) — true when `quantity` is expressed in
+  // `unit_query`'s unit, or is zero. numbat-js doesn't retain a
+  // quantity's original unit (a {time:1} value can't tell `2 months`
+  // from `61 days`), so this is an approximation: same dimension AND the
+  // ratio is a whole number. Exact for whole-unit quantities — the
+  // common case, and all calendar_add needs — but e.g.
+  // `has_unit(1000 m, km)` is a false positive. Faithful semantics would
+  // need unit retention on Quantity.
+  has_unit(args) {
+    const q = args[0], u = args[1];
+    if (!(q instanceof Quantity) || !(u instanceof Quantity)) {
+      throw new Error('has_unit: expected two quantities');
+    }
+    if (!dimEq(q.dim, u.dim)) return false;
+    if (q.value === 0) return true;     // zero "has" every unit
+    if (u.value === 0) return false;
+    const r = q.value / u.value;
+    return Number.isFinite(r) && Math.abs(r - Math.round(r)) <= 1e-9 * Math.max(1, Math.abs(r));
+  },
+
   exchange_rate(args) {
     // Live currency rates aren't a thing in a static-file browser app.
     // Stub returns 1; users wanting accurate FX should pre-bind their
@@ -4956,6 +4995,35 @@ const BUILTIN_PROCS = {
     return new Quantity(0, {});
   },
 };
+
+// Calendar-aware shift of a datetime by a whole number of days / months /
+// years — the worker behind BUILTIN_PROCS._add_days/_add_months/_add_years.
+// Temporal does the variable-length-month, DST-aware arithmetic; without it
+// a UTC Date fallback keeps results sane. The datetime's tz is carried
+// through (adding a month to a Berlin datetime stays Berlin).
+function calendarShift(dt, nArg, field) {
+  const n = nArg instanceof Quantity ? nArg.value : Number(nArg);
+  if (!Number.isInteger(n)) {
+    throw new Error(`calendar arithmetic needs a whole number of ${field}`);
+  }
+  const secs = dt instanceof Quantity ? dt.value : Number(dt);
+  const outTz = dt instanceof DateTime ? dt.tz : null;
+  const zone = outTz || BUILTIN_PROCS.get_local_timezone([]);
+  if (typeof globalThis.Temporal !== 'undefined') {
+    try {
+      const zdt = globalThis.Temporal.Instant
+        .fromEpochMilliseconds(Math.round(secs * 1000))
+        .toZonedDateTimeISO(zone)
+        .add({ [field]: n });
+      return new DateTime(Number(zdt.epochMilliseconds) / 1000, outTz);
+    } catch { /* fall through to Date */ }
+  }
+  const d = new Date(secs * 1000);
+  if (field === 'days')   d.setUTCDate(d.getUTCDate() + n);
+  if (field === 'months') d.setUTCMonth(d.getUTCMonth() + n);
+  if (field === 'years')  d.setUTCFullYear(d.getUTCFullYear() + n);
+  return new DateTime(d.getTime() / 1000, outTz);
+}
 
 const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 
@@ -5494,8 +5562,11 @@ function cmpScalar(op, l, r) {
       }
       return op === '==' ? l === r : l !== r;
     }
-    // Quantity-vs-Quantity
-    if (!dimEq(l.dim, r.dim)) {
+    // Quantity-vs-Quantity. Polymorphic zero: 0 is the additive identity
+    // of every dimension, so it compares against any dim (`span == 0`,
+    // `5 m == 0`). Mismatched dims are an error only when neither side
+    // is zero.
+    if (!dimEq(l.dim, r.dim) && l.value !== 0 && r.value !== 0) {
       throw new Error(`${op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
     }
     return op === '==' ? l.value === r.value : l.value !== r.value;
@@ -5507,7 +5578,8 @@ function cmpScalar(op, l, r) {
   if (typeof l === 'string' || typeof r === 'string') {
     throw new Error(`${op}: ordering only defined on Quantities`);
   }
-  if (!dimEq(l.dim, r.dim)) {
+  // Polymorphic zero again — `span > 0` is meaningful regardless of dim.
+  if (!dimEq(l.dim, r.dim) && l.value !== 0 && r.value !== 0) {
     throw new Error(`${op}: dim mismatch [${JSON.stringify(l.dim)}] vs [${JSON.stringify(r.dim)}]`);
   }
   switch (op) {
