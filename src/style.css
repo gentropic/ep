@@ -900,8 +900,12 @@ body {
  * lines up with the source. Subtle indigo accent left border to mark
  * it as ep-rendered output (vs the program's own source above). */
 .body .cm-content .cm-ep-plot-block {
-  padding: 6px 10px;
-  margin: 4px 0 6px;
+  /* No margin. CM6 measures a block widget's box WITHOUT margins, so a
+   * margin here desyncs the editor content (browser flow, margin
+   * included) from the gutters (positioned by CM6's margin-excluding
+   * height model) — results and line numbers drift after the plot.
+   * Fold the breathing room into padding, which CM6 does measure. */
+  padding: 10px 10px 12px;
   background: rgba(78, 85, 128, 0.05);
   border-left: 2px solid var(--sw-indigo);
 }

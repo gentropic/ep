@@ -496,6 +496,13 @@ function resultMarkerHtml(lineIdx) {
   };
 }
 
+// True when the editor has at least one non-empty selection range. Scopes
+// the Tab / Shift-Tab indent commands to "select + Tab" — a bare Tab with
+// no selection still accepts a completion or tabs out of the editor.
+function hasEditorSelection(view) {
+  return view.state.selection.ranges.some(r => !r.empty);
+}
+
 function mountCm6() {
   const CM6 = globalThis.CM6;
   if (!CM6) {
@@ -505,7 +512,7 @@ function mountCm6() {
 
   const {
     EditorView, EditorState, keymap, history, historyKeymap,
-    gutter, GutterMarker, drawSelection, defaultKeymap,
+    gutter, GutterMarker, drawSelection, defaultKeymap, indentWithTab,
     StreamLanguage, syntaxHighlighting, HighlightStyle, tags,
     foldGutter, foldKeymap, foldService,
     bracketMatching, closeBrackets,
@@ -1133,10 +1140,17 @@ function mountCm6() {
         epHoverDocs,
         resultGutter,
         keymap.of([
-          // Tab accepts the open completion. acceptCompletion returns false
-          // when no popup is showing — Tab then falls through to default
-          // browser tab order (so users can still leave the editor).
-          { key: 'Tab', run: acceptCompletion },
+          // Tab: accept an open completion; else, with a non-empty
+          // selection, indent the selected lines; else return false so
+          // Tab falls through to browser tab order (users can still
+          // leave the editor). Shift-Tab dedents the selected lines.
+          // indentWithTab.run / .shift are CM6's indentMore / indentLess.
+          {
+            key: 'Tab',
+            run: (view) => acceptCompletion(view)
+              || (hasEditorSelection(view) && indentWithTab.run(view)),
+            shift: (view) => hasEditorSelection(view) && indentWithTab.shift(view),
+          },
           ...(searchKeymap || []),    // Cmd/Ctrl-F / -G, Esc to close
           ...(historyKeymap || []),   // Mod-z / Mod-Shift-z / Mod-y
           ...(foldKeymap || []),      // Cmd/Ctrl-Alt-[ / -] fold / unfold
