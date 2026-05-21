@@ -3,6 +3,7 @@
 // [1, 1000) (with relaxed fallbacks for extreme magnitudes).
 
 import { dimEq, dimEmpty, dimFormat } from './dimensions.js';
+import { DateTime } from './quantity.js';
 
 export function format(q, registry, opts) {
   const { num, unit } = formatParts(q, registry, opts);
@@ -11,6 +12,12 @@ export function format(q, registry, opts) {
 
 export function formatParts(q, registry, opts = {}) {
   const sig = opts.sig ?? 5;
+
+  // A DateTime is a point in time, not a duration — render it as a
+  // calendar date string, never an auto-scaled quantity.
+  if (q instanceof DateTime) {
+    return { num: formatDateTimeValue(q), unit: null };
+  }
 
   // Explicit display unit. Two forms:
   //   - a string unit name (set by a `->` conversion) — resolved via
@@ -76,4 +83,95 @@ export function formatNumber(n, sig = 5) {
     return parts.join('.');
   }
   return s;
+}
+
+// ── Datetime formatting ──────────────────────────────────────────
+// Lives here (not in load.js) because format.js is concatenated first
+// and formatParts needs the strftime helper to render DateTime values.
+// load.js imports formatDatetimeWith for BUILTIN_PROCS.format_datetime.
+
+function hostTz() {
+  // Mirrors load.js get_local_timezone — prefer Temporal's detection,
+  // which is more reliable than Intl's in some runtimes.
+  if (typeof globalThis.Temporal !== 'undefined') {
+    try { return globalThis.Temporal.Now.timeZoneId(); } catch {}
+  }
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+  catch { return 'UTC'; }
+}
+
+// Default rendering for a DateTime value. The clock part is shown only
+// when the value isn't exactly midnight in its zone — so `today` reads
+// "2026-05-20" while a precise instant reads "2026-05-20 14:32:09".
+function formatDateTimeValue(q) {
+  const tz = q.tz || hostTz();
+  const hms = formatDatetimeWith('%H%M%S', q.value, tz);
+  const fmt = hms === '000000' ? '%Y-%m-%d' : '%Y-%m-%d %H:%M:%S';
+  return formatDatetimeWith(fmt, q.value, tz);
+}
+
+// strftime-ish formatter used by formatDateTimeValue and by
+// BUILTIN_PROCS.format_datetime. Recognized tokens: %Y (4-digit year),
+// %y (2-digit year), %m (zero-padded month), %d (zero-padded day),
+// %H (24h zero-pad hour), %M (zero-pad minute), %S (zero-pad second),
+// %B (full month name), %b (abbrev month name), %A (full weekday),
+// %a (abbrev weekday), %j (day-of-year), %z (offset like +0100),
+// %Z (TZ name). `%%` is a literal %. Unrecognized `%<x>` passes
+// through as `%<x>`.
+export function formatDatetimeWith(fmt, secs, tz) {
+  let parts;
+  if (typeof globalThis.Temporal !== 'undefined') {
+    try {
+      const inst = globalThis.Temporal.Instant.fromEpochMilliseconds(Math.round(secs * 1000));
+      const zdt = inst.toZonedDateTimeISO(tz);
+      parts = {
+        Y: String(zdt.year).padStart(4, '0'),
+        y: String(zdt.year % 100).padStart(2, '0'),
+        m: String(zdt.month).padStart(2, '0'),
+        d: String(zdt.day).padStart(2, '0'),
+        H: String(zdt.hour).padStart(2, '0'),
+        M: String(zdt.minute).padStart(2, '0'),
+        S: String(zdt.second).padStart(2, '0'),
+        j: String(zdt.dayOfYear).padStart(3, '0'),
+        Z: tz,
+        z: zdt.offset.replace(':', ''),
+        A: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'long' }),
+        a: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'short' }),
+        B: intlFmt(zdt.epochMilliseconds, tz, { month: 'long' }),
+        b: intlFmt(zdt.epochMilliseconds, tz, { month: 'short' }),
+      };
+    } catch { parts = null; }
+  }
+  if (!parts) {
+    // Fallback via Date — UTC accurate, TZ-arg ignored. Use Intl for
+    // weekday/month names so locale formatting works.
+    const d = new Date(secs * 1000);
+    parts = {
+      Y: String(d.getUTCFullYear()).padStart(4, '0'),
+      y: String(d.getUTCFullYear() % 100).padStart(2, '0'),
+      m: String(d.getUTCMonth() + 1).padStart(2, '0'),
+      d: String(d.getUTCDate()).padStart(2, '0'),
+      H: String(d.getUTCHours()).padStart(2, '0'),
+      M: String(d.getUTCMinutes()).padStart(2, '0'),
+      S: String(d.getUTCSeconds()).padStart(2, '0'),
+      j: String(Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 0))) / 86400000)).padStart(3, '0'),
+      Z: 'UTC',
+      z: '+0000',
+      A: intlFmt(d.getTime(), 'UTC', { weekday: 'long' }),
+      a: intlFmt(d.getTime(), 'UTC', { weekday: 'short' }),
+      B: intlFmt(d.getTime(), 'UTC', { month: 'long' }),
+      b: intlFmt(d.getTime(), 'UTC', { month: 'short' }),
+    };
+  }
+  return fmt.replace(/%(.)/g, (_, c) => {
+    if (c === '%') return '%';
+    return parts[c] !== undefined ? parts[c] : '%' + c;
+  });
+}
+
+function intlFmt(epochMs, tz, opts) {
+  try {
+    return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz })
+      .format(new Date(epochMs));
+  } catch { return ''; }
 }

@@ -128,6 +128,9 @@ class Quantity {
   get d() { return this.dim; }
 
   add(other) {
+    // A datetime on the right has its own affine algebra — defer to it
+    // (`duration + datetime` is commutative → `datetime + duration`).
+    if (other instanceof DateTime) return other.add(this);
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't add [${dimFormat(this.dim)}] + [${dimFormat(other.dim)}]`);
     }
@@ -135,6 +138,10 @@ class Quantity {
   }
 
   sub(other) {
+    // `duration − datetime` is meaningless (a vector minus a point).
+    if (other instanceof DateTime) {
+      throw new Error("can't subtract a datetime from a duration");
+    }
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't subtract [${dimFormat(this.dim)}] − [${dimFormat(other.dim)}]`);
     }
@@ -142,10 +149,12 @@ class Quantity {
   }
 
   mul(other) {
+    if (other instanceof DateTime) throw new Error("can't multiply by a datetime");
     return new Quantity(this.value * other.value, dimMul(this.dim, other.dim));
   }
 
   div(other) {
+    if (other instanceof DateTime) throw new Error("can't divide by a datetime");
     return new Quantity(this.value / other.value, dimDiv(this.dim, other.dim));
   }
 
@@ -172,6 +181,50 @@ class Quantity {
       throw new Error(`can't convert [${dimFormat(this.dim)}] to ${unitName} [${dimFormat(u.dim)}]`);
     }
     return new Quantity(this.value, this.dim, unitName);
+  }
+}
+
+// A datetime is a *point* in affine time-space, not a duration: it carries an
+// epoch-seconds value and the time dimension, but a restricted algebra —
+// datetime ± duration → datetime, datetime − datetime → duration, and nothing
+// else. It extends Quantity so the many duck-typed `.value` / `.dim` readers
+// (and `instanceof Quantity` checks) keep working unchanged; only the algebra
+// and the display differ. The affine rules live here in the overrides, plus
+// guard branches in Quantity.add/sub/mul/div for the datetime-on-RHS case.
+class DateTime extends Quantity {
+  constructor(epochSeconds, tz = null) {
+    super(epochSeconds, { time: 1 }, null);
+    // IANA zone id, or null = host-local (resolved at format time).
+    this.tz = tz;
+  }
+
+  add(other) {
+    if (other instanceof DateTime) {
+      throw new Error("can't add two datetimes — only a datetime + a duration");
+    }
+    if (!other || !dimEq(other.dim || {}, { time: 1 })) {
+      throw new Error(`can't add [${dimFormat((other && other.dim) || {})}] to a datetime`);
+    }
+    return new DateTime(this.value + other.value, this.tz);
+  }
+
+  sub(other) {
+    // datetime − datetime → a duration (a plain Quantity, not a DateTime).
+    if (other instanceof DateTime) {
+      return new Quantity(this.value - other.value, { time: 1 });
+    }
+    if (!other || !dimEq(other.dim || {}, { time: 1 })) {
+      throw new Error(`can't subtract [${dimFormat((other && other.dim) || {})}] from a datetime`);
+    }
+    return new DateTime(this.value - other.value, this.tz);
+  }
+
+  mul() { throw new Error("can't multiply a datetime"); }
+  div() { throw new Error("can't divide a datetime"); }
+  pow() { throw new Error("can't raise a datetime to a power"); }
+  neg() { throw new Error("can't negate a datetime"); }
+  convertTo() {
+    throw new Error("a datetime has no display unit — use format_datetime() or tz()");
   }
 }
 
@@ -317,6 +370,12 @@ function format(q, registry, opts) {
 function formatParts(q, registry, opts = {}) {
   const sig = opts.sig ?? 5;
 
+  // A DateTime is a point in time, not a duration — render it as a
+  // calendar date string, never an auto-scaled quantity.
+  if (q instanceof DateTime) {
+    return { num: formatDateTimeValue(q), unit: null };
+  }
+
   // Explicit display unit. Two forms:
   //   - a string unit name (set by a `->` conversion) — resolved via
   //     the registry;
@@ -381,6 +440,97 @@ function formatNumber(n, sig = 5) {
     return parts.join('.');
   }
   return s;
+}
+
+// ── Datetime formatting ──────────────────────────────────────────
+// Lives here (not in load.js) because format.js is concatenated first
+// and formatParts needs the strftime helper to render DateTime values.
+// load.js imports formatDatetimeWith for BUILTIN_PROCS.format_datetime.
+
+function hostTz() {
+  // Mirrors load.js get_local_timezone — prefer Temporal's detection,
+  // which is more reliable than Intl's in some runtimes.
+  if (typeof globalThis.Temporal !== 'undefined') {
+    try { return globalThis.Temporal.Now.timeZoneId(); } catch {}
+  }
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+  catch { return 'UTC'; }
+}
+
+// Default rendering for a DateTime value. The clock part is shown only
+// when the value isn't exactly midnight in its zone — so `today` reads
+// "2026-05-20" while a precise instant reads "2026-05-20 14:32:09".
+function formatDateTimeValue(q) {
+  const tz = q.tz || hostTz();
+  const hms = formatDatetimeWith('%H%M%S', q.value, tz);
+  const fmt = hms === '000000' ? '%Y-%m-%d' : '%Y-%m-%d %H:%M:%S';
+  return formatDatetimeWith(fmt, q.value, tz);
+}
+
+// strftime-ish formatter used by formatDateTimeValue and by
+// BUILTIN_PROCS.format_datetime. Recognized tokens: %Y (4-digit year),
+// %y (2-digit year), %m (zero-padded month), %d (zero-padded day),
+// %H (24h zero-pad hour), %M (zero-pad minute), %S (zero-pad second),
+// %B (full month name), %b (abbrev month name), %A (full weekday),
+// %a (abbrev weekday), %j (day-of-year), %z (offset like +0100),
+// %Z (TZ name). `%%` is a literal %. Unrecognized `%<x>` passes
+// through as `%<x>`.
+function formatDatetimeWith(fmt, secs, tz) {
+  let parts;
+  if (typeof globalThis.Temporal !== 'undefined') {
+    try {
+      const inst = globalThis.Temporal.Instant.fromEpochMilliseconds(Math.round(secs * 1000));
+      const zdt = inst.toZonedDateTimeISO(tz);
+      parts = {
+        Y: String(zdt.year).padStart(4, '0'),
+        y: String(zdt.year % 100).padStart(2, '0'),
+        m: String(zdt.month).padStart(2, '0'),
+        d: String(zdt.day).padStart(2, '0'),
+        H: String(zdt.hour).padStart(2, '0'),
+        M: String(zdt.minute).padStart(2, '0'),
+        S: String(zdt.second).padStart(2, '0'),
+        j: String(zdt.dayOfYear).padStart(3, '0'),
+        Z: tz,
+        z: zdt.offset.replace(':', ''),
+        A: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'long' }),
+        a: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'short' }),
+        B: intlFmt(zdt.epochMilliseconds, tz, { month: 'long' }),
+        b: intlFmt(zdt.epochMilliseconds, tz, { month: 'short' }),
+      };
+    } catch { parts = null; }
+  }
+  if (!parts) {
+    // Fallback via Date — UTC accurate, TZ-arg ignored. Use Intl for
+    // weekday/month names so locale formatting works.
+    const d = new Date(secs * 1000);
+    parts = {
+      Y: String(d.getUTCFullYear()).padStart(4, '0'),
+      y: String(d.getUTCFullYear() % 100).padStart(2, '0'),
+      m: String(d.getUTCMonth() + 1).padStart(2, '0'),
+      d: String(d.getUTCDate()).padStart(2, '0'),
+      H: String(d.getUTCHours()).padStart(2, '0'),
+      M: String(d.getUTCMinutes()).padStart(2, '0'),
+      S: String(d.getUTCSeconds()).padStart(2, '0'),
+      j: String(Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 0))) / 86400000)).padStart(3, '0'),
+      Z: 'UTC',
+      z: '+0000',
+      A: intlFmt(d.getTime(), 'UTC', { weekday: 'long' }),
+      a: intlFmt(d.getTime(), 'UTC', { weekday: 'short' }),
+      B: intlFmt(d.getTime(), 'UTC', { month: 'long' }),
+      b: intlFmt(d.getTime(), 'UTC', { month: 'short' }),
+    };
+  }
+  return fmt.replace(/%(.)/g, (_, c) => {
+    if (c === '%') return '%';
+    return parts[c] !== undefined ? parts[c] : '%' + c;
+  });
+}
+
+function intlFmt(epochMs, tz, opts) {
+  try {
+    return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz })
+      .format(new Date(epochMs));
+  } catch { return ''; }
 }
 
 // ─── tokenize.js ───────────────────────────────────────
@@ -1501,6 +1651,10 @@ function tDim(dimExpr)              { return Object.freeze({ kind: 'TDim', dim: 
 function tBool()                    { return T_BOOL; }
 function tString()                  { return T_STRING; }
 function tNever()                   { return T_NEVER; }
+// DateTime — a point in affine time-space. A distinct nullary type, not a
+// dim: this is what makes `datetime + datetime` a static error (a
+// TDateTime operand fails the IsDType constraint in check.js inferBinary).
+function tDateTime()                { return T_DATETIME; }
 // tFn(params, result, opts?). opts.optional = N marks the LAST N params
 // as optional — call sites can omit them. Used by variadic procs like
 // assert_eq (mandatory `a, b`; optional `tolerance`).
@@ -1544,9 +1698,10 @@ function tScheme(tvars, dimVars, body, opts) {
   });
 }
 
-const T_BOOL   = Object.freeze({ kind: 'TBool' });
-const T_STRING = Object.freeze({ kind: 'TString' });
-const T_NEVER  = Object.freeze({ kind: 'TNever' });
+const T_BOOL     = Object.freeze({ kind: 'TBool' });
+const T_STRING   = Object.freeze({ kind: 'TString' });
+const T_NEVER    = Object.freeze({ kind: 'TNever' });
+const T_DATETIME = Object.freeze({ kind: 'TDateTime' });
 
 const T_SCALAR = tDim(dimExprEmpty());
 
@@ -1562,6 +1717,7 @@ function typeEq(a, b) {
     case 'TBool':
     case 'TString':
     case 'TNever':
+    case 'TDateTime':
       return true;
     case 'TVar':
     case 'TDimVar':
@@ -1603,6 +1759,7 @@ function formatType(t) {
     case 'TBool':   return 'Bool';
     case 'TString': return 'String';
     case 'TNever':  return '!';
+    case 'TDateTime': return 'DateTime';
     case 'TVar':    return `'a${t.id}`;
     case 'TDimVar': return `$${t.id}`;
     case 'TDim':    return dimExprIsScalar(t.dim) ? 'Scalar' : dimExprFormat(t.dim);
@@ -1634,7 +1791,7 @@ function freeVars(t, acc = { tvars: new Set(), dimVars: new Set() }) {
     case 'TTuple':  for (const e of t.elems) freeVars(e, acc); break;
     case 'TStruct': for (const k in t.fields) freeVars(t.fields[k], acc); break;
     case 'TScheme': freeVars(t.body, acc); break;
-    case 'TBool': case 'TString': case 'TNever': break;
+    case 'TBool': case 'TString': case 'TNever': case 'TDateTime': break;
   }
   return acc;
 }
@@ -1858,6 +2015,7 @@ function evalTypeAnno(node, env, ctx) {
       if (name === 'Scalar')   return T_SCALAR;
       if (name === 'Bool')     return tBool();
       if (name === 'String')   return tString();
+      if (name === 'DateTime') return tDateTime();
       const dim = typeEnvLookupDim(env, name);
       if (dim) return tDim(dimExprFromMap(dim));
       const struct = typeEnvLookupStruct(env, name);
@@ -2285,6 +2443,13 @@ function inferBinary(node, env, ctx) {
   }
 
   if (op === '+' || op === '-') {
+    // NOTE: datetime arithmetic (datetime ± duration → datetime,
+    // datetime − datetime → duration) gets no affine inference rule here.
+    // A TDateTime operand fails the IsDType constraint below, so
+    // `datetime + datetime` is a static error (correct) while
+    // `datetime + duration` is a false-positive the host drops in favor
+    // of the runtime result (DateTime.add enforces the real rule). Full
+    // affine datetime typing is a deliberate follow-up — see SPEC.md §7.6.
     // Polymorphic zero: `0` (and `0 * x`, `-0`, etc.) is the additive
     // identity for any dim. `1 a + 0` typechecks as A; `1 a + 0 * b`
     // also typechecks as A because `0 * b` is statically zero. Mirrors
@@ -4619,38 +4784,45 @@ const BUILTIN_PROCS = {
     catch { return 'UTC'; }
   },
   now(args) {
-    // Always seconds-since-epoch as a {time:1} Quantity. Temporal is
-    // used here only as a clock source (sub-second precision is the
-    // same as Date.now / 1000 in practice).
+    // Returns a DateTime (a point in time), not a bare duration. Temporal
+    // is used only as a clock source; the value is seconds-since-epoch.
+    const tz = BUILTIN_PROCS.get_local_timezone([]);
     if (typeof globalThis.Temporal !== 'undefined') {
       try {
         const ms = Number(globalThis.Temporal.Now.instant().epochMilliseconds);
-        return new Quantity(ms / 1000, { time: 1 });
+        return new DateTime(ms / 1000, tz);
       } catch {}
     }
-    return new Quantity(Date.now() / 1000, { time: 1 });
+    return new DateTime(Date.now() / 1000, tz);
   },
   datetime(args) {
     // Parse via Temporal when available — supports ISO with offsets and
-    // TZ identifiers. Falls back to Date.parse for older runtimes.
+    // TZ identifiers. Falls back to Date.parse for older runtimes. Returns
+    // a DateTime; the tz field carries the parsed zone when the input
+    // named one (a ZonedDateTime), else null (= host-local at format time).
     const s = String(args[0] ?? '');
     if (typeof globalThis.Temporal !== 'undefined') {
       try {
         const inst = globalThis.Temporal.Instant.from(s);
-        return new Quantity(Number(inst.epochMilliseconds) / 1000, { time: 1 });
+        return new DateTime(Number(inst.epochMilliseconds) / 1000, null);
       } catch { /* fall through to Date */ }
       try {
         const zdt = globalThis.Temporal.ZonedDateTime.from(s);
-        return new Quantity(Number(zdt.epochMilliseconds) / 1000, { time: 1 });
+        return new DateTime(Number(zdt.epochMilliseconds) / 1000, zdt.timeZoneId);
       } catch { /* fall through */ }
       try {
+        // A zoneless wall-clock string — interpret it in the host's zone
+        // and stamp that zone, so it displays back at the same wall time
+        // (e.g. `today()`'s "… 00:00:00" must render as midnight, not an
+        // offset hour).
         const pdt = globalThis.Temporal.PlainDateTime.from(s);
-        const zdt = pdt.toZonedDateTime(globalThis.Temporal.Now.timeZoneId());
-        return new Quantity(Number(zdt.epochMilliseconds) / 1000, { time: 1 });
+        const zoneId = globalThis.Temporal.Now.timeZoneId();
+        const zdt = pdt.toZonedDateTime(zoneId);
+        return new DateTime(Number(zdt.epochMilliseconds) / 1000, zoneId);
       } catch { /* fall through */ }
     }
     const t = Date.parse(s);
-    return new Quantity(Number.isFinite(t) ? t / 1000 : 0, { time: 1 });
+    return new DateTime(Number.isFinite(t) ? t / 1000 : 0, null);
   },
   format_datetime(args) {
     // Upstream signature: format_datetime(fmt: String, dt: DateTime, tz?: String)
@@ -4661,8 +4833,10 @@ const BUILTIN_PROCS = {
     const fmt = String(args[0] ?? '');
     const dt  = args[1];
     const tzArg = args[2];
-    const tz = typeof tzArg === 'string' ? tzArg : (tzArg && tzArg.name) ||
-               (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
+    const tz = typeof tzArg === 'string' ? tzArg
+             : (tzArg && tzArg.name) ? tzArg.name
+             : (dt instanceof DateTime && dt.tz) ? dt.tz
+             : (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
     const secs = dt instanceof Quantity ? dt.value : Number(dt);
     if (!Number.isFinite(secs)) return '';
     return formatDatetimeWith(fmt, secs, tz);
@@ -5011,71 +5185,9 @@ function labelOpts(args, start) {
   return out;
 }
 
-// ── Datetime formatting ──────────────────────────────────────────
-// strftime-ish formatter used by BUILTIN_PROCS.format_datetime. Recognized
-// tokens: %Y (4-digit year), %y (2-digit year), %m (zero-padded month),
-// %d (zero-padded day), %H (24h zero-pad hour), %M (zero-pad minute),
-// %S (zero-pad second), %B (full month name), %b (abbrev month name),
-// %A (full weekday), %a (abbrev weekday), %j (day-of-year), %z (offset
-// like +0100), %Z (TZ name). `%%` is a literal %. Unrecognized
-// `%<x>` passes through as `%<x>`.
-function formatDatetimeWith(fmt, secs, tz) {
-  let parts;
-  if (typeof globalThis.Temporal !== 'undefined') {
-    try {
-      const inst = globalThis.Temporal.Instant.fromEpochMilliseconds(Math.round(secs * 1000));
-      const zdt = inst.toZonedDateTimeISO(tz);
-      parts = {
-        Y: String(zdt.year).padStart(4, '0'),
-        y: String(zdt.year % 100).padStart(2, '0'),
-        m: String(zdt.month).padStart(2, '0'),
-        d: String(zdt.day).padStart(2, '0'),
-        H: String(zdt.hour).padStart(2, '0'),
-        M: String(zdt.minute).padStart(2, '0'),
-        S: String(zdt.second).padStart(2, '0'),
-        j: String(zdt.dayOfYear).padStart(3, '0'),
-        Z: tz,
-        z: zdt.offset.replace(':', ''),
-        A: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'long' }),
-        a: intlFmt(zdt.epochMilliseconds, tz, { weekday: 'short' }),
-        B: intlFmt(zdt.epochMilliseconds, tz, { month: 'long' }),
-        b: intlFmt(zdt.epochMilliseconds, tz, { month: 'short' }),
-      };
-    } catch { parts = null; }
-  }
-  if (!parts) {
-    // Fallback via Date — UTC accurate, TZ-arg ignored. Use Intl for
-    // weekday/month names so locale formatting works.
-    const d = new Date(secs * 1000);
-    parts = {
-      Y: String(d.getUTCFullYear()).padStart(4, '0'),
-      y: String(d.getUTCFullYear() % 100).padStart(2, '0'),
-      m: String(d.getUTCMonth() + 1).padStart(2, '0'),
-      d: String(d.getUTCDate()).padStart(2, '0'),
-      H: String(d.getUTCHours()).padStart(2, '0'),
-      M: String(d.getUTCMinutes()).padStart(2, '0'),
-      S: String(d.getUTCSeconds()).padStart(2, '0'),
-      j: String(Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 0))) / 86400000)).padStart(3, '0'),
-      Z: 'UTC',
-      z: '+0000',
-      A: intlFmt(d.getTime(), 'UTC', { weekday: 'long' }),
-      a: intlFmt(d.getTime(), 'UTC', { weekday: 'short' }),
-      B: intlFmt(d.getTime(), 'UTC', { month: 'long' }),
-      b: intlFmt(d.getTime(), 'UTC', { month: 'short' }),
-    };
-  }
-  return fmt.replace(/%(.)/g, (_, c) => {
-    if (c === '%') return '%';
-    return parts[c] !== undefined ? parts[c] : '%' + c;
-  });
-}
-
-function intlFmt(epochMs, tz, opts) {
-  try {
-    return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz })
-      .format(new Date(epochMs));
-  } catch { return ''; }
-}
+// Datetime formatting (formatDatetimeWith / intlFmt) moved to format.js —
+// it's concatenated before load.js and owns the strftime helper so that
+// formatParts can render DateTime values. Imported at the top of this file.
 
 function evalValueExpr(node, env) {
   if (node.type === 'Num')  return new Quantity(node.value, {});
@@ -6338,4 +6450,4 @@ class Numbat {
     this.use('units::partsperx');
   }
 }
-export { Numbat, Quantity, UnitRegistry, DimRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber, tokenize, parse, loadSource, loadModule, makeEnv, evalDimExpr, evalValueExpr, setQuantityFormatter, setPrintSink, setPlotSink, setCsvResolver, formatParts, typecheckStatement, typecheckModule, buildTypeEnv, parseCsv, detectCsvConfig, VENDORED_MODULES };
+export { Numbat, Quantity, DateTime, UnitRegistry, DimRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber, tokenize, parse, loadSource, loadModule, makeEnv, evalDimExpr, evalValueExpr, setQuantityFormatter, setPrintSink, setPlotSink, setCsvResolver, formatParts, typecheckStatement, typecheckModule, buildTypeEnv, parseCsv, detectCsvConfig, VENDORED_MODULES };

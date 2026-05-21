@@ -18,7 +18,7 @@
 //                  we don't re-evaluate redundantly.
 
 import { state, evaluateAll } from './state.js';
-import { fmt, fmtNum, dEq, fmtDim } from './units.js';
+import { fmt, fmtNum, dEq, fmtDim, DT } from './units.js';
 import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './evaluator.js';
 import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
@@ -452,6 +452,16 @@ function resultMarkerHtml(lineIdx) {
   // the value (via .suspect::after) — additive with any existing
   // input/output dot.
   if (r.suspect) cls = (cls + ' suspect').trim();
+
+  // A datetime renders as a calendar date — fmt() routes DateTime values
+  // to the date formatter (unit is null). Skip the unit-resolution block
+  // below: dividing a datetime's epoch-seconds by a unit's `mul` (a
+  // gutter override or @output unit) is meaningless. The dot `cls` still
+  // applies, so a datetime @input/@output keeps its marker.
+  if (r.result instanceof DT) {
+    const [dn] = fmt(r.result);
+    return { html: escapeHtml(dn), text: dn, cls };
+  }
 
   // Display unit resolution, highest priority first:
   //   1. Per-line override the user picked from the gutter (state.ui.gutterUnits)

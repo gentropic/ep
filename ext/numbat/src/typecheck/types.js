@@ -146,6 +146,10 @@ export function tDim(dimExpr)              { return Object.freeze({ kind: 'TDim'
 export function tBool()                    { return T_BOOL; }
 export function tString()                  { return T_STRING; }
 export function tNever()                   { return T_NEVER; }
+// DateTime — a point in affine time-space. A distinct nullary type, not a
+// dim: this is what makes `datetime + datetime` a static error (a
+// TDateTime operand fails the IsDType constraint in check.js inferBinary).
+export function tDateTime()                { return T_DATETIME; }
 // tFn(params, result, opts?). opts.optional = N marks the LAST N params
 // as optional — call sites can omit them. Used by variadic procs like
 // assert_eq (mandatory `a, b`; optional `tolerance`).
@@ -189,9 +193,10 @@ export function tScheme(tvars, dimVars, body, opts) {
   });
 }
 
-const T_BOOL   = Object.freeze({ kind: 'TBool' });
-const T_STRING = Object.freeze({ kind: 'TString' });
-const T_NEVER  = Object.freeze({ kind: 'TNever' });
+const T_BOOL     = Object.freeze({ kind: 'TBool' });
+const T_STRING   = Object.freeze({ kind: 'TString' });
+const T_NEVER    = Object.freeze({ kind: 'TNever' });
+const T_DATETIME = Object.freeze({ kind: 'TDateTime' });
 
 export const T_SCALAR = tDim(dimExprEmpty());
 
@@ -207,6 +212,7 @@ export function typeEq(a, b) {
     case 'TBool':
     case 'TString':
     case 'TNever':
+    case 'TDateTime':
       return true;
     case 'TVar':
     case 'TDimVar':
@@ -248,6 +254,7 @@ export function formatType(t) {
     case 'TBool':   return 'Bool';
     case 'TString': return 'String';
     case 'TNever':  return '!';
+    case 'TDateTime': return 'DateTime';
     case 'TVar':    return `'a${t.id}`;
     case 'TDimVar': return `$${t.id}`;
     case 'TDim':    return dimExprIsScalar(t.dim) ? 'Scalar' : dimExprFormat(t.dim);
@@ -279,7 +286,7 @@ export function freeVars(t, acc = { tvars: new Set(), dimVars: new Set() }) {
     case 'TTuple':  for (const e of t.elems) freeVars(e, acc); break;
     case 'TStruct': for (const k in t.fields) freeVars(t.fields[k], acc); break;
     case 'TScheme': freeVars(t.body, acc); break;
-    case 'TBool': case 'TString': case 'TNever': break;
+    case 'TBool': case 'TString': case 'TNever': case 'TDateTime': break;
   }
   return acc;
 }

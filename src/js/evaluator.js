@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, DateTime, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
 import { traceBlame } from './blame.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
@@ -132,17 +132,6 @@ function host() {
   for (const [name, dim] of Object.entries(DIMENSION_OF)) {
     _host.dims.defineDerived(name, dim);
   }
-
-  // `DateTime` is not a distinct type in numbat-js yet — a datetime is a
-  // bare {time:1} Quantity (see ext/numbat load.js datetime stubs). The
-  // vendored datetime module annotates its fns `-> DateTime`, so the
-  // typechecker (buildTypeEnv → evalTypeAnno) needs the name to resolve
-  // or it throws `unknown type: DateTime` and aborts evaluate(). Alias it
-  // to the Time dimension — honest given the current substrate, and it
-  // keeps date arithmetic typechecking. SPEC.md §7.6. Not added to
-  // DIMENSION_OF: that table drives ep's `: Name` annotation surface and
-  // the unit picker; DateTime is a numbat-compat alias, not an ep dim.
-  _host.dims.defineDerived('DateTime', { time: 1 });
 
   // Register the 62 vendored .nbt modules so `use units::stoney` etc.
   // resolve. Modules are registered but NOT auto-loaded — the user
@@ -765,18 +754,20 @@ export function evaluate(body) {
     return { rows, params: [], outputs: [], scope: {}, blockComplete: false, blocks: [] };
   }
 
-  // §7.6 — bare `today` / `now` as values, not just the now() function.
-  // Seeded into the host's value map so freshEnv() copies them and the
-  // end-of-evaluate scope filter (`seeded.has`) treats them as built-ins
-  // rather than user bindings. Re-stamped every evaluate() so they track
-  // wall-clock; within one evaluate() they're a single fixed instant, so
-  // every row of a computation agrees. `now()` the function is untouched
-  // — it's a BUILTIN_PROC, a namespace separate from value identifiers.
+  // §7.6 — bare `today` / `now` as DateTime values, not just the now()
+  // function. Seeded into the host's value map so freshEnv() copies them
+  // and the end-of-evaluate scope filter (`seeded.has`) treats them as
+  // built-ins rather than user bindings. Re-stamped every evaluate() so
+  // they track wall-clock; within one evaluate() they're a single fixed
+  // instant, so every row of a computation agrees. `now()` the function
+  // is untouched — a BUILTIN_PROC, a namespace separate from value
+  // identifiers. tz is left null (= host-local, resolved at format time);
+  // `today` is local midnight, so it renders date-only.
   const h = host();
-  h.values.set('now', new Quantity(Date.now() / 1000, { time: 1 }));
+  h.values.set('now', new DateTime(Date.now() / 1000));
   const _midnight = new Date();
   _midnight.setHours(0, 0, 0, 0);
-  h.values.set('today', new Quantity(_midnight.getTime() / 1000, { time: 1 }));
+  h.values.set('today', new DateTime(_midnight.getTime() / 1000));
 
   const env = freshEnv();
   // Parallel typed env for supplementary typecheck. Errors from typecheck

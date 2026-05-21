@@ -32,7 +32,7 @@ if (typeof globalThis.Temporal === 'undefined') {
 
 globalThis.INITIAL_STATE = { name: 'test', body: [], ui: {} };
 const { evaluate } = await import('../src/js/evaluator.js');
-const { setPrintSink } = await import('../ext/numbat/dist/numbat.js');
+const { setPrintSink, DateTime } = await import('../ext/numbat/dist/numbat.js');
 
 const CORPUS = [
   // ─── 1. Numeric literals + basic arithmetic ─────────────────────
@@ -226,6 +226,22 @@ test('print: multiple prints on one row accumulate', () => {
   const r = evaluate([{src: 'print("a") + print("b")'}]);
   assert.equal(r.rows[0].error, null);
   assert.equal(r.rows[0].print, 'a\nb');
+});
+
+test('datetime: bare today/now seed as DateTime; arithmetic types correct', () => {
+  const r = evaluate([
+    {src: 'today'},
+    {src: 'now'},
+    {src: 'now() + 1 hour'},
+    {src: 'now() - now()'},
+    {src: 'datetime("2026-12-25")'},
+  ]);
+  for (const row of r.rows) assert.equal(row.error, null);
+  assert.ok(r.rows[0].result instanceof DateTime, 'today is a DateTime');
+  assert.ok(r.rows[1].result instanceof DateTime, 'now is a DateTime');
+  assert.ok(r.rows[2].result instanceof DateTime, 'now()+1h is a DateTime');
+  assert.ok(!(r.rows[3].result instanceof DateTime), 'now()-now() is a duration');
+  assert.ok(r.rows[4].result instanceof DateTime, 'datetime(...) is a DateTime');
 });
 
 for (const c of CORPUS) {

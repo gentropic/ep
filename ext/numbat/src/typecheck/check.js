@@ -10,7 +10,7 @@
 // just placeholders awaiting substitution.
 
 import { ratOf, ratAdd, ratSub, ratMul, ratDiv, ratNeg, ratIsZero } from './rat.js';
-import { freshTVar, freshTDimVar, tDim, tBool, tString, tFn, tList, tStruct, tTuple, tScheme, T_SCALAR, dimExprEmpty, dimExprFromMap, dimExprFromVar, dimExprMul, dimExprDiv, dimExprPow, formatType } from './types.js';
+import { freshTVar, freshTDimVar, tDim, tBool, tString, tDateTime, tFn, tList, tStruct, tTuple, tScheme, T_SCALAR, dimExprEmpty, dimExprFromMap, dimExprFromVar, dimExprMul, dimExprDiv, dimExprPow, formatType } from './types.js';
 import { typeEnvExtend, typeEnvBindValue, typeEnvBindFn, typeEnvBindDim, typeEnvBindStruct, typeEnvLookupValue, typeEnvLookupFn, typeEnvLookupDim, typeEnvLookupStruct } from './env.js';
 import { cEqual, cIsDType, cHasField, cAdd, makeConstraintSet } from './constraints.js';
 import { generalize, instantiate } from './scheme.js';
@@ -135,6 +135,7 @@ function evalTypeAnno(node, env, ctx) {
       if (name === 'Scalar')   return T_SCALAR;
       if (name === 'Bool')     return tBool();
       if (name === 'String')   return tString();
+      if (name === 'DateTime') return tDateTime();
       const dim = typeEnvLookupDim(env, name);
       if (dim) return tDim(dimExprFromMap(dim));
       const struct = typeEnvLookupStruct(env, name);
@@ -564,6 +565,13 @@ function inferBinary(node, env, ctx) {
   }
 
   if (op === '+' || op === '-') {
+    // NOTE: datetime arithmetic (datetime ± duration → datetime,
+    // datetime − datetime → duration) gets no affine inference rule here.
+    // A TDateTime operand fails the IsDType constraint below, so
+    // `datetime + datetime` is a static error (correct) while
+    // `datetime + duration` is a false-positive the host drops in favor
+    // of the runtime result (DateTime.add enforces the real rule). Full
+    // affine datetime typing is a deliberate follow-up — see SPEC.md §7.6.
     // Polymorphic zero: `0` (and `0 * x`, `-0`, etc.) is the additive
     // identity for any dim. `1 a + 0` typechecks as A; `1 a + 0 * b`
     // also typechecks as A because `0 * b` is statically zero. Mirrors

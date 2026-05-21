@@ -3,7 +3,7 @@
 // change. Over time, callers should migrate to importing from numbat-js
 // directly (e.g. `import { Numbat, Quantity } from '../../ext/numbat/...'`).
 
-import { Numbat, Quantity, dimEq, dimMul, dimDiv, dimEmpty, dimFormat, formatNumber } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, DateTime, dimEq, dimMul, dimDiv, dimEmpty, dimFormat, formatNumber } from '../../ext/numbat/dist/numbat.js';
 
 // This Numbat instance is only used here for formatting (formatParts)
 // and the unit registry Proxy below — NOT for evaluation. The
@@ -13,6 +13,10 @@ const N = new Numbat();
 
 // Quantity class — ep historically referred to it as `Q`.
 export const Q = Quantity;
+// DateTime — a Quantity subclass (a point in affine time-space). `DT`
+// mirrors the `Q` alias; render.js uses it to give datetime results a
+// date-shaped display instead of a unit-bearing one.
+export const DT = DateTime;
 
 // Constructors and arithmetic — adapt method API to ep's free-function names.
 export const lit      = (v, u) => u ? N.q(v, u) : new Quantity(v, {});
