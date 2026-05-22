@@ -18,6 +18,14 @@ test('use: dotted path with ::', () => {
   assert.deepEqual(m.decls[0].path, ['core', 'dimensions']);
 });
 
+test('field access with a backtick-quoted column name', () => {
+  const expr = parseSrc('let x = model.`Au g/t`').decls[0].expr;
+  assert.equal(expr.type, 'Field');
+  assert.equal(expr.name, 'Au g/t');
+  assert.equal(expr.obj.type, 'Ident');
+  assert.equal(expr.obj.name, 'model');
+});
+
 test('use: deeper path', () => {
   const m = parseSrc('use a::b::c::d');
   assert.deepEqual(m.decls[0].path, ['a', 'b', 'c', 'd']);

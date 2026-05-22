@@ -42,6 +42,21 @@ test('unterminated string throws', () => {
   assert.throws(() => tokenize('"oops'), /unterminated string/);
 });
 
+test('backtick-quoted identifiers tokenize as id with the raw name', () => {
+  assert.deepEqual(shape(tokenize('`Au g/t`')), [{ type: 'id', name: 'Au g/t' }]);
+  assert.deepEqual(shape(tokenize('`drillhole id`')), [{ type: 'id', name: 'drillhole id' }]);
+  assert.deepEqual(shape(tokenize('model.`Au g/t`')), [
+    { type: 'id', name: 'model' },
+    { type: 'op', op: '.' },
+    { type: 'id', name: 'Au g/t' },
+  ]);
+});
+
+test('unterminated / empty backtick identifier throws', () => {
+  assert.throws(() => tokenize('`oops'), /unterminated backtick/);
+  assert.throws(() => tokenize('``'),    /empty backtick/);
+});
+
 // ── identifiers and keywords ──────────────────────────────────────
 
 test('identifiers and keywords separated', () => {

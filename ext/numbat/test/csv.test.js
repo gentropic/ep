@@ -31,6 +31,24 @@ test('parseCsv: CRLF line endings', () => {
   assert.deepEqual(nums(ds, 'y'), [2, 4]);
 });
 
+test('parseCsv: config.columns overrides a column name + unit', () => {
+  const ds = parseCsv('a,b\n2.5,100\n5,40', {
+    columns: { 0: { name: 'grade', unit: 'g/t' } },
+  }, { resolveUnit: () => new Quantity(1e-6, {}) });
+  assert.deepEqual([...ds.columns.keys()], ['grade', 'b']);
+  const g = col(ds, 'grade');
+  assert.ok(Math.abs(g[0].value - 2.5e-6) < 1e-15);   // header unit folded in
+  assert.equal(g[0].disp.name, 'g/t');
+});
+
+test('parseCsv: config.columns can clear a header unit', () => {
+  const ds = parseCsv('grade (g/t),b\n2.5,100', {
+    columns: { 0: { unit: '' } },
+  }, { resolveUnit: () => new Quantity(1e-6, {}) });
+  assert.equal(col(ds, 'grade')[0].value, 2.5);   // no unit applied
+  assert.equal(col(ds, 'grade')[0].disp, null);
+});
+
 // ── delimiter detection ──────────────────────────────────────────
 
 test('detectCsvConfig: sniffs a semicolon delimiter + pairs comma decimal', () => {

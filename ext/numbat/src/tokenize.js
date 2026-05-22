@@ -123,6 +123,25 @@ export function tokenize(source, sourceName = '<input>') {
       continue;
     }
 
+    // Backtick-quoted identifier — `Au g/t`, `drillhole id`. Lets dataset
+    // columns whose names contain spaces/punctuation be referenced. Emits
+    // an ordinary `id` token with the raw name; lookup is unchanged. No
+    // escaping — a backtick always closes (a column name containing a
+    // literal backtick isn't a real case).
+    if (c === '`') {
+      advance();
+      const nameStart = i;
+      while (i < source.length && source[i] !== '`') advance();
+      if (i >= source.length) {
+        throw new Error(`${sourceName}:${start.line}:${start.col}: unterminated backtick-quoted identifier`);
+      }
+      const name = source.slice(nameStart, i);
+      advance();  // consume closing backtick
+      if (!name) throw new Error(`${sourceName}:${start.line}:${start.col}: empty backtick-quoted identifier`);
+      emit('id', { name }, start);
+      continue;
+    }
+
     // Number literal — decimal (incl. underscore separators, scientific),
     // hexadecimal (0x), octal (0o), or binary (0b).
     if ((c >= '0' && c <= '9') || (c === '.' && source[i + 1] >= '0' && source[i + 1] <= '9')) {
