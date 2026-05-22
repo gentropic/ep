@@ -111,6 +111,7 @@ const JS_FILES = [
   'menu.js',
   'formatter.js',
   'render.js',
+  'param-history.js',
   'format-cmd.js',
   'pointer.js',
   'update-check.js',

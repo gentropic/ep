@@ -6,6 +6,7 @@
 //     updatedAt: ms,
 //     scenarios?: { [scenarioName]: { [paramName]: valueSrc } },
 //     activeScenario?: string,
+//     paramHistory?: { [paramName]: valueSrc[] },  // §7.1, last 5 distinct
 //   } }
 //   localStorage["ep:current"]  = name
 //   localStorage["ep:draft"]    = {                          // optional
@@ -392,6 +393,31 @@ export function saveCurrentProgram(opts = {}) {
     // Listeners hook into this event rather than us importing the drawer.
     window.dispatchEvent(new CustomEvent('ep:storage-changed'));
   }
+}
+
+// §7.1 — recent values per @input param. Each saved program record keeps
+// the last N distinct *committed* chip values per param under
+// `paramHistory: { [paramName]: valueSrc[] }`. Ephemeral (unsaved)
+// programs have no store record, so history simply doesn't accrue until
+// the first save — acceptable, history is a per-saved-program affordance.
+const PARAM_HISTORY_CAP = 5;
+
+export function recordParamHistory(paramName, value) {
+  const v = (value == null ? '' : String(value)).trim();
+  if (!v || !paramName) return;
+  const store = readStore();
+  const rec = store[currentProgramName];
+  if (!rec) return;   // ephemeral / unsaved — nothing to attach history to
+  const prev = (rec.paramHistory && rec.paramHistory[paramName]) || [];
+  if (prev[0] === v) return;   // already the most-recent — no-op
+  const next = [v, ...prev.filter(x => x !== v)].slice(0, PARAM_HISTORY_CAP);
+  rec.paramHistory = { ...(rec.paramHistory || {}), [paramName]: next };
+  writeStore(store);
+}
+
+export function getParamHistory(paramName) {
+  const rec = readStore()[currentProgramName];
+  return (rec && rec.paramHistory && rec.paramHistory[paramName]) || [];
 }
 
 export function loadProgramByName(name) {

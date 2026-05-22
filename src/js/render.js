@@ -1341,6 +1341,70 @@ function chipWidgetOptions(p) {
 // Build the chip's input control. Returns a {el, getValue} pair so the
 // caller can wire its own onChange without caring whether the element is
 // an <input> or a <select>.
+// Apply a new value to an @input chip's binding: rewrite the source line
+// (preserving any trailing comment), re-evaluate, refresh dependent UI.
+// Shared by the chip controls' onChange and the param-history menu (which
+// reaches it via the ep:param-set event). Deliberately does NOT re-sync
+// the chip inputs — the typing path must not fight the cursor; the menu
+// path calls syncChipInputsFromState itself.
+function applyChipValue(name, newValue) {
+  const cur = state.params.find(x => x.name === name);
+  if (!cur) return;
+  const bodyIdx = cur.bodyIdx;
+  const line = state.body[bodyIdx];
+  const eq = line.src.indexOf('=');
+  // Preserve any trailing comment (e.g., `# options: …`) — otherwise
+  // editing the chip would erase the user's declared options list.
+  // String-aware match so `# inside literal "..."` isn't treated as a
+  // comment marker.
+  let trailingComment = '';
+  if (eq >= 0) {
+    const rhs = line.src.slice(eq + 1);
+    let inStr = false;
+    for (let k = 0; k < rhs.length; k++) {
+      const c = rhs[k];
+      if (inStr) {
+        if (c === '\\' && k + 1 < rhs.length) { k++; continue; }
+        if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') { inStr = true; continue; }
+      if (c === '#' || (c === '-' && rhs[k + 1] === '-')) {
+        trailingComment = '  ' + rhs.slice(k).replace(/^\s+/, '');
+        break;
+      }
+    }
+  }
+  line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + newValue + trailingComment;
+  evaluateAll();
+  syncCmFromState();
+  renderChipResults();
+  renderOutputs();
+  scheduleErrorMarks();
+  // storage.js listens for ep:params-changed and triggers autosave.
+  // Decoupled from render so the viewer can reuse render.js without
+  // pulling in the storage layer.
+  window.dispatchEvent(new CustomEvent('ep:params-changed'));
+}
+
+// §7.1 — a chip value was committed (change event, not every keystroke).
+// render.js stays storage-free: it just announces the commit; the
+// editor-only param-history.js records it.
+function announceChipCommit(name, value) {
+  window.dispatchEvent(new CustomEvent('ep:param-committed', { detail: { name, value } }));
+}
+
+// §7.1 — the param-history menu (param-history.js) picks a recent value
+// and asks us to apply it. We own the apply path; re-sync the chip
+// inputs afterwards since this is a menu action, not a typing edit, so
+// there's no cursor to disturb.
+window.addEventListener('ep:param-set', (e) => {
+  const d = e.detail || {};
+  if (!d.name) return;
+  applyChipValue(d.name, d.value);
+  syncChipInputsFromState();
+});
+
 function makeChipControl(p, onChange) {
   const widget = chipWidgetOptions(p);
   if (widget) {
@@ -1356,6 +1420,7 @@ function makeChipControl(p, onChange) {
     }
     sel.value = p.valueSrc;
     sel.addEventListener('change', () => onChange(sel.value));
+    sel.addEventListener('change', () => announceChipCommit(p.name, sel.value));
     sel.addEventListener('focus', () => { state._lastFocused = sel; });
     return sel;
   }
@@ -1418,6 +1483,9 @@ function makeChipControl(p, onChange) {
     });
     range.addEventListener('focus', () => { state._lastFocused = range; });
     text.addEventListener('focus',  () => { state._lastFocused = text; });
+    // §7.1 — record on commit (drag-release / blur), not every drag tick.
+    range.addEventListener('change', () => announceChipCommit(p.name, text.value));
+    text.addEventListener('change',  () => announceChipCommit(p.name, text.value));
 
     wrap.append(range, text);
     return wrap;
@@ -1431,6 +1499,7 @@ function makeChipControl(p, onChange) {
   inp.dataset.paramName = p.name;
   inp.dataset.kind = 'input';
   inp.addEventListener('input', () => onChange(inp.value));
+  inp.addEventListener('change', () => announceChipCommit(p.name, inp.value));
   inp.addEventListener('focus', () => { state._lastFocused = inp; });
   return inp;
 }
@@ -1451,49 +1520,18 @@ export function renderChips() {
     const lbl = document.createElement('div');
     lbl.className = 'chip-lbl';
     lbl.textContent = p.anno ? `${name} : ${p.anno}` : name;
-    const inp = makeChipControl(p, (newValue) => {
-      const cur = state.params.find(x => x.name === name);
-      if (!cur) return;
-      const bodyIdx = cur.bodyIdx;
-      const line = state.body[bodyIdx];
-      const eq = line.src.indexOf('=');
-      // Preserve any trailing comment (e.g., `# options: …`) — otherwise
-      // editing the chip would erase the user's declared options list.
-      // String-aware match so `# inside literal "..."` isn't treated as
-      // a comment marker.
-      let trailingComment = '';
-      if (eq >= 0) {
-        const rhs = line.src.slice(eq + 1);
-        let inStr = false;
-        for (let k = 0; k < rhs.length; k++) {
-          const c = rhs[k];
-          if (inStr) {
-            if (c === '\\' && k + 1 < rhs.length) { k++; continue; }
-            if (c === '"') inStr = false;
-            continue;
-          }
-          if (c === '"') { inStr = true; continue; }
-          if (c === '#' || (c === '-' && rhs[k + 1] === '-')) {
-            trailingComment = '  ' + rhs.slice(k).replace(/^\s+/, '');
-            break;
-          }
-        }
-      }
-      line.src = (eq >= 0 ? line.src.slice(0, eq + 1) + ' ' : `  ${name} = `) + newValue + trailingComment;
-      evaluateAll();
-      syncCmFromState();
-      renderChipResults();
-      renderOutputs();
-      scheduleErrorMarks();
-      // storage.js listens for ep:params-changed and triggers autosave.
-      // Decoupled from render so the viewer can reuse render.js without
-      // pulling in the storage layer.
-      window.dispatchEvent(new CustomEvent('ep:params-changed'));
-    });
+    const inp = makeChipControl(p, (newValue) => applyChipValue(name, newValue));
     const res = document.createElement('div');
     res.className = 'chip-res';
     chip.append(lbl, inp, res);
     chipsEl.append(chip);
+    // §7.1 — long-press (or right-click) the chip label to recall this
+    // param's recent values. Attached to the label, not the input, so it
+    // doesn't fight text selection / the input's own context menu.
+    attachLongPress(lbl, (x, y) => {
+      window.dispatchEvent(new CustomEvent('ep:param-history-request',
+        { detail: { name, x, y } }));
+    });
     p._resEl   = res;
     p._inputEl = inp;
   });
