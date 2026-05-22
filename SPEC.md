@@ -826,7 +826,7 @@ Quick tap still copies the default `216 kt` plain-text format. Menu is for power
 
 Settings → display → "significant digits": pills 3 / 4 / 5 / 6, default 4. Numbat-js's `formatNumber` / `formatParts` take an `opts.sig`; ep's `units.js` wraps with `setFmtSigDigits()` and threads the user setting through. Per-output unit overrides via `@output(unit)` still win when present.
 
-### 5.3 Locale-aware separators (S)
+### 5.3 Locale-aware separators (S) — **Future**
 
 Read `navigator.language` on boot. Pick decimal/thousands separators accordingly:
 - `en-*` → `216,000.5 kt`
@@ -927,7 +927,7 @@ Effort: ~150 LOC. Probably the highest-leverage UX investment in this entire roa
 
 Smaller items that catch the eyes of careful users.
 
-### 7.1 Recent values per param (M)
+### 7.1 Recent values per param (M) — **Future**
 
 Each `@params` chip remembers its last 5 distinct values across the program's lifetime. Long-press the chip → menu listing recent values; tap to set. Currently the chip just shows the canonical-units result on the right side — that real estate could host a small history indicator (`▾ 5`) when there's history to show.
 
@@ -939,7 +939,7 @@ Stored as `store[name].paramHistory = { length: ["200 m", "350 m", ...], ... }`.
 
 The chip's right-side preview (`.chip-res`) goes red and shows the error message when the binding fails. Implemented in `renderChipResults()` in `src/js/render.js`.
 
-### 7.3 Annotation auto-suggest (M)
+### 7.3 Annotation auto-suggest (M) — **Shipped**
 
 When a user writes `density = 2.7 g/cm3`, the inferred dimension is `Mass / Volume` which matches the named `Density`. Offer a one-tap fixup: small `+ Density?` chip appears next to the binding for a few seconds. Tap to rewrite to `density : Density = 2.7 g/cm3`.
 
@@ -1027,7 +1027,7 @@ For clarity and to prevent drift. (These are in addition to the core "Out of sco
 
 ---
 
-## 9. PWA updates
+## 9. PWA updates — **Shipped**
 
 How users get new versions of ep. Not optional once ep is deployed — without an update story, users either never see new versions (if their tab stays open forever) or get them randomly mid-edit (if auto-skip is naively enabled). Worth designing on purpose.
 
@@ -1295,28 +1295,47 @@ Total: M–L for the full stack, but spreadable over multiple releases. The prot
 
 ---
 
-## 11. Implementation order (suggested)
+## 11. Status — what's built, what's left
 
-If picking what to ship first, in order:
+The roadmap above is almost entirely shipped. Audited against `src/js/`
+on 2026-05-21:
 
-1. **§1 (drawer / autosave / persistence)** — first wave; already designed in the mock, just port faithfully
-2. **§10.2 (job protocol shape)** — get the message types right in v0.1 even before there's any long-running work; retrofitting later means rewriting the kernel-shell boundary
-3. **§2.3 (per-program descriptions)** — tiny code, huge UX win once programs accumulate
-4. **§9 (PWA updates)** — not optional once deployed; build alongside the initial PWA wiring
-5. **§3 (URL sharing + QR)** — the killer feature beyond what's in the mock
-6. **§6.4 (first-launch tutorial)** — highest-leverage cosmetic investment for unfamiliar-user conversion
-7. **§7.4 (snapshots / history)** — turns ep from "scratch pad" into "trustworthy for serious work"; co-migrate to IDB at the same time
-8. **§7.5 (param scenarios)** — natural companion to snapshots, lighter to implement
-9. **§2.1 (keyboard shortcuts)** — power-users notice immediately
-10. **§5.1 (copy-as menu)** — visible improvement, low risk
-11. **§4.1 (syntax highlighting)** — the natural moment to vendor CodeMirror 6
-12. **§10.3–10.4 (progress UI + chunked workers)** — when the first job actually goes long enough to need them
-13. **§5.4 (format directive)** — once people have real reports to produce
-14. **§10.5–10.6 (notification + checkpoint/resume)** — when grid types land
-15. Everything else — as use cases pull
+**Shipped:** §1 (drawer / autosave / persistence), §2 (keyboard
+shortcuts, drawer search, per-program descriptions, copy-source), §3 (URL
+sharing + QR, via the `@gcu/pointer` grammar), §4.1–§4.5 (syntax
+highlighting, error pinpoint + blame, bracket auto-pair, in-editor docs,
+docs viewer), §5.1/§5.2/§5.5/§5.6/§5.7 (copy-as, sig-digits, live-preview
+smoothing, format-document, gutter unit override; §5.4 superseded by
+`@output`), §6 (examples, sort, pinning, first-launch tutorial),
+§7.2–§7.5 (inline chip errors, annotation auto-suggest, snapshots,
+scenarios), §7.6 except tz-conversion, §9 (PWA update flow). Beyond the
+original roadmap, also shipped: the dataset lane (`load_csv`, columnar
+reductions, plots), the optional line-number gutter, `_N` / `above` line
+references, and a real `DateTime` value type with calendar arithmetic.
 
-Roughly the first six deliver the bulk of the value (mock, protocol, descriptions, updates, URL-share, tutorial); the next two (snapshots, scenarios) raise ep's seriousness ceiling; the rest are visible polish or scale-driven work.
+**Not built — the remaining todo, largest first:**
+
+1. **§10 — long-running jobs & progress.** The only large block.
+   Evaluation is still synchronous: no job protocol (§10.2), no inline
+   progress UI (§10.3), no chunked workers (§10.4), no background-tab
+   notification (§10.5), no IDB checkpoint/resume (§10.6). §10.2 (the
+   shell-kernel message shape) is the one piece costly to retrofit —
+   worth nailing first if this block is ever opened. Multi-session.
+2. **§7.1 — recent values per param** (M). Per-chip history of the last
+   ~5 values, recallable from a long-press menu. `store[name].paramHistory`.
+3. **§5.3 — locale-aware separators** (S). Pick decimal/thousands glyphs
+   from `navigator.language`; lives in `fmtNum`.
+4. **§7.6 — timezone conversion via `->`** (S). `datetime -> tz("…")` /
+   `-> UTC` — the `->` operator doesn't yet apply a function-valued RHS.
+5. **§4.6 — Tab-cycle through chips and body rows** (S). Keyboard
+   navigation across the form ↔ body.
+
+None block anything. §10 is a real project; the rest are polish — §5.3
+and §7.6-tz are roughly an afternoon each, §7.1 a small feature.
 
 ---
 
-*Roadmap section originated as a separate ENHANCEMENTS.md, May 2026, merged in alongside the original spec. Will drift during implementation; treat as a guide rather than a contract.*
+*Roadmap section originated as a separate ENHANCEMENTS.md, May 2026,
+merged in alongside the original spec. §11 reflects an audit on
+2026-05-21; the rest will drift during implementation — treat as a guide
+rather than a contract.*
