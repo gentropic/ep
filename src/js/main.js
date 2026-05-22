@@ -2,10 +2,10 @@
 // seeds the demo if first-run), runs the initial evaluate + render pass, then
 // wires global keyboard shortcuts.
 
-import { evaluateAll } from './state.js';
+import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { applyInitialUI } from './view.js';
-import { bootStorage, bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram, applyEphemeralUI } from './storage.js';
+import { bootStorage, bootProgramFromStorage, saveCurrentProgram, scheduleAutosave, newProgram, applyEphemeralUI, takeSnapshot, currentProgramName } from './storage.js';
 import { openDrawer, closeDrawer } from './drawer.js';
 import { hasShareParam, consumeShareParam, adoptSharedProgram } from './share.js';
 import { startTutorial, isTutorialDone } from './tutorial.js';
@@ -13,9 +13,10 @@ import { renderScenariosStrip } from './scenarios.js';
 import './accessory.js';
 import './export.js';
 import './io.js';
-import './dialogs.js';
+import { epPrompt } from './dialogs.js';
 import './ctxmenu.js';
 import './csv-assets.js';
+import './param-history.js';
 import { applySettings } from './settings.js';
 import { formatCurrentProgram } from './format-cmd.js';
 import './gcu-announce.js';
@@ -74,6 +75,34 @@ bootStorage().then(async () => {
 });
 
 // ── Keyboard shortcuts (§2.1) ─────────────────────────────────
+// Ctrl/Cmd+S. The first press on an unsaved (ephemeral) program commits
+// it to the saved list. After that the program is already autosaved
+// continuously, so a plain re-save would be a no-op — repurpose the
+// keystroke as a named-snapshot trigger (the §7.4 machinery).
+function handleSaveShortcut() {
+  if (state._ephemeral) {
+    saveCurrentProgram({ force: true });
+    return;
+  }
+  snapshotCurrentProgram();
+}
+
+async function snapshotCurrentProgram() {
+  const name = currentProgramName;
+  if (!name) return;
+  const label = await epPrompt({
+    title: 'Take snapshot',
+    label: 'label (optional)',
+    value: '',
+    okLabel: 'Snapshot',
+  });
+  if (label === null) return;   // cancelled
+  // takeSnapshot reads the *stored* body — flush live edits first so the
+  // snapshot captures exactly the state the user pressed Ctrl+S on.
+  saveCurrentProgram();
+  takeSnapshot(name, (label || '').trim() || null);
+}
+
 window.addEventListener('keydown', e => {
   // Shift+Alt+F is the Prettier convention — alt instead of mod so it
   // doesn't fight Cmd/Ctrl-bound editor shortcuts.
@@ -94,7 +123,7 @@ window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'n')                { e.preventDefault(); newProgram(); closeDrawer(); return; }
   if (k === 'o')                { e.preventDefault(); document.getElementById('fileInput').click(); return; }
-  if (k === 's')                { e.preventDefault(); saveCurrentProgram({force: true}); return; }
+  if (k === 's')                { e.preventDefault(); handleSaveShortcut(); return; }
   if (k === 'e')                { e.preventDefault(); document.getElementById('exportBtn').click(); return; }
   if (k === 'p' || k === 'k')   { e.preventDefault(); openDrawer({focusSearch: true}); return; }
 });
