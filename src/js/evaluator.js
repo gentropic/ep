@@ -957,6 +957,23 @@ export function evaluate(body) {
         const named = namedDimFor(q.dim);
         if (named) row.suggest = { dimName: named };
       }
+      // Inline load_csv affordance — a `name = load_csv("x")` line gets
+      // an end-of-line widget reflecting the asset's state (render.js).
+      // Skipped for @input bindings — there the chip itself is the
+      // file-picker. Derived from this row's own result: a Dataset means
+      // the asset is attached.
+      if (!wantsChip) {
+        const csvM = c.expr && c.expr.match(/^load_csv\s*\(\s*"([^"]*)"\s*\)\s*$/);
+        if (csvM) {
+          const ds = (q && typeof q === 'object' && q.__dataset) ? q : null;
+          row.csvAsset = {
+            name: csvM[1],
+            attached: !!ds,
+            rows: ds ? ds.length : 0,
+            cols: ds ? ds.columns.size : 0,
+          };
+        }
+      }
       // Supplementary typecheck — re-form the binding as a numbat let-decl.
       const annoStr = c.anno ? `: ${c.anno}` : '';
       // Wrap adds `let ` (4 chars). colShift = 4 puts the col back

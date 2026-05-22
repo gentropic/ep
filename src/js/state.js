@@ -47,6 +47,7 @@ export function evaluateAll() {
     dest.print    = src.print;
     dest.plot     = src.plot;
     dest.suggest  = src.suggest;
+    dest.csvAsset = src.csvAsset;
     dest.outputs  = src.outputs;
     dest.inParams = src.inParams;
   }

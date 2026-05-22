@@ -529,7 +529,7 @@ function mountCm6() {
   // for runtime/typecheck failures or 'warn' (amber) for blame-trace
   // suspect annotations.
   class EpErrorWidget extends WidgetType {
-    constructor(message, col, kind, suggestDim, rowIdx, plot) {
+    constructor(message, col, kind, suggestDim, rowIdx, plot, csv) {
       super();
       this.message = message;
       this.col = col;
@@ -541,6 +541,8 @@ function mountCm6() {
       // 'plot' kind carries the descriptor object produced by numbat-js's
       // _plotSink. Other kinds ignore.
       this.plot = plot || null;
+      // 'csv-asset' kind carries { name, attached, rows, cols }.
+      this.csv = csv || null;
     }
     eq(other) {
       if (this.kind === 'plot') {
@@ -562,6 +564,12 @@ function mountCm6() {
           && (a.values?.length || 0) === (b.values?.length || 0)
           && JSON.stringify(a.xs || a.values || []) === JSON.stringify(b.xs || b.values || [])
           && JSON.stringify(a.ys || []) === JSON.stringify(b.ys || []);
+      }
+      if (this.kind === 'csv-asset') {
+        const a = this.csv, b = other.csv;
+        if (!a || !b) return a === b;
+        return a.name === b.name && a.attached === b.attached
+            && a.rows === b.rows && a.cols === b.cols;
       }
       return other.message === this.message
         && other.col === this.col
@@ -618,6 +626,33 @@ function mountCm6() {
           applySuggestion(rowIdx, dim);
         });
         span.appendChild(btn);
+        return span;
+      }
+      if (this.kind === 'csv-asset') {
+        // Inline end-of-line affordance on a `name = load_csv("x")` line.
+        const span = document.createElement('span');
+        span.className = 'cm-ep-suggest-inline';
+        const csv = this.csv || {};
+        const fire = (e) => {
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent('ep:csv-attach-request',
+            { detail: { name: csv.name } }));
+        };
+        if (csv.attached) {
+          const chip = document.createElement('span');
+          chip.className = 'cm-ep-csv-chip';
+          chip.textContent = `${csv.name} · ${fmtNum(csv.rows)} × ${csv.cols}`;
+          chip.title = 'attached data — click to re-attach';
+          chip.addEventListener('click', fire);
+          span.appendChild(chip);
+        } else {
+          const btn = document.createElement('button');
+          btn.className = 'cm-ep-suggest-btn';
+          btn.textContent = 'attach…';
+          btn.title = `no data attached for "${csv.name}" — click to attach a CSV`;
+          btn.addEventListener('click', fire);
+          span.appendChild(btn);
+        }
         return span;
       }
       const el = document.createElement('div');
@@ -836,6 +871,11 @@ function mountCm6() {
           if (kind === 'suggest') {
             decos.push(Decoration.widget({
               widget: new EpErrorWidget('', 0, kind, it.suggestDim, it.rowIdx),
+              side: 1,
+            }).range(line.to));
+          } else if (kind === 'csv-asset') {
+            decos.push(Decoration.widget({
+              widget: new EpErrorWidget('', 0, kind, null, -1, null, it.csv),
               side: 1,
             }).range(line.to));
           } else if (kind === 'plot') {
@@ -1264,6 +1304,7 @@ function syncChipInputsFromState() {
   for (const p of state.params) {
     if (!p._inputEl) continue;
     if (p._inputEl === document.activeElement) continue;
+    if (p._inputEl.dataset.kind === 'filepicker') continue;   // no text value to sync
     if (p._inputEl.dataset.kind === 'slider') {
       const text = p._inputEl.querySelector('.chip-slider-val');
       const range = p._inputEl.querySelector('.chip-slider');
@@ -1291,12 +1332,24 @@ const SIEVE_MESHES = [635,500,450,400,325,270,230,200,170,150,120,100,80,70,60,5
 
 function chipWidgetKind(p) {
   // Priority: options (enum-style) wins over range (slider) wins over
-  // freeform text input. Options + range is incoherent (you can't both
-  // pick from a list and drag a slider), so we honor the more specific
-  // signal — options — when both are present.
+  // file-picker (a load_csv binding) wins over freeform text input.
+  // Options + range is incoherent (you can't both pick from a list and
+  // drag a slider), so we honor the more specific signal — options —
+  // when both are present.
   if (chipWidgetOptions(p))   return 'select';
   if (chipSliderInfo(p))      return 'slider';
+  if (chipFilePickerInfo(p))  return 'filepicker';
   return 'input';
+}
+
+// Returns { name } if the chip should render as a CSV file-picker /
+// drop-zone, else null. Triggers when the binding's value is a bare
+// load_csv("…") call — an @input on such a binding means "let the user
+// (or a recipient of the exported form) drop their own CSV here".
+function chipFilePickerInfo(p) {
+  if (!p || !p.valueSrc) return null;
+  const m = p.valueSrc.trim().match(/^load_csv\s*\(\s*"([^"]*)"\s*\)\s*$/);
+  return m ? { name: m[1] } : null;
 }
 
 // Returns {min, max, step, num, unit} if the chip should render as a
@@ -1490,6 +1543,86 @@ function makeChipControl(p, onChange) {
     wrap.append(range, text);
     return wrap;
   }
+  const picker = chipFilePickerInfo(p);
+  if (picker) {
+    // The chip IS a CSV drop-zone / file-picker. The binding source —
+    // load_csv("name") — never changes; only the asset's content does,
+    // so there's no onChange / source rewrite. Drop a file, or tap the
+    // chip. When attached, the WHOLE chip is the tap target (a full-width,
+    // comfortably-tall touch hit area): in the editor it opens a menu —
+    // replace file / re-configure parsing; the viewer, with no attach
+    // dialog, just replaces. Unattached → tap picks the first file.
+    const ds = (p.result && typeof p.result === 'object' && p.result.__dataset)
+      ? p.result : null;
+    const zone = document.createElement('div');
+    zone.className = 'chip-val chip-val-filepicker' + (ds ? ' attached' : '');
+    zone.dataset.paramName = p.name;
+    zone.dataset.kind = 'filepicker';
+    zone.tabIndex = 0;
+
+    const label = document.createElement('span');
+    label.className = 'chip-fp-label';
+    label.textContent = ds
+      ? `${picker.name} · ${fmtNum(ds.length)} × ${ds.columns.size}`
+      : 'drop CSV · or click';
+    zone.appendChild(label);
+    if (ds) {
+      const hint = document.createElement('span');
+      hint.className = 'chip-fp-hint';
+      hint.textContent = '⚙';
+      zone.appendChild(hint);
+    }
+
+    const readFile = (file) => {
+      if (!file) return;
+      file.text()
+        .then(text => window.dispatchEvent(new CustomEvent('ep:csv-attach-request',
+          { detail: { name: picker.name, text } })))
+        .catch(err => console.error('ep: failed to read dropped CSV:', err));
+    };
+    const pick = () => {
+      const fi = document.createElement('input');
+      fi.type = 'file';
+      fi.accept = '.csv,text/csv';
+      fi.addEventListener('change', () => readFile(fi.files && fi.files[0]));
+      fi.click();
+    };
+    const activate = (e) => {
+      // Attached, in the editor → a menu (full-width rows are far easier
+      // to hit on touch than a tiny inline cog). Otherwise → pick a file.
+      if (ds && !state._viewer) {
+        // Keep this click from bubbling to menu.js's window-level dismiss
+        // listener, which would otherwise close the menu on the very
+        // click that opened it.
+        if (e) e.stopPropagation();
+        const r = zone.getBoundingClientRect();
+        showMenu([
+          { label: 'replace file…', action: pick },
+          { label: 're-configure parsing…', action: () =>
+              window.dispatchEvent(new CustomEvent('ep:csv-reconfigure-request',
+                { detail: { name: picker.name } })) },
+        ], r.left, r.bottom);
+      } else {
+        pick();
+      }
+    };
+
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('dragover');
+      readFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+    });
+    zone.addEventListener('click', activate);
+    zone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+    });
+    zone.addEventListener('focus', () => { state._lastFocused = zone; });
+    return zone;
+  }
+
   const inp = document.createElement('input');
   inp.className = 'chip-val';
   inp.value = p.valueSrc;
@@ -1737,6 +1870,12 @@ function applyErrorMarks() {
         line: i + 1, col: 0, message: '', kind: 'suggest',
         suggestDim: row.suggest.dimName, rowIdx: i,
       });
+    }
+    // Inline load_csv affordance — shown on a `name = load_csv("x")`
+    // line regardless of error: a missing asset both errors AND offers
+    // the attach… widget (the widget is how you fix it).
+    if (row.csvAsset) {
+      items.push({ line: i + 1, col: 0, message: '', kind: 'csv-asset', csv: row.csvAsset });
     }
   }
   cmView.dispatch({ effects: _errorEffect.of(items) });

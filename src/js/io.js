@@ -78,6 +78,9 @@ window.addEventListener('dragleave', (e) => {
 // the editor) pass straight through.
 window.addEventListener('drop', async (e) => {
   if (!hasFiles(e)) return;
+  // A drop onto an @input file-picker chip is that chip's to handle —
+  // this capture-phase handler must not swallow it.
+  if (e.target && e.target.closest && e.target.closest('.chip-val-filepicker')) return;
   e.preventDefault();
   e.stopPropagation();
   dragDepth = 0;

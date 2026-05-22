@@ -7,13 +7,26 @@
 import { evaluateAll } from './state.js';
 import { renderChips, renderResults } from './render.js';
 import { encodeInlineI } from './pointer.js';
-import './csv-assets.js';   // registers the load_csv resolver for embedded assets
+import { attachCsv } from './csv-assets.js';   // also registers the load_csv resolver
 
 import { state } from './state.js';
 
 evaluateAll();
 renderChips();
 renderResults();
+
+// An @input file-picker chip lets a recipient drop their own CSV into an
+// exported form. render.js fires ep:csv-attach-request; the viewer has no
+// attach dialog, so it embeds the dropped text directly (auto-detected
+// parse config) and recomputes against the recipient's data.
+window.addEventListener('ep:csv-attach-request', (e) => {
+  const d = e.detail || {};
+  if (!d.name || d.text == null) return;
+  attachCsv(d.name, d.text);
+  evaluateAll();
+  renderChips();
+  renderResults();
+});
 
 // Header filename comes from the exported program's name. INITIAL_STATE.name
 // is set by export.js when serializing the viewer artifact.

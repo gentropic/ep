@@ -197,13 +197,27 @@ window.addEventListener('keydown', (e) => {
 
 // ── entry points ──────────────────────────────────────────────────
 
-// Show the dialog and, on confirm, embed the asset + add a
-// `name = load_csv("name")` binding if the program doesn't have one.
-export async function attachFromText(text, suggestedName) {
-  const result = await showAttachDialog(text, suggestedName);
+// Open a hidden CSV file-picker; call cb(file) when one is chosen.
+function pickFile(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.csv,text/csv';
+  inp.addEventListener('change', () => {
+    const file = inp.files && inp.files[0];
+    if (file) cb(file);
+  });
+  inp.click();
+}
+
+// Show the dialog for `text`; on confirm embed the asset and re-evaluate.
+// A `name = load_csv("name")` binding is appended only if the program has
+// none. `forceName` pins the asset name (re-attach to an existing
+// binding); otherwise the dialog's name field decides.
+async function finishAttach(text, suggestedName, existingConfig, forceName) {
+  const result = await showAttachDialog(text, suggestedName, existingConfig);
   if (!result) return;
-  const { name, config } = result;
-  attachCsv(name, text, config);
+  const name = forceName || result.name;
+  attachCsv(name, text, result.config);
   const ref = `load_csv("${name}")`;
   if (!state.body.some(r => r.src.includes(ref))) {
     const bindName = name.replace(/[^A-Za-z0-9_]/g, '_').replace(/^(\d)/, '_$1') || 'data';
@@ -218,16 +232,42 @@ export async function attachFromText(text, suggestedName) {
   window.dispatchEvent(new CustomEvent('ep:storage-changed'));
 }
 
-// File-picker entry point (mobile / when drag-drop isn't practical).
-export function pickCsvAndAttach() {
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  inp.accept = '.csv,text/csv';
-  inp.addEventListener('change', async () => {
-    const file = inp.files && inp.files[0];
-    if (!file) return;
-    const text = await file.text();
-    attachFromText(text, file.name.replace(/\.csv$/i, '').trim() || 'data');
-  });
-  inp.click();
+// Drag-drop entry — a fresh attach; the asset name comes from the file.
+export async function attachFromText(text, suggestedName) {
+  return finishAttach(text, suggestedName);
 }
+
+// File-picker entry point (the assets-list "attach CSV" button).
+export function pickCsvAndAttach() {
+  pickFile(file => file.text().then(t =>
+    attachFromText(t, file.name.replace(/\.csv$/i, '').trim() || 'data')));
+}
+
+// Re-/attach to an EXISTING load_csv("name") binding — from the inline
+// affordance or the @input file-picker chip. The name is pinned; the
+// dialog is seeded with the asset's current parse config when there is
+// one. `text` is supplied when a file was already dropped; otherwise a
+// file-picker opens first.
+export function attachToAsset(name, text) {
+  const cfg = (state.assets && state.assets[name] && state.assets[name].config) || undefined;
+  if (text != null) {
+    finishAttach(text, name, cfg, name);
+  } else {
+    pickFile(file => file.text().then(t => finishAttach(t, name, cfg, name)));
+  }
+}
+
+// render.js (the inline affordance, the file-picker chip) can't import
+// editor-only code, so it asks for an attach via this event.
+window.addEventListener('ep:csv-attach-request', (e) => {
+  const d = e.detail || {};
+  if (d.name) attachToAsset(d.name, d.text);
+});
+
+// The file-picker chip's ⚙ button — re-open the dialog on the asset's
+// CURRENT text + config (tweak parsing without re-picking the file).
+window.addEventListener('ep:csv-reconfigure-request', (e) => {
+  const d = e.detail || {};
+  const asset = d.name && state.assets && state.assets[d.name];
+  if (asset && typeof asset.text === 'string') attachToAsset(d.name, asset.text);
+});

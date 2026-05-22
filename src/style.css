@@ -305,6 +305,60 @@ body {
   color: var(--sw-text);
 }
 
+/* File-picker-flavored chip — for an @input on a `load_csv("…")` binding.
+ * A drop-zone the user (or a recipient of the exported form) drops a CSV
+ * onto, or clicks to pick. */
+.chip-val.chip-val-filepicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 10px;
+  min-height: 34px;            /* a comfortable thumb target on touch */
+  color: var(--sw-text-soft);
+  border: 1px dashed var(--sw-border);
+  border-radius: var(--sw-radius);
+  background: var(--sw-bg-raised);
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms, background 120ms;
+}
+.chip-val.chip-val-filepicker:hover,
+.chip-val.chip-val-filepicker:focus {
+  color: var(--sw-text);
+  border-color: var(--sw-indigo);
+}
+.chip-val.chip-val-filepicker.dragover {
+  color: var(--sw-text);
+  border-color: var(--sw-indigo);
+  border-style: solid;
+  background: var(--sw-bg-bright);
+}
+/* Attached state — the asset is loaded. Solid (not dashed) border, the
+ * dataset's shape as the label, and a ⚙ hint. The whole chip is the tap
+ * target (opens the replace / re-configure menu) — no tiny sub-button. */
+.chip-val.chip-val-filepicker.attached {
+  border-style: solid;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--sw-text);
+}
+.chip-fp-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-fp-hint {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--sw-text-soft);
+}
+.chip-val.chip-val-filepicker.attached:hover .chip-fp-hint,
+.chip-val.chip-val-filepicker.attached:focus .chip-fp-hint {
+  color: var(--sw-indigo);
+}
+
 /* Slider-flavored chip — for @input bindings with an @range(min, max [, step])
  * decorator. Two stacked controls: the range slider on top (drag for
  * coarse adjustment), and a text input below carrying the exact value
@@ -1027,6 +1081,19 @@ body {
   border-style: solid;
   background: var(--sw-bg-bright);
 }
+/* Loaded-state chip for the inline load_csv affordance — a quiet
+ * `name · R × C` tag; the "attach…" (missing) state reuses suggest-btn. */
+.cm-ep-csv-chip {
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  background: var(--sw-bg-raised);
+  color: var(--sw-text-soft);
+  cursor: pointer;
+}
+.cm-ep-csv-chip:hover { color: var(--sw-text); border-color: var(--sw-indigo); }
 .body .cm-content .cm-ep-warn {
   text-decoration: underline wavy var(--sw-amber);
   text-decoration-thickness: 1.5px;
