@@ -19,6 +19,7 @@
 
 import { evaluate, getCompletionData } from './evaluator.js';
 import { fmt } from './units.js';
+import { getSetting } from './storage.js';
 
 const PIP_STORAGE_KEY = 'ep:pip-scratch';
 const DEFAULT_SCRATCH = '# scratchpad — auto-saves as you type\n# Shift+Alt+P from the main window to reopen\n\n';
@@ -137,7 +138,7 @@ export async function openPip() {
     EditorView, EditorState, keymap, history, historyKeymap,
     gutter, GutterMarker, drawSelection, defaultKeymap,
     StreamLanguage, syntaxHighlighting, HighlightStyle, tags,
-    foldGutter, foldKeymap,
+    foldGutter, foldKeymap, lineNumbers,
     bracketMatching, closeBrackets,
     Decoration, WidgetType, StateField, StateEffect,
     autocompletion, acceptCompletion,
@@ -329,6 +330,10 @@ export async function openPip() {
           closeOnBlur: true,
           maxRenderedOptions: 60,
         }),
+        // Line-number gutter — mirrors the main editor's optional gutter,
+        // gated on the same `lineNumbers` setting. Read once at open; the
+        // PiP is a transient window, so no live-toggle compartment.
+        ...(getSetting('lineNumbers', false) ? [lineNumbers()] : []),
         foldGutter(),
         EditorView.lineWrapping,
         history(),
