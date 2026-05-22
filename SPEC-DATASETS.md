@@ -1,8 +1,8 @@
 # SPEC-DATASETS — lazy collections & block models
 
-**Status**: design draft. Not implemented. Forward-looking extension to ep,
-deliberately kept separate from `SPEC.md` so the boundary between
-"initial implementation" and "dataset-scale extension" is clear.
+**Status**: Phase 1 (eager datasets) largely shipped; Phases 2+
+design-level. Kept separate from `SPEC.md` so the boundary between
+"initial implementation" and "dataset-scale extension" stays clear.
 
 ## Motivation
 
@@ -656,6 +656,15 @@ Candidate home: a fourth drawer mode (`data`) alongside `programs` /
   is acceptable for the first cut.
 - Column reductions and `plot(model.x, model.y)` render through the
   existing result / plot paths — no new display work.
+- A **full-dataset viewer** — opened from the assets list's "view…"
+  action — shows every row in a *virtualized* table: only the visible
+  row window is in the DOM, and a spacer sizes the scrollbar to the true
+  row count, so a 10⁵-row table doesn't blow up the DOM. It reads cells
+  through a `cellAt(rowIndex, column)` seam. In Phase 1 that seam is an
+  O(1) columnar-array lookup; **Phase 2 streaming must keep it working**
+  — a not-yet-loaded window resolves asynchronously and shows a
+  "loading…" placeholder until its rows arrive, rather than the viewer
+  assuming synchronous random access.
 
 ## 10. Export interaction
 
@@ -756,7 +765,18 @@ adoption.
 
 ## Status
 
-Draft. The high-level design stands; **Phase 1 (eager dataset
-implementation)** is specced in detail above and ready to build —
-substrate #1 (list primitives, broadcasting, masks) has landed.
-Phases 2+ (lazy views, streaming, AIR) remain design-level.
+The high-level design stands. **Phase 1 (eager datasets) is largely
+shipped** as of 2026-05-22: the columnar `Dataset`, `load_csv` with
+embedded assets, column access + broadcasting, the `where` clause, list
+reductions, `schema()`, backtick-quoted identifiers (§4), the CSV parser
+including per-column `parseConfig.columns` overrides, the attach dialog
+(live preview + parse config + per-column rename/unit), a file-picker,
+and a `data` drawer panel for managing attached CSVs.
+
+Still open within Phase 1: **file-referenced assets** (FSAA handles /
+session `File`, the "needs re-attach" schema-only shell) — only embedded
+assets exist; the inline `load_csv(...)` affordance widget and the
+`@input`-chip-as-file-picker entry points; and the inline preview-table
+result widget (§9). Phases 2+ (lazy views, streaming, AIR, block-model
+scale) remain design-level — that streaming/async lift is the same one
+tracked as SPEC.md §10.

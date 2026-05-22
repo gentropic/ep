@@ -1727,6 +1727,139 @@ body {
   gap: 6px;
   justify-content: flex-end;
 }
+
+/* ── Attach-CSV dialog ──────────────────────────────────────────── */
+/* Wider than a normal dialog — holds a live parse-preview table. */
+.attach-dialog { max-width: min(760px, 94vw); }
+.attach-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin: 10px 0;
+  font-family: var(--sw-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+}
+.attach-config label { display: flex; align-items: center; gap: 5px; }
+.attach-config select,
+.attach-config input {
+  font-family: var(--sw-mono);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  padding: 3px 5px;
+  color: var(--sw-text);
+}
+.attach-config input[type="number"] { width: 48px; }
+.attach-config #attachComment { width: 30px; text-align: center; }
+.attach-config label.attach-check {
+  text-transform: none;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+  color: var(--sw-text);
+}
+.attach-config label.attach-check input { accent-color: var(--sw-orange); }
+
+.attach-preview {
+  margin-top: 6px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+}
+.attach-preview table {
+  border-collapse: collapse;
+  table-layout: fixed;   /* explicit per-column widths — drag-resizable */
+  font-family: var(--sw-mono);
+  font-size: 11px;
+}
+.attach-preview th,
+.attach-preview td {
+  border: 1px solid var(--sw-border);
+  padding: 3px 6px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attach-preview thead th { background: var(--sw-bg-raised); position: sticky; top: 0; }
+.attach-preview td { color: var(--sw-text-mid); }
+/* Drag handle on each header cell's right edge — resizes the column. */
+.attach-col-resize {
+  position: absolute;
+  top: 0; right: -1px; bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+}
+.attach-col-resize:hover { background: var(--sw-orange); opacity: 0.45; }
+.attach-col-name,
+.attach-col-unit {
+  display: block;
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border);
+  border-radius: 2px;
+  padding: 2px 4px;
+  color: var(--sw-text);
+  width: 100%;
+  box-sizing: border-box;
+}
+.attach-col-name { font-weight: 700; }
+.attach-col-unit { margin-top: 3px; color: var(--sw-text-soft); }
+.attach-err {
+  padding: 12px;
+  color: var(--sw-red);
+  font-family: var(--sw-mono);
+  font-size: 11px;
+}
+
+/* ── Full-dataset viewer (virtualized) ──────────────────────────── */
+.dsv-dialog { max-width: min(900px, 96vw); }
+.dsv-body { padding: 8px; }
+.dsv-scroll {
+  height: 62vh;
+  overflow: auto;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+}
+.dsv-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--sw-mono);
+  font-size: 11px;
+}
+.dsv-table th,
+.dsv-table td {
+  border: 1px solid var(--sw-border);
+  padding: 3px 6px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 22px;
+  box-sizing: border-box;
+}
+.dsv-table thead th {
+  background: var(--sw-bg-raised);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 700;
+}
+.dsv-table td { color: var(--sw-text-mid); }
+.dsv-rownum {
+  background: var(--sw-bg-raised);
+  color: var(--sw-text-soft);
+  text-align: right;
+}
+.dsv-spacer td { padding: 0; border: 0; }
 .btn {
   font-family: var(--sw-mono);
   font-size: 10px;

@@ -48,11 +48,55 @@ function csvResolver(name) {
 // per-evaluation sink.
 setCsvResolver(csvResolver);
 
-// Embed a CSV under `name`. Auto-detects the parse config now (the
-// attach-time config dialog is a later enhancement); stores
-// { text, config } as a fresh object so the resolver cache invalidates.
-export function attachCsv(name, text) {
-  const config = detectCsvConfig(text);
+// Embed a CSV under `name` with a parse config. The attach dialog
+// produces the config (delimiter, decimal, per-column overrides, …);
+// callers without one fall back to auto-detection. Stored as a fresh
+// { text, config } object so the resolver's identity cache invalidates.
+export function attachCsv(name, text, config) {
   if (!state.assets) state.assets = {};
-  state.assets[name] = { text, config };
+  state.assets[name] = { text, config: config || detectCsvConfig(text) };
+}
+
+// Parse for the attach dialog's live preview. Shares the resolveUnit
+// adapter — and thus the exact parse path — with the load_csv resolver,
+// so the preview matches what the program will actually see.
+export function parseCsvPreview(text, config) {
+  return parseCsv(text, config || {}, { resolveUnit });
+}
+
+// Remove an attached CSV (assets-list "remove").
+export function removeAsset(name) {
+  if (state.assets) delete state.assets[name];
+  parseCache.delete(name);
+}
+
+// Move an attached CSV's record to a new name. Does NOT rewrite the
+// program's `load_csv("old")` calls — the caller handles that.
+export function renameAsset(oldName, newName) {
+  if (!state.assets || !state.assets[oldName]) return false;
+  if (oldName === newName || state.assets[newName]) return false;
+  state.assets[newName] = state.assets[oldName];
+  delete state.assets[oldName];
+  parseCache.delete(oldName);
+  parseCache.delete(newName);
+  return true;
+}
+
+// The resolved (cached) Dataset for an attached CSV, or null — the full
+// columnar table. Used by the dataset viewer.
+export function getDataset(name) {
+  return csvResolver(name);
+}
+
+// Summary for the assets list — row count, column count, byte size.
+// Goes through the cached resolver, so it's free after the first parse.
+export function assetInfo(name) {
+  const a = state.assets && state.assets[name];
+  if (!a) return null;
+  let rows = 0, cols = 0;
+  try {
+    const ds = csvResolver(name);
+    if (ds) { rows = ds.length; cols = ds.columns.size; }
+  } catch { /* parse failure — report zeroes */ }
+  return { rows, cols, bytes: (a.text || '').length };
 }

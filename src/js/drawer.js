@@ -9,6 +9,11 @@ import { isDesktop } from './viewport.js';
 import { epConfirm, epPrompt } from './dialogs.js';
 import { DOCS, DOC_GROUPS } from './docs.js';
 import { GUIDES, renderMarkdown } from './guides.js';
+import { state, evaluateAll } from './state.js';
+import { renderChips, renderBody, renderResults } from './render.js';
+import { removeAsset, renameAsset, assetInfo, attachCsv } from './csv-assets.js';
+import { pickCsvAndAttach, showAttachDialog } from './attach-dialog.js';
+import { showDatasetViewer } from './dataset-viewer.js';
 
 const menuBtn        = document.getElementById('menuBtn');
 const drawer         = document.getElementById('drawer');
@@ -24,11 +29,14 @@ const drawerFileInput = document.getElementById('fileInput');
 const drawerModeProgramsBtn = document.getElementById('drawerModeProgramsBtn');
 const drawerModeHistoryBtn  = document.getElementById('drawerModeHistoryBtn');
 const drawerModeDocsBtn     = document.getElementById('drawerModeDocsBtn');
+const drawerModeDataBtn     = document.getElementById('drawerModeDataBtn');
 const drawerHistoryListEl   = document.getElementById('drawerHistoryList');
 const drawerHistoryHdrEl    = document.getElementById('drawerHistoryHdr');
 const drawerSnapshotNowBtn  = document.getElementById('drawerSnapshotNowBtn');
 const drawerDocsSearchEl    = document.getElementById('drawerDocsSearch');
 const drawerDocsListEl      = document.getElementById('drawerDocsList');
+const drawerAssetsListEl    = document.getElementById('drawerAssetsList');
+const attachCsvBtn          = document.getElementById('attachCsvBtn');
 
 let searchFilter = '';
 let docsSearchFilter = '';
@@ -40,37 +48,32 @@ let drawerMode = 'programs';   // 'programs' | 'history' | 'docs'
 // (or renderHistory) afterwards. Exported so ctxmenu's "history" action
 // can flip the drawer in persistent mode.
 export function setDrawerMode(mode) {
-  drawerMode = (mode === 'history' || mode === 'docs') ? mode : 'programs';
-  for (const el of document.querySelectorAll('.drawer-mode-programs')) {
-    el.style.display = drawerMode === 'programs' ? '' : 'none';
+  drawerMode = ['history', 'docs', 'data'].includes(mode) ? mode : 'programs';
+  for (const m of ['programs', 'history', 'docs', 'data']) {
+    for (const el of document.querySelectorAll('.drawer-mode-' + m)) {
+      el.style.display = drawerMode === m ? '' : 'none';
+    }
   }
-  for (const el of document.querySelectorAll('.drawer-mode-history')) {
-    el.style.display = drawerMode === 'history' ? '' : 'none';
-  }
-  for (const el of document.querySelectorAll('.drawer-mode-docs')) {
-    el.style.display = drawerMode === 'docs' ? '' : 'none';
-  }
-  if (drawerModeProgramsBtn) {
-    drawerModeProgramsBtn.classList.toggle('active', drawerMode === 'programs');
-    drawerModeProgramsBtn.setAttribute('aria-selected', drawerMode === 'programs');
-  }
-  if (drawerModeHistoryBtn) {
-    drawerModeHistoryBtn.classList.toggle('active', drawerMode === 'history');
-    drawerModeHistoryBtn.setAttribute('aria-selected', drawerMode === 'history');
-  }
-  if (drawerModeDocsBtn) {
-    drawerModeDocsBtn.classList.toggle('active', drawerMode === 'docs');
-    drawerModeDocsBtn.setAttribute('aria-selected', drawerMode === 'docs');
+  for (const [btn, m] of [
+    [drawerModeProgramsBtn, 'programs'],
+    [drawerModeHistoryBtn,  'history'],
+    [drawerModeDocsBtn,     'docs'],
+    [drawerModeDataBtn,     'data'],
+  ]) {
+    if (!btn) continue;
+    btn.classList.toggle('active', drawerMode === m);
+    btn.setAttribute('aria-selected', drawerMode === m);
   }
   if (drawerTitleEl) {
-    drawerTitleEl.textContent = drawerMode === 'history'
-      ? `ep · history${currentProgramName ? ' · ' + currentProgramName : ''}`
-      : drawerMode === 'docs'
-        ? 'ep · docs'
-        : 'ep · programs';
+    drawerTitleEl.textContent =
+        drawerMode === 'history' ? `ep · history${currentProgramName ? ' · ' + currentProgramName : ''}`
+      : drawerMode === 'docs'    ? 'ep · docs'
+      : drawerMode === 'data'    ? 'ep · data'
+      :                            'ep · programs';
   }
   if      (drawerMode === 'history') renderHistoryList();
   else if (drawerMode === 'docs')    renderDocsList();
+  else if (drawerMode === 'data')    renderAssetsList();
   else                                renderDrawerList();
 }
 
@@ -142,8 +145,9 @@ window.addEventListener('ep:close-drawer', closeDrawer);
 // Re-render whichever list is currently visible when storage changes
 // underneath us (another tab saved, a snapshot was taken/restored, etc).
 window.addEventListener('ep:storage-changed', () => {
-  if (drawerMode === 'history') renderHistoryList();
-  else                          renderDrawerList();
+  if      (drawerMode === 'history') renderHistoryList();
+  else if (drawerMode === 'data')    renderAssetsList();
+  else                               renderDrawerList();
 });
 
 // snapshots.js dispatches this when the user opens "history" for a
@@ -163,6 +167,12 @@ if (drawerModeHistoryBtn) {
 }
 if (drawerModeDocsBtn) {
   drawerModeDocsBtn.addEventListener('click', () => setDrawerMode('docs'));
+}
+if (drawerModeDataBtn) {
+  drawerModeDataBtn.addEventListener('click', () => setDrawerMode('data'));
+}
+if (attachCsvBtn) {
+  attachCsvBtn.addEventListener('click', () => pickCsvAndAttach());
 }
 if (drawerDocsSearchEl) {
   drawerDocsSearchEl.addEventListener('input', e => {
@@ -534,6 +544,118 @@ function openSnapshotMenu(programName, snap, x, y, opts = {}) {
       renderHistoryList();
     } },
   ], x, y, opts);
+}
+
+// ── data mode: attached CSV assets ────────────────────────────────
+
+function renderAssetsList() {
+  if (!drawerAssetsListEl) return;
+  drawerAssetsListEl.innerHTML = '';
+  const names = state.assets ? Object.keys(state.assets).sort() : [];
+  if (!names.length) {
+    const empty = document.createElement('div');
+    empty.className = 'drawer-list-empty';
+    empty.textContent = 'no data attached — drop a .csv or use "attach CSV…"';
+    drawerAssetsListEl.appendChild(empty);
+    return;
+  }
+  for (const name of names) {
+    const info = assetInfo(name);
+    const item = document.createElement('div');
+    item.className = 'drawer-item';
+
+    const infoEl = document.createElement('div');
+    infoEl.className = 'drawer-item-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'drawer-item-name';
+    nameEl.textContent = name;
+    infoEl.appendChild(nameEl);
+    const meta = document.createElement('div');
+    meta.className = 'drawer-item-meta';
+    meta.textContent = info
+      ? `${info.rows} × ${info.cols} · ${(info.bytes / 1024).toFixed(1)} KB`
+      : '';
+    infoEl.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'drawer-item-actions';
+    const ellipsis = document.createElement('button');
+    ellipsis.className = 'drawer-item-menu-btn';
+    ellipsis.textContent = '⋯';
+    ellipsis.setAttribute('aria-label', 'data actions');
+    ellipsis.addEventListener('click', e => {
+      e.stopPropagation();
+      const r = ellipsis.getBoundingClientRect();
+      openAssetMenu(name, r.right, r.bottom + 4);
+    });
+    actions.appendChild(ellipsis);
+
+    attachLongPress(item, (x, y) => openAssetMenu(name, x, y));
+    item.appendChild(infoEl);
+    item.appendChild(actions);
+    drawerAssetsListEl.appendChild(item);
+  }
+}
+
+function openAssetMenu(name, x, y) {
+  showMenu([
+    { label: 'view…',         action: () => showDatasetViewer(name) },
+    { label: 're-configure…', action: () => reconfigureAsset(name) },
+    { label: 'rename…',       action: () => renameAssetFlow(name) },
+    { separator: true },
+    { label: 'remove', danger: true, action: () => removeAssetFlow(name) },
+  ], x, y, { alignRight: true });
+}
+
+async function reconfigureAsset(name) {
+  const asset = state.assets && state.assets[name];
+  if (!asset) return;
+  const result = await showAttachDialog(asset.text, name, asset.config);
+  if (!result) return;
+  // Re-configure keeps the name (rename is its own action) — just swap
+  // in the freshly-chosen parse config.
+  attachCsv(name, asset.text, result.config);
+  afterAssetChange();
+}
+
+async function renameAssetFlow(name) {
+  const next = await epPrompt({
+    title: 'Rename data asset', label: 'new name', value: name, okLabel: 'Rename',
+  });
+  if (next === null) return;
+  const newName = (next || '').trim();
+  if (!newName || newName === name) return;
+  if (state.assets && state.assets[newName]) return;   // name already taken
+  if (!renameAsset(name, newName)) return;
+  // Follow the rename through the program's load_csv("…") calls.
+  const oldRef = `load_csv("${name}")`;
+  const newRef = `load_csv("${newName}")`;
+  for (const row of state.body) {
+    if (row.src.includes(oldRef)) row.src = row.src.split(oldRef).join(newRef);
+  }
+  afterAssetChange();
+}
+
+async function removeAssetFlow(name) {
+  const ok = await epConfirm({
+    title: 'Remove data asset?',
+    message: `Remove "${name}"? Any load_csv("${name}") in the program will error until you re-attach.`,
+    okLabel: 'Remove', danger: true,
+  });
+  if (!ok) return;
+  removeAsset(name);
+  afterAssetChange();
+}
+
+// Shared post-change refresh: re-evaluate (load_csv results changed),
+// re-render the program, persist, and refresh the assets list.
+function afterAssetChange() {
+  evaluateAll();
+  renderChips();
+  renderBody();
+  renderResults();
+  window.dispatchEvent(new CustomEvent('ep:params-changed'));
+  window.dispatchEvent(new CustomEvent('ep:storage-changed'));
 }
 
 // React to viewport-band changes (window resized across the 1024 boundary,

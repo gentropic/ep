@@ -142,6 +142,7 @@
     <button class="drawer-mode-btn active" id="drawerModeProgramsBtn" data-mode="programs" role="tab" aria-selected="true">programs</button>
     <button class="drawer-mode-btn" id="drawerModeHistoryBtn"  data-mode="history"  role="tab" aria-selected="false">history</button>
     <button class="drawer-mode-btn" id="drawerModeDocsBtn"     data-mode="docs"     role="tab" aria-selected="false">docs</button>
+    <button class="drawer-mode-btn" id="drawerModeDataBtn"     data-mode="data"     role="tab" aria-selected="false">data</button>
   </div>
 
   <div class="drawer-section drawer-mode-programs">
@@ -180,6 +181,18 @@
   </div>
   <div class="drawer-section drawer-list-wrap drawer-mode-docs" style="display:none">
     <div class="drawer-list drawer-docs-list" id="drawerDocsList"></div>
+  </div>
+
+  <!-- data mode — attached CSV assets for the current program. -->
+  <div class="drawer-section drawer-mode-data" style="display:none">
+    <button class="drawer-action" id="attachCsvBtn">
+      <span class="drawer-action-icon">＋</span>
+      <span>attach CSV…</span>
+    </button>
+  </div>
+  <div class="drawer-section drawer-list-wrap drawer-mode-data" style="display:none">
+    <div class="drawer-section-hdr">attached data</div>
+    <div class="drawer-list" id="drawerAssetsList"></div>
   </div>
 
   <div class="drawer-section">
@@ -488,6 +501,58 @@
     <div class="dialog-actions">
       <button class="btn" id="modalCancelBtn">Cancel</button>
       <button class="btn primary" id="modalOkBtn">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="attachScrim">
+  <div class="dialog attach-dialog">
+    <div class="dialog-hdr">Attach CSV data</div>
+    <div class="dialog-body">
+      <div class="dialog-row">
+        <label>name</label>
+        <input id="attachName" spellcheck="false" autocapitalize="off" autocomplete="off">
+      </div>
+      <div class="attach-config">
+        <label>delimiter
+          <select id="attachDelimiter">
+            <option value=",">,&nbsp; comma</option>
+            <option value=";">;&nbsp; semicolon</option>
+            <option value="&#9;">⇥&nbsp; tab</option>
+            <option value="|">|&nbsp; pipe</option>
+          </select>
+        </label>
+        <label>decimal
+          <select id="attachDecimal">
+            <option value=".">.&nbsp; dot</option>
+            <option value=",">,&nbsp; comma</option>
+          </select>
+        </label>
+        <label>comment
+          <input id="attachComment" maxlength="1" placeholder="#">
+        </label>
+        <label>skip rows
+          <input id="attachSkip" type="number" min="0">
+        </label>
+        <label class="attach-check"><input type="checkbox" id="attachHasHeader"> header row</label>
+      </div>
+      <div class="attach-preview" id="attachPreview"></div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn" id="attachCancelBtn">Cancel</button>
+      <button class="btn primary" id="attachOkBtn">Attach</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="datasetViewerScrim">
+  <div class="dialog dsv-dialog">
+    <div class="dialog-hdr" id="dsvTitle">Dataset</div>
+    <div class="dialog-body dsv-body">
+      <div class="dsv-scroll" id="dsvScroll"></div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn primary" id="dsvCloseBtn">Close</button>
     </div>
   </div>
 </div>

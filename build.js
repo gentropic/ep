@@ -112,6 +112,8 @@ const JS_FILES = [
   'formatter.js',
   'render.js',
   'param-history.js',
+  'attach-dialog.js',
+  'dataset-viewer.js',
   'format-cmd.js',
   'pointer.js',
   'update-check.js',
