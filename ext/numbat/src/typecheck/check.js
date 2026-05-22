@@ -633,10 +633,17 @@ function inferBinary(node, env, ctx) {
   }
 
   if (op === '->') {
-    // Conversion: left and right are both dim expressions of the same
-    // dim. Result type = left (the value side).
     const l = inferExpr(node.left,  env, ctx);
     const r = inferExpr(node.right, env, ctx);
+    // A function-valued RHS makes `->` an application: `x -> f` ≡ `f(x)`.
+    // This is the form datetime timezone conversion uses — `dt -> tz("…")`,
+    // `-> UTC`, `-> local` — and the documented `dt -> julian_date` style.
+    if (r && r.kind === 'TFn' && r.params.length === 1) {
+      cAdd(ctx.cs, cEqual(l, r.params[0], spanOf(node), `conversion '->'`));
+      return r.result;
+    }
+    // Otherwise a unit conversion: left and right are dim expressions of
+    // the same dim. Result type = left (the value side).
     cAdd(ctx.cs, cEqual(l, r, spanOf(node), `conversion '->'`));
     return l;
   }

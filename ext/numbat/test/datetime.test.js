@@ -211,3 +211,55 @@ test('comparison: polymorphic zero compares across dimensions', () => {
   assert.equal(n.values.get('c'), true);
   assert.equal(n.values.get('d'), true);
 });
+
+// ── timezone conversion via `->` ──────────────────────────────────
+
+test('-> tz("…") keeps the instant, swaps the display zone', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let base = datetime("2026-05-17 12:00:00 UTC")',
+    'let tokyo = base -> tz("Asia/Tokyo")',
+  ].join('\n'), '<t>');
+  const base = n.values.get('base'), tokyo = n.values.get('tokyo');
+  assert.ok(tokyo instanceof DateTime);
+  assert.equal(tokyo.value, base.value);   // same point in time
+  assert.equal(tokyo.tz, 'Asia/Tokyo');    // new display zone
+});
+
+test('-> UTC and -> local resolve the let-bound converters', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let base = datetime("2026-05-17 12:00:00 +0200")',
+    'let u = base -> UTC',
+    'let l = base -> local',
+    'let lz = get_local_timezone()',
+  ].join('\n'), '<t>');
+  assert.equal(n.values.get('u').tz, 'UTC');
+  assert.equal(n.values.get('u').value, n.values.get('base').value);
+  assert.equal(n.values.get('l').tz, n.values.get('lz'));
+});
+
+test('-> tz conversions chain left to right', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let base = datetime("2026-05-17 12:00:00 UTC")',
+    'let r = base -> tz("Asia/Tokyo") -> UTC',
+  ].join('\n'), '<t>');
+  assert.equal(n.values.get('r').tz, 'UTC');
+  assert.equal(n.values.get('r').value, n.values.get('base').value);
+});
+
+test('format_datetime renders the converted zone', () => {
+  const n = mkHost();
+  n.loadSource(
+    'let s = format_datetime("%H:%M", datetime("2026-05-17 12:00:00 UTC") -> tz("Asia/Tokyo"))',
+    '<t>');
+  assert.equal(n.values.get('s'), '21:00');   // UTC+9, no DST
+});
+
+test('-> tz on a non-datetime is rejected', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let bad = (5 meter) -> tz("Asia/Tokyo")', '<t>'),
+    /datetime/i);
+});

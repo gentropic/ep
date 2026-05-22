@@ -994,7 +994,7 @@ Tap a chip to swap all params to that scenario's values. The currently-active sc
 
 **Interaction with snapshots.** A snapshot captures everything including scenarios, so restoring an old snapshot brings back the scenario set as it was then. Switching scenarios doesn't create a snapshot (would be too noisy — scenario switches are everyday, not version-bump events).
 
-### 7.6 Date/time ergonomics (M) — **Partially shipped**
+### 7.6 Date/time ergonomics (M) — **Shipped**
 
 The datetime *substrate* exists — `now()`, `datetime("…")`, `tz("…")`, `format_datetime(…)`, Temporal-backed, with `now() + 1 hour`-style arithmetic (see "Datetime — Temporal-backed" above). What's thin is the friendly *surface* a notepad calculator wants. The surface is bounded by ep's Numbat-compatibility rule: a non-decorator program must either run identically on upstream Numbat *or fail loudly* — it must never silently diverge. That admits *additive* divergence (new identifiers/keywords Numbat rejects with a clear error) and forbids *collision* divergence (reinterpreting syntax that is already valid Numbat). The surviving surface:
 
@@ -1005,7 +1005,7 @@ The datetime *substrate* exists — `now()`, `datetime("…")`, `tz("…")`, `fo
 
 **Rejected: bare date and clock literals.** Writing `2026-12-25` or `3pm` directly is the obvious Soulver-ism, but both *collide* with valid Numbat — `2026-12-25` parses as `2026 - 12 - 25` → `1989`, and `3pm` is `3` picometres. A non-decorator program using them would silently miscompute upstream, exactly the failure mode the compatibility rule forbids. Date and time values stay spelled `date("…")` / `time("…")`, which already work and round-trip cleanly.
 
-Comparison point is Soulver, which is strong here. numbat-js now carries a real **`DateTime` value type** (`class DateTime extends Quantity` — a point in affine time-space): datetimes render as calendar dates instead of auto-scaled durations, the affine algebra is enforced at runtime (`datetime ± duration → datetime`, `datetime − datetime → duration`; `datetime + datetime`, `datetime * n`, `−datetime` rejected), and the typechecker carries a distinct nullary `TDateTime`. **Calendar-aware arithmetic** is shipped via `calendar_add` / `calendar_sub`: `calendar_add(d, 1 month)` lands on the same day-of-month, is DST-aware, and constrains overflow (Jan 31 + 1 month → Feb 28/29). Note `d + 1 month` with the bare `+` is *fixed-duration* arithmetic by nature — the operator can't know the span was "a month" — so `calendar_add` is the calendar-aware path. One caveat: numbat-js doesn't retain a quantity's original unit, so `has_unit` (which `calendar_add` dispatches on) is a whole-number approximation — exact for whole-unit spans, the realistic case. Still **Future**: timezone *conversion* via `->` (`datetime -> tz("…")` / `-> UTC`, which the `->` operator doesn't yet apply for a function-valued RHS).
+Comparison point is Soulver, which is strong here. numbat-js now carries a real **`DateTime` value type** (`class DateTime extends Quantity` — a point in affine time-space): datetimes render as calendar dates instead of auto-scaled durations, the affine algebra is enforced at runtime (`datetime ± duration → datetime`, `datetime − datetime → duration`; `datetime + datetime`, `datetime * n`, `−datetime` rejected), and the typechecker carries a distinct nullary `TDateTime`. **Calendar-aware arithmetic** is shipped via `calendar_add` / `calendar_sub`: `calendar_add(d, 1 month)` lands on the same day-of-month, is DST-aware, and constrains overflow (Jan 31 + 1 month → Feb 28/29). Note `d + 1 month` with the bare `+` is *fixed-duration* arithmetic by nature — the operator can't know the span was "a month" — so `calendar_add` is the calendar-aware path. One caveat: numbat-js doesn't retain a quantity's original unit, so `has_unit` (which `calendar_add` dispatches on) is a whole-number approximation — exact for whole-unit spans, the realistic case. **Timezone conversion** via `->` is shipped: `datetime -> tz("…")`, `-> UTC`, `-> local`. The `->` operator now applies a function-valued RHS as `f(x)` (both runtime and typechecker), so a converter — from `tz("…")` or the `let`-bound `UTC` / `local` in `datetime::functions` — re-stamps a datetime's display zone while preserving the instant. This matches upstream Numbat's surface exactly (`tz` returns `Fn[(DateTime) -> DateTime]`), so it's compatible, not additive.
 
 Considered and *rejected* from the Soulver feature set:
 - **Contextual percentages** (`50 + 20%` → 60, `20% off 50`). `20%` is the number `0.2` at runtime, indistinguishable from a bare `0.2` — so making `+`/`-` reinterpret a percent RHS needs an AST-level special case, and then `50 + 20%` ≠ `p = 20%; 50 + p`. Same literal-vs-variable inconsistency as the CSV-unit / comparison-poison cases. The everyday utility doesn't outweigh the trap.
@@ -1298,7 +1298,7 @@ Total: M–L for the full stack, but spreadable over multiple releases. The prot
 ## 11. Status — what's built, what's left
 
 The roadmap above is almost entirely shipped. Audited against `src/js/`
-on 2026-05-21:
+on 2026-05-22:
 
 **Shipped:** §1 (drawer / autosave / persistence), §2 (keyboard
 shortcuts, drawer search, per-program descriptions, copy-source), §3 (URL
@@ -1307,11 +1307,13 @@ highlighting, error pinpoint + blame, bracket auto-pair, in-editor docs,
 docs viewer), §5.1/§5.2/§5.5/§5.6/§5.7 (copy-as, sig-digits, live-preview
 smoothing, format-document, gutter unit override; §5.4 superseded by
 `@output`), §6 (examples, sort, pinning, first-launch tutorial),
-§7.2–§7.5 (inline chip errors, annotation auto-suggest, snapshots,
-scenarios), §7.6 except tz-conversion, §9 (PWA update flow). Beyond the
-original roadmap, also shipped: the dataset lane (`load_csv`, columnar
-reductions, plots), the optional line-number gutter, `_N` / `above` line
-references, and a real `DateTime` value type with calendar arithmetic.
+§7.1–§7.6 (recent param values, inline chip errors, annotation
+auto-suggest, snapshots, scenarios, date/time ergonomics — including
+timezone conversion via `->`), §9 (PWA update flow). Beyond the original
+roadmap, also shipped: the dataset lane (`load_csv`, CSV attach dialog,
+assets management, the virtualized viewer, columnar reductions, plots),
+the optional line-number gutter, `_N` / `above` line references, and a
+real `DateTime` value type with calendar arithmetic.
 
 **Not built — the remaining todo, largest first:**
 
@@ -1321,21 +1323,19 @@ references, and a real `DateTime` value type with calendar arithmetic.
    notification (§10.5), no IDB checkpoint/resume (§10.6). §10.2 (the
    shell-kernel message shape) is the one piece costly to retrofit —
    worth nailing first if this block is ever opened. Multi-session.
-2. **§7.1 — recent values per param** (M). Per-chip history of the last
-   ~5 values, recallable from a long-press menu. `store[name].paramHistory`.
-3. **§5.3 — locale-aware separators** (S). Pick decimal/thousands glyphs
-   from `navigator.language`; lives in `fmtNum`.
-4. **§7.6 — timezone conversion via `->`** (S). `datetime -> tz("…")` /
-   `-> UTC` — the `->` operator doesn't yet apply a function-valued RHS.
-5. **§4.6 — Tab-cycle through chips and body rows** (S). Keyboard
+   Entangled with SPEC-DATASETS Phase 2 (streaming, block models).
+2. **§4.6 — Tab-cycle through chips and body rows** (S). Keyboard
    navigation across the form ↔ body.
 
-None block anything. §10 is a real project; the rest are polish — §5.3
-and §7.6-tz are roughly an afternoon each, §7.1 a small feature.
+*Shelved:* **§5.3 — locale-aware separators** (S). Decided against —
+locale-driven decimal/thousands glyphs make number formatting
+inconsistent and unpredictable; ep keeps plain, stable formatting.
+
+None block anything. §10 is a real project; §4.6 is small polish.
 
 ---
 
 *Roadmap section originated as a separate ENHANCEMENTS.md, May 2026,
 merged in alongside the original spec. §11 reflects an audit on
-2026-05-21; the rest will drift during implementation — treat as a guide
+2026-05-22; the rest will drift during implementation — treat as a guide
 rather than a contract.*

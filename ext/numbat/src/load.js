@@ -1176,6 +1176,17 @@ function calendarShift(dt, nArg, field) {
   return new DateTime(d.getTime() / 1000, outTz);
 }
 
+// Timezone conversion — the runtime behind `datetime -> tz("…")`, `-> UTC`
+// and `-> local`. A DateTime is a fixed instant (epoch seconds) plus a
+// display zone; converting keeps the instant and swaps the zone, so the
+// wall-clock rendering changes but the moment in time does not.
+function applyTzConv(dt, zoneName) {
+  if (!(dt instanceof DateTime)) {
+    throw new Error('timezone conversion (->) applies to a datetime');
+  }
+  return new DateTime(dt.value, zoneName);
+}
+
 const EVAL_CMP_OPS = new Set(['==', '!=', '<', '<=', '>', '>=']);
 
 // ── String interpolation ─────────────────────────────────────────
@@ -1591,11 +1602,13 @@ export function evalValueExpr(node, env) {
       const left = evalValueExpr(node.left, env);
       let target = node.right;
       while (target.type === 'Paren') target = target.expr;
-      // Three meanings for `x -> name` depending on context:
-      //   1. left is a Quantity AND name is a unit → set disp tag (conversion)
-      //   2. name is a fn/builtin → function application `f(x)`
+      // Several meanings for `x -> rhs` depending on context:
+      //   1. left is a Quantity AND rhs is a unit → set disp tag (conversion)
+      //   2. rhs is a fn/builtin → function application `f(x)`
       //      (upstream uses this pattern: `datetime("…") -> julian_date`)
-      //   3. otherwise → error
+      //   3. rhs is a tz(…) converter → datetime timezone conversion
+      //      (`dt -> tz("…")`, and the `let`-bound `-> UTC` / `-> local`)
+      //   4. otherwise → error
       if (target.type === 'Ident') {
         if (left instanceof Quantity && env.units.has(target.name)) {
           return left.convertTo(target.name, env.units);
@@ -1605,11 +1618,20 @@ export function evalValueExpr(node, env) {
         }
         if (BUILTIN_PROCS[target.name]) return BUILTIN_PROCS[target.name]([left]);
         if (BUILTIN_FNS[target.name])   return BUILTIN_FNS[target.name](left);
+        // `UTC` / `local` (datetime::functions) are `let`-bound tz tokens —
+        // resolve the name as a value and apply it if it is one.
+        try {
+          const bound = evalValueExpr(target, env);
+          if (bound && bound.__struct === 'TzFn') return applyTzConv(left, bound.name);
+        } catch { /* not a resolvable value — fall through to the error */ }
         throw new Error(`-> ${target.name}: unknown unit or function`);
       }
-      // Compound case: evaluate the target as a Quantity, verify dim,
-      // return left with no disp tag (compound display naming is v0.5+).
+      // Compound case: evaluate the target. A tz(…) converter applies to a
+      // DateTime; otherwise both sides must be Quantities of one dim.
       const targetQ = evalValueExpr(target, env);
+      if (targetQ && targetQ.__struct === 'TzFn') {
+        return applyTzConv(left, targetQ.name);
+      }
       if (!(left instanceof Quantity) || !(targetQ instanceof Quantity)) {
         throw new Error('-> compound target requires Quantity on both sides');
       }
