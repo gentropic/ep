@@ -617,6 +617,9 @@ function mountCm6() {
         span.className = 'cm-ep-suggest-inline';
         const btn = document.createElement('button');
         btn.className = 'cm-ep-suggest-btn';
+        // Out of the Tab cycle (SPEC §4.6): an inline editor decoration,
+        // not a stop between the form chips and the body.
+        btn.tabIndex = -1;
         btn.textContent = `+ ${this.suggestDim}?`;
         btn.title = `add type annotation — this binding's result has dim of ${this.suggestDim}`;
         const dim = this.suggestDim;
@@ -648,6 +651,7 @@ function mountCm6() {
         } else {
           const btn = document.createElement('button');
           btn.className = 'cm-ep-suggest-btn';
+          btn.tabIndex = -1;   // inline decoration — out of the Tab cycle (§4.6)
           btn.textContent = 'attach…';
           btn.title = `no data attached for "${csv.name}" — click to attach a CSV`;
           btn.addEventListener('click', fire);

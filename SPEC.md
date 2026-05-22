@@ -795,11 +795,11 @@ The drawer gains a third mode (`docs`, alongside `programs` / `history`):
 
 `guides.js` is deliberately excluded from `VIEWER_JS_FILES`, so program-form `.html` exports (which clone the viewer artifact) don't carry the doc weight — the recipient only sees the form anyway.
 
-### 4.6 Tab-cycle through chips and body rows (S) — **Future**
+### 4.6 Tab-cycle through chips and body rows (S) — **Shipped**
 
-Hitting Tab in a chip input moves focus to the next chip. Shift+Tab to previous. Tab from the last chip moves to the first body row. Tab through body rows linearly. Tab from the last body row goes to the first output chip's copy button (or wraps).
+Tab / Shift+Tab cycle through the working surface in visual order: the `@params` chips, then the body editor, then the `@output` chips' copy buttons, then the drawer. The body is a single CodeMirror editor — one tab stop, not per-row: a bare Tab inside it leaves to the next region, while Tab on a selection indents and Shift+Tab dedents (see the §4 editor keymap). The cycle flows naturally into the surrounding chrome rather than trapping focus.
 
-Already mostly free from natural DOM tab order, but currently broken because some intermediate elements are tabbable. Audit `tabindex` across the layout and set `-1` on elements that shouldn't be reached by Tab.
+Delivered as the `tabindex` audit the original note called for: the accessory palette (~26 operator/unit token buttons — pointer/touch chrome) and the inline editor decorations (`+ Dim?` annotation suggestions, the `attach…` CSV affordance) are set `tabindex="-1"` so they no longer interrupt the chip → body → output flow.
 
 ---
 
@@ -1306,32 +1306,33 @@ sharing + QR, via the `@gcu/pointer` grammar), §4.1–§4.5 (syntax
 highlighting, error pinpoint + blame, bracket auto-pair, in-editor docs,
 docs viewer), §5.1/§5.2/§5.5/§5.6/§5.7 (copy-as, sig-digits, live-preview
 smoothing, format-document, gutter unit override; §5.4 superseded by
-`@output`), §6 (examples, sort, pinning, first-launch tutorial),
-§7.1–§7.6 (recent param values, inline chip errors, annotation
-auto-suggest, snapshots, scenarios, date/time ergonomics — including
-timezone conversion via `->`), §9 (PWA update flow). Beyond the original
+`@output`), §4.6 (Tab-cycle / `tabindex` audit), §6 (examples, sort,
+pinning, first-launch tutorial), §7.1–§7.6 (recent param values, inline
+chip errors, annotation auto-suggest, snapshots, scenarios, date/time
+ergonomics — including timezone conversion via `->`), §9 (PWA update
+flow). Beyond the original
 roadmap, also shipped: the dataset lane (`load_csv`, CSV attach dialog,
 assets management, the virtualized viewer, columnar reductions, plots),
 the optional line-number gutter, `_N` / `above` line references, and a
 real `DateTime` value type with calendar arithmetic.
 
-**Not built — the remaining todo, largest first:**
+**Not built — the remaining todo:**
 
-1. **§10 — long-running jobs & progress.** The only large block.
-   Evaluation is still synchronous: no job protocol (§10.2), no inline
-   progress UI (§10.3), no chunked workers (§10.4), no background-tab
-   notification (§10.5), no IDB checkpoint/resume (§10.6). §10.2 (the
-   shell-kernel message shape) is the one piece costly to retrofit —
-   worth nailing first if this block is ever opened. Multi-session.
-   Entangled with SPEC-DATASETS Phase 2 (streaming, block models).
-2. **§4.6 — Tab-cycle through chips and body rows** (S). Keyboard
-   navigation across the form ↔ body.
+1. **§10 — long-running jobs & progress.** The only item left, and the
+   only large block. Evaluation is still synchronous: no job protocol
+   (§10.2), no inline progress UI (§10.3), no chunked workers (§10.4),
+   no background-tab notification (§10.5), no IDB checkpoint/resume
+   (§10.6). §10.2 (the shell-kernel message shape) is the one piece
+   costly to retrofit — worth nailing first if this block is ever
+   opened. Multi-session. Entangled with SPEC-DATASETS Phase 2
+   (streaming, block models).
 
 *Shelved:* **§5.3 — locale-aware separators** (S). Decided against —
 locale-driven decimal/thousands glyphs make number formatting
 inconsistent and unpredictable; ep keeps plain, stable formatting.
 
-None block anything. §10 is a real project; §4.6 is small polish.
+§10 doesn't block anything — it's a real project to be opened on its
+own, not polish. Every other roadmap item is shipped.
 
 ---
 

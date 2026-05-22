@@ -47,6 +47,10 @@ TOKENS.forEach(([cls, lbl, ins]) => {
   const b = document.createElement('button');
   b.className = 'tok ' + cls;
   b.textContent = lbl;
+  // Out of the Tab cycle (SPEC §4.6): the palette is a pointer/touch
+  // convenience — a keyboard user types the operator directly, and
+  // would not want ~26 token buttons between the outputs and the drawer.
+  b.tabIndex = -1;
   b.addEventListener('mousedown', e => e.preventDefault());
   b.addEventListener('click', () => insertAtCursor(ins));
   accEl.append(b);
@@ -58,6 +62,7 @@ const moreUnitsBtn = document.createElement('button');
 moreUnitsBtn.className = 'tok unit tok-more-units';
 moreUnitsBtn.textContent = '⋯ units';
 moreUnitsBtn.title = 'pick a unit';
+moreUnitsBtn.tabIndex = -1;   // pointer chrome — out of the Tab cycle (§4.6)
 moreUnitsBtn.addEventListener('mousedown', e => e.preventDefault());
 moreUnitsBtn.addEventListener('click', () => openUnitPicker());
 accEl.append(moreUnitsBtn);
