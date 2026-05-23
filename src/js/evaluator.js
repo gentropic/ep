@@ -105,6 +105,18 @@ function host() {
     '@example("p95 = percentile(tonnage, 95)")',
     'fn percentile<D>(x: D, p: Scalar) -> D',
     '',
+    '@description("Materialize an uncertain value as a regular List<Quantity> for ad-hoc work — custom reductions, exporting, or feeding into the existing plot family.")',
+    '@example("xs = samples(tonnage)")',
+    'fn samples<D>(x: D) -> List<D>',
+    '',
+    '@description("Plot the probability-density estimate (Gaussian KDE) of an uncertain value as a smooth curve inline.")',
+    '@example("pdf(tonnage)")',
+    'fn pdf<D>(x: D) -> Scalar',
+    '',
+    '@description("Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline.")',
+    '@example("cdf(tonnage)")',
+    'fn cdf<D>(x: D) -> Scalar',
+    '',
   ].join('\n'));
   try { _host.use('uncertainty::functions'); }
   catch (e) { console.warn('ep: uncertainty::functions load failed:', e && e.message || e); }

@@ -431,6 +431,48 @@ function _boxMuller(rng) {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
 }
 
+// Gaussian kernel-density estimate on `samples` — returns xs/ys arrays
+// suitable for line-plot rendering. Bandwidth uses Silverman's
+// rule-of-thumb (h = 1.06 σ N^(-1/5)). Grid spans the sample range
+// padded by 3h on each side. Used by the `pdf` builtin.
+function _kdeGaussian(samples, gridSize) {
+  const n = samples.length;
+  if (n === 0) return { xs: [], ys: [] };
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += samples[i];
+  const mean = sum / n;
+  let sumsq = 0;
+  for (let i = 0; i < n; i++) sumsq += (samples[i] - mean) ** 2;
+  const sigma = Math.sqrt(sumsq / n);
+  if (sigma === 0 || !isFinite(sigma)) {
+    // Degenerate: all samples equal. Return a single spike.
+    return { xs: [mean], ys: [1] };
+  }
+  const h    = 1.06 * sigma * Math.pow(n, -0.2);
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (samples[i] < mn) mn = samples[i];
+    if (samples[i] > mx) mx = samples[i];
+  }
+  mn -= 3 * h;
+  mx += 3 * h;
+  const xs = new Array(gridSize);
+  const ys = new Array(gridSize);
+  const step = (mx - mn) / (gridSize - 1);
+  const coef = 1 / (n * h * Math.sqrt(2 * Math.PI));
+  for (let g = 0; g < gridSize; g++) {
+    const x = mn + g * step;
+    xs[g] = x;
+    let acc = 0;
+    for (let i = 0; i < n; i++) {
+      const z = (x - samples[i]) / h;
+      acc += Math.exp(-0.5 * z * z);
+    }
+    ys[g] = coef * acc;
+  }
+  return { xs, ys };
+}
+
 const BUILTIN_PROCS = {
   // assert(bool): error if false. Used by upstream test programs.
   assert(args) {
@@ -844,6 +886,68 @@ const BUILTIN_PROCS = {
     const hi  = Math.ceil(idx);
     const v   = sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
     return new Quantity(v, x.dim, x.disp);
+  },
+  // Materialize the sample array as a regular List<Quantity> — escape
+  // hatch for custom reductions / plotting / export. Each element
+  // carries the Uncertain's dim and display tag.
+  samples(args) {
+    if (args.length !== 1) throw new Error(`samples: expected 1 arg, got ${args.length}`);
+    const x = args[0];
+    if (!(x && x.__uncertain)) {
+      throw new Error('samples: argument must be an uncertain value');
+    }
+    const out = new Array(x.samples.length);
+    const dim = x.dim, disp = x.disp;
+    for (let i = 0; i < x.samples.length; i++) {
+      out[i] = new Quantity(x.samples[i], dim, disp);
+    }
+    return out;
+  },
+  // pdf(unc) — Gaussian kernel-density estimate plotted as a smooth
+  // curve. cdf(unc) — empirical CDF as a sorted-step curve (rendered
+  // as a line plot; with N=1000 samples it reads smooth). Both emit
+  // line-plot descriptors to _plotSink — no new renderer branch is
+  // needed.
+  pdf(args) {
+    if (args.length < 1 || args.length > 4) throw new Error(`pdf: expected 1..4 args (x [, xlabel, ylabel, title]), got ${args.length}`);
+    const x = args[0];
+    if (!(x && x.__uncertain)) {
+      throw new Error('pdf: argument must be an uncertain value');
+    }
+    if (typeof _plotSink === 'function') {
+      const { xs, ys } = _kdeGaussian(x.samples, 100);
+      let unit = '';
+      try {
+        if (typeof _quantityFormatter === 'function') {
+          const p = _quantityFormatter(x);
+          if (p && p.unit) unit = p.unit;
+        }
+      } catch {}
+      _plotSink({ type: 'line', xs, ys, xUnit: unit, ...labelOpts(args, 1) });
+    }
+    return new Quantity(0, {});
+  },
+  cdf(args) {
+    if (args.length < 1 || args.length > 4) throw new Error(`cdf: expected 1..4 args (x [, xlabel, ylabel, title]), got ${args.length}`);
+    const x = args[0];
+    if (!(x && x.__uncertain)) {
+      throw new Error('cdf: argument must be an uncertain value');
+    }
+    if (typeof _plotSink === 'function') {
+      const sorted = Array.from(x.samples).sort((a, b) => a - b);
+      const n = sorted.length;
+      const ys = new Array(n);
+      for (let i = 0; i < n; i++) ys[i] = (i + 1) / n;
+      let unit = '';
+      try {
+        if (typeof _quantityFormatter === 'function') {
+          const p = _quantityFormatter(x);
+          if (p && p.unit) unit = p.unit;
+        }
+      } catch {}
+      _plotSink({ type: 'line', xs: sorted, ys, xUnit: unit, ...labelOpts(args, 1) });
+    }
+    return new Quantity(0, {});
   },
   // maximum / minimum / median — list reductions. Upstream's
   // math::statistics defines maximum/minimum by direct head/tail

@@ -49,6 +49,9 @@ function mkHost() {
     'fn lognormal<D>(mu: D, sigma: D) -> D',
     'fn triangular<D>(lo: D, mode: D, hi: D) -> D',
     'fn percentile<D>(x: D, p: Scalar) -> D',
+    'fn samples<D>(x: D) -> List<D>',
+    'fn pdf<D>(x: D) -> Scalar',
+    'fn cdf<D>(x: D) -> Scalar',
     '',
   ].join('\n'));
   n.use('uncertainty::functions');
@@ -355,4 +358,85 @@ test('hist(uncertain) does not throw and feeds the plot sink', async () => {
   assert.equal(captured[0].type, 'hist');
   assert.equal(captured[0].values.length, 1000);
   assert.equal(captured[0].title, 'Distribution');
+});
+
+// ── samples / pdf / cdf ───────────────────────────────────────────
+
+test('samples(uncertain) materializes as a List<Quantity>', () => {
+  const n = mkHost();
+  n.loadSource('let u = normal(10, 2)\nlet xs = samples(u)', '<t>');
+  const xs = n.values.get('xs');
+  assert.ok(Array.isArray(xs));
+  assert.equal(xs.length, 1000);
+  assert.ok(xs[0] instanceof Quantity);
+  assert.deepEqual(xs[0].dim, {});      // dimensionless input
+});
+
+test('samples preserves dim on each element', () => {
+  const n = mkHost();
+  n.loadSource('let u = normal(2.7 kilogram/meter^3, 0.1 kilogram/meter^3)\nlet xs = samples(u)', '<t>');
+  const xs = n.values.get('xs');
+  assert.deepEqual(xs[0].dim, { mass: 1, length: -3 });
+});
+
+test('mean(samples(unc)) ≈ mean(unc)', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let u = normal(100, 5)',
+    'let m1 = mean(u)',
+    'let m2 = mean(samples(u))',
+  ].join('\n'), '<t>');
+  // Same samples, same mean — identical to within floating-point.
+  assert.ok(close(n.values.get('m1').value, n.values.get('m2').value, 1e-9));
+});
+
+test('samples: rejects non-Uncertain argument', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let bad = samples(5)', '<t>'),
+    /uncertain/i);
+});
+
+test('pdf(uncertain) emits a line plot with KDE curve', async () => {
+  const { setPlotSink } = await import('../src/load.js');
+  const captured = [];
+  setPlotSink(d => captured.push(d));
+  const n = mkHost();
+  n.loadSource('let u = normal(0, 1)\nlet _p = pdf(u)', '<t>');
+  setPlotSink(null);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].type, 'line');
+  assert.equal(captured[0].xs.length, 100);
+  assert.equal(captured[0].ys.length, 100);
+  // Sanity: density is monotone-increasing then -decreasing; the
+  // largest y value is somewhere near the middle of the xs grid.
+  let peakIdx = 0;
+  for (let i = 1; i < captured[0].ys.length; i++) {
+    if (captured[0].ys[i] > captured[0].ys[peakIdx]) peakIdx = i;
+  }
+  assert.ok(peakIdx > 30 && peakIdx < 70, `peak index ${peakIdx} should be near the middle of [0, 100)`);
+});
+
+test('cdf(uncertain) emits a sorted-step line plot', async () => {
+  const { setPlotSink } = await import('../src/load.js');
+  const captured = [];
+  setPlotSink(d => captured.push(d));
+  const n = mkHost();
+  n.loadSource('let u = normal(0, 1)\nlet _c = cdf(u)', '<t>');
+  setPlotSink(null);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].type, 'line');
+  // xs should be sorted (monotone non-decreasing).
+  for (let i = 1; i < captured[0].xs.length; i++) {
+    assert.ok(captured[0].xs[i] >= captured[0].xs[i - 1]);
+  }
+  // ys should run from 1/N to 1, monotone.
+  assert.ok(close(captured[0].ys[0], 1 / captured[0].ys.length, 0.001));
+  assert.equal(captured[0].ys[captured[0].ys.length - 1], 1);
+});
+
+test('pdf / cdf reject non-Uncertain argument', () => {
+  const n = mkHost();
+  assert.throws(() => n.loadSource('let _ = pdf(5)', '<t>'), /uncertain/i);
+  assert.throws(() => n.loadSource('let _ = cdf(5)', '<t>'), /uncertain/i);
 });
