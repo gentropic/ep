@@ -97,6 +97,13 @@ export const DOCS = {
   dataset:  { signature: 'dataset<R>(rows: List<R>) -> Dataset', description: 'Columnarize a list of struct records into a Dataset. Column access (d.field) is then O(1).', example: 'dataset([Row { grade: 2 }, Row { grade: 5 }])' },
   schema:   { signature: 'schema(d: Dataset)', description: 'Print the dataset\'s columns — each with its unit or type — plus the row/column counts. Shown in an info block below the line.', example: 'schema(model)' },
 
+  // ── Uncertainty (ep extension) ───────────────────────────────────
+  normal:      { signature: 'normal<D>(mu: D, sigma: D) -> D', description: 'Draw samples from a normal distribution with mean `mu` and standard deviation `sigma`. Subsequent arithmetic propagates the samples through automatically — nonlinear ops get the right shape because each sample is computed independently.', example: 'density = normal(2.7 g/cm³, 0.1 g/cm³)' },
+  uniform:     { signature: 'uniform<D>(lo: D, hi: D) -> D', description: 'Draw samples from a uniform distribution on [lo, hi].', example: 'length = uniform(180 m, 220 m)' },
+  lognormal:   { signature: 'lognormal<D>(mu: D, sigma: D) -> D', description: 'Draw samples from a lognormal distribution. `mu` and `sigma` are real-space mean and standard deviation; conversion to log-space happens internally. All samples are positive.', example: 'grade = lognormal(1.5 g/t, 0.4 g/t)' },
+  triangular:  { signature: 'triangular<D>(lo: D, mode: D, hi: D) -> D', description: 'Draw samples from a triangular distribution with the given low, mode, and high points.', example: 'recovery = triangular(0.82, 0.91, 0.95)' },
+  percentile:  { signature: 'percentile<D>(x: D, p: Scalar) -> D', description: 'Return the p-th percentile of an uncertain value (p in [0, 100]). Collapses to a regular Quantity. Linear interpolation between adjacent order statistics.', example: 'p95 = percentile(tonnage, 95)' },
+
   // ── Plots ─────────────────────────────────────────────────────────
   plot:      { signature: 'plot(xs: List<X>, ys: List<Y> [, xlabel: String, ylabel: String, title: String])', description: 'Line chart of (x, y) pairs. Trailing strings are optional axis labels and a title.', example: 'plot(xs, sin(xs), "x", "sin(x)", "Sine wave")' },
   scatter:   { signature: 'scatter(xs: List<X>, ys: List<Y> [, xlabel, ylabel, title])', description: 'Scatter plot of (x, y) pairs.' },
@@ -215,6 +222,9 @@ export const DOC_GROUPS = [
     'format_datetime','get_local_timezone',
     'tz','UTC','local',
     'weekday','calendar_add','calendar_sub','has_unit',
+  ]},
+  { label: 'Uncertainty (ep extension)', names: [
+    'normal','uniform','lognormal','triangular','percentile',
   ]},
   { label: 'Plots', names: [
     'plot','scatter','bar_chart','hist',

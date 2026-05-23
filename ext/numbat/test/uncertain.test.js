@@ -42,9 +42,15 @@ function mkHost() {
   for (const name of ['range','map','filter','foldl','maximum','minimum','median','sum','mean','stdev']) {
     if (n.fns.has(name)) n.fns.delete(name);
   }
-  // ep-original; signature only. Runtime is in BUILTIN_PROCS.
-  n.registerModule('uncertainty::functions',
-    'fn normal<D>(mu: D, sigma: D) -> D\n');
+  // ep-original; signatures only. Runtime is in BUILTIN_PROCS.
+  n.registerModule('uncertainty::functions', [
+    'fn normal<D>(mu: D, sigma: D) -> D',
+    'fn uniform<D>(lo: D, hi: D) -> D',
+    'fn lognormal<D>(mu: D, sigma: D) -> D',
+    'fn triangular<D>(lo: D, mode: D, hi: D) -> D',
+    'fn percentile<D>(x: D, p: Scalar) -> D',
+    '',
+  ].join('\n'));
   n.use('uncertainty::functions');
   resetUncertaintyRng();
   return n;
@@ -204,4 +210,149 @@ test('samplesOf: a scalar Quantity lifts to a constant array', () => {
 test('samplesOf: an Uncertain returns its own samples', () => {
   const u = new Uncertain(new Float64Array([1, 2, 3, 4]), {});
   assert.strictEqual(samplesOf(u, 4), u.samples);
+});
+
+// ── uniform ───────────────────────────────────────────────────────
+
+test('uniform: mean ≈ (lo+hi)/2, stdev ≈ (hi-lo)/√12, samples in [lo, hi]', () => {
+  const n = mkHost();
+  n.loadSource('let x = uniform(10, 20)', '<t>');
+  const x = n.values.get('x');
+  assert.ok(x instanceof Uncertain);
+  assert.ok(close(meanOf(x.samples), 15, 0.2));
+  assert.ok(close(stdevOf(x.samples), (20 - 10) / Math.sqrt(12), 0.15));
+  for (let i = 0; i < x.samples.length; i++) {
+    assert.ok(x.samples[i] >= 10 && x.samples[i] <= 20);
+  }
+});
+
+test('uniform: lo > hi rejects', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let bad = uniform(20, 10)', '<t>'),
+    /lo/i);
+});
+
+// ── lognormal ─────────────────────────────────────────────────────
+
+test('lognormal: real-space mean and stdev ≈ inputs', () => {
+  const n = mkHost();
+  n.loadSource('let g = lognormal(1.5, 0.4)', '<t>');
+  const g = n.values.get('g');
+  assert.ok(g instanceof Uncertain);
+  // Tolerance is wider here — lognormal has heavier tails and the MC
+  // estimator for stdev has higher variance.
+  assert.ok(close(meanOf(g.samples), 1.5, 0.1));
+  assert.ok(close(stdevOf(g.samples), 0.4, 0.1));
+});
+
+test('lognormal: all samples are positive', () => {
+  const n = mkHost();
+  n.loadSource('let g = lognormal(2, 1)', '<t>');
+  const g = n.values.get('g');
+  for (let i = 0; i < g.samples.length; i++) {
+    assert.ok(g.samples[i] > 0, `sample ${i} = ${g.samples[i]}`);
+  }
+});
+
+test('lognormal: μ ≤ 0 rejects (real-space mean must be positive)', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let bad = lognormal(-1, 0.1)', '<t>'),
+    /positive|> 0/i);
+});
+
+// ── triangular ────────────────────────────────────────────────────
+
+test('triangular: mean ≈ (lo+mode+hi)/3, samples in [lo, hi]', () => {
+  const n = mkHost();
+  n.loadSource('let r = triangular(0.82, 0.91, 0.95)', '<t>');
+  const r = n.values.get('r');
+  assert.ok(r instanceof Uncertain);
+  assert.ok(close(meanOf(r.samples), (0.82 + 0.91 + 0.95) / 3, 0.01));
+  for (let i = 0; i < r.samples.length; i++) {
+    assert.ok(r.samples[i] >= 0.82 && r.samples[i] <= 0.95);
+  }
+});
+
+test('triangular: lo ≤ mode ≤ hi required', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let bad = triangular(0, 5, 3)', '<t>'),
+    /lo|mode|hi/i);
+});
+
+// ── percentile ────────────────────────────────────────────────────
+
+test('percentile: P50 ≈ mean for a symmetric distribution', () => {
+  const n = mkHost();
+  n.loadSource('let u = normal(100, 5)\nlet p50 = percentile(u, 50)', '<t>');
+  const p50 = n.values.get('p50');
+  assert.ok(p50 instanceof Quantity);
+  assert.ok(!(p50 instanceof Uncertain));
+  assert.ok(close(p50.value, 100, 0.5));
+});
+
+test('percentile: P05 < P50 < P95', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let u = normal(0, 1)',
+    'let p05 = percentile(u, 5)',
+    'let p50 = percentile(u, 50)',
+    'let p95 = percentile(u, 95)',
+  ].join('\n'), '<t>');
+  const p05 = n.values.get('p05').value;
+  const p50 = n.values.get('p50').value;
+  const p95 = n.values.get('p95').value;
+  assert.ok(p05 < p50);
+  assert.ok(p50 < p95);
+  // Standard normal: P05 ≈ -1.645, P95 ≈ 1.645.
+  assert.ok(close(p05, -1.645, 0.15));
+  assert.ok(close(p95,  1.645, 0.15));
+});
+
+test('percentile: P0 = min, P100 = max', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let u = uniform(10, 20)',
+    'let p0   = percentile(u, 0)',
+    'let p100 = percentile(u, 100)',
+  ].join('\n'), '<t>');
+  const u = n.values.get('u').samples;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < u.length; i++) {
+    if (u[i] < mn) mn = u[i];
+    if (u[i] > mx) mx = u[i];
+  }
+  assert.equal(n.values.get('p0').value, mn);
+  assert.equal(n.values.get('p100').value, mx);
+});
+
+test('percentile: rejects non-Uncertain first arg', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let bad = percentile(5, 50)', '<t>'),
+    /uncertain/i);
+});
+
+test('percentile: rejects p outside [0, 100]', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let u = normal(0, 1)\nlet bad = percentile(u, 150)', '<t>'),
+    /\[0, ?100\]|0,? 100/i);
+});
+
+// ── hist(uncertain) ───────────────────────────────────────────────
+
+test('hist(uncertain) does not throw and feeds the plot sink', async () => {
+  const { setPlotSink } = await import('../src/load.js');
+  const captured = [];
+  setPlotSink(d => captured.push(d));
+  const n = mkHost();
+  n.loadSource('let u = normal(50, 5)\nlet _h = hist(u, "x", "count", "Distribution")', '<t>');
+  setPlotSink(null);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].type, 'hist');
+  assert.equal(captured[0].values.length, 1000);
+  assert.equal(captured[0].title, 'Distribution');
 });

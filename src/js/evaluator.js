@@ -85,9 +85,25 @@ function host() {
   // BUILTIN_PROCS (see ext/numbat/src/load.js). SPEC-UNCERTAINTY.md for
   // the full design.
   _host.registerModule('uncertainty::functions', [
-    '@description("Draw N samples from a normal distribution with mean `mu` and standard deviation `sigma`. Subsequent arithmetic propagates the samples through automatically — nonlinear operations get the right shape because each sample is computed independently.")',
+    '@description("Draw samples from a normal distribution with mean `mu` and standard deviation `sigma`. Subsequent arithmetic propagates the samples through automatically — nonlinear operations get the right shape because each sample is computed independently.")',
     '@example("density = normal(2.7 g/cm³, 0.1 g/cm³)")',
     'fn normal<D>(mu: D, sigma: D) -> D',
+    '',
+    '@description("Draw samples from a uniform distribution on [lo, hi].")',
+    '@example("length = uniform(180 m, 220 m)")',
+    'fn uniform<D>(lo: D, hi: D) -> D',
+    '',
+    '@description("Draw samples from a lognormal distribution. `mu` and `sigma` are real-space mean and standard deviation; conversion to log-space happens internally.")',
+    '@example("grade = lognormal(1.5 g/t, 0.4 g/t)")',
+    'fn lognormal<D>(mu: D, sigma: D) -> D',
+    '',
+    '@description("Draw samples from a triangular distribution with the given low, mode, and high points.")',
+    '@example("recovery = triangular(0.82, 0.91, 0.95)")',
+    'fn triangular<D>(lo: D, mode: D, hi: D) -> D',
+    '',
+    '@description("Return the p-th percentile of an uncertain value (p in [0, 100]); collapses to a regular Quantity. Linear interpolation between order statistics.")',
+    '@example("p95 = percentile(tonnage, 95)")',
+    'fn percentile<D>(x: D, p: Scalar) -> D',
     '',
   ].join('\n'));
   try { _host.use('uncertainty::functions'); }

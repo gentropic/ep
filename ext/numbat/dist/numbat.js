@@ -4608,7 +4608,24 @@ const BUILTIN_PROCS = {
   hist(args) {
     if (args.length < 1 || args.length > 4) throw new Error(`hist: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);
     if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'hist', ...coerceValues(args[0]), ...labelOpts(args, 1) });
+      const v = args[0];
+      let values, valueUnit;
+      if (v && v.__uncertain) {
+        // Uncertain → bin its sample array directly. Samples are
+        // canonical; ask the formatter for the display unit so the
+        // axis label matches the chip.
+        values = Array.from(v.samples);
+        valueUnit = '';
+        try {
+          if (typeof _quantityFormatter === 'function') {
+            const p = _quantityFormatter(v);
+            if (p && p.unit) valueUnit = p.unit;
+          }
+        } catch {}
+      } else {
+        ({ values, valueUnit } = coerceValues(v));
+      }
+      _plotSink({ type: 'hist', values, valueUnit, ...labelOpts(args, 1) });
     }
     return new Quantity(0, {});
   },
@@ -4799,6 +4816,110 @@ const BUILTIN_PROCS = {
       samples[i] = muV + sigmaV * _boxMuller(rng);
     }
     return new Uncertain(samples, mu.dim, mu.disp);
+  },
+  uniform(args) {
+    if (args.length !== 2) throw new Error(`uniform: expected 2 args (lo, hi), got ${args.length}`);
+    const lo = args[0];
+    const hi = args[1];
+    if (!(lo instanceof Quantity) || !(hi instanceof Quantity)) {
+      throw new Error('uniform: both arguments must be quantities');
+    }
+    if (!dimEq(lo.dim, hi.dim)) {
+      throw new Error(`uniform: dim mismatch — lo has [${dimFormat(lo.dim)}] but hi has [${dimFormat(hi.dim)}]`);
+    }
+    if (hi.value < lo.value) {
+      throw new Error(`uniform: hi (${hi.value}) must be ≥ lo (${lo.value})`);
+    }
+    const N    = getSampleCount();
+    const rng  = getUncertaintyRng();
+    const loV  = lo.value;
+    const span = hi.value - lo.value;
+    const samples = new Float64Array(N);
+    for (let i = 0; i < N; i++) samples[i] = loV + span * rng();
+    return new Uncertain(samples, lo.dim, lo.disp);
+  },
+  lognormal(args) {
+    if (args.length !== 2) throw new Error(`lognormal: expected 2 args (mu, sigma), got ${args.length}`);
+    const mu    = args[0];
+    const sigma = args[1];
+    if (!(mu instanceof Quantity) || !(sigma instanceof Quantity)) {
+      throw new Error('lognormal: both arguments must be quantities');
+    }
+    if (!dimEq(mu.dim, sigma.dim)) {
+      throw new Error(`lognormal: dim mismatch — mu has [${dimFormat(mu.dim)}] but sigma has [${dimFormat(sigma.dim)}]`);
+    }
+    if (mu.value <= 0) {
+      throw new Error(`lognormal: real-space mean must be > 0 (got ${mu.value})`);
+    }
+    if (sigma.value < 0) {
+      throw new Error(`lognormal: sigma must be ≥ 0 (got ${sigma.value})`);
+    }
+    // Convert real-space (μ, σ) to underlying-normal (μ_log, σ_log²):
+    //   σ_log² = ln(1 + (σ/μ)²)
+    //   μ_log  = ln(μ) - σ_log²/2
+    // Then X = exp(μ_log + σ_log · Z) where Z ~ N(0,1).
+    const cv2      = (sigma.value / mu.value) * (sigma.value / mu.value);
+    const sigmaLog2 = Math.log(1 + cv2);
+    const sigmaLog  = Math.sqrt(sigmaLog2);
+    const muLog    = Math.log(mu.value) - sigmaLog2 / 2;
+    const N    = getSampleCount();
+    const rng  = getUncertaintyRng();
+    const samples = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      samples[i] = Math.exp(muLog + sigmaLog * _boxMuller(rng));
+    }
+    return new Uncertain(samples, mu.dim, mu.disp);
+  },
+  triangular(args) {
+    if (args.length !== 3) throw new Error(`triangular: expected 3 args (lo, mode, hi), got ${args.length}`);
+    const lo   = args[0];
+    const mode = args[1];
+    const hi   = args[2];
+    if (!(lo instanceof Quantity) || !(mode instanceof Quantity) || !(hi instanceof Quantity)) {
+      throw new Error('triangular: all arguments must be quantities');
+    }
+    if (!dimEq(lo.dim, mode.dim) || !dimEq(lo.dim, hi.dim)) {
+      throw new Error('triangular: lo, mode, hi must share a dim');
+    }
+    if (!(lo.value <= mode.value && mode.value <= hi.value)) {
+      throw new Error(`triangular: require lo ≤ mode ≤ hi (got ${lo.value}, ${mode.value}, ${hi.value})`);
+    }
+    // Inverse-CDF sampling.
+    const span = hi.value - lo.value;
+    const split = span > 0 ? (mode.value - lo.value) / span : 0;
+    const loV = lo.value, hiV = hi.value, modeV = mode.value;
+    const N    = getSampleCount();
+    const rng  = getUncertaintyRng();
+    const samples = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      const u = rng();
+      if (u < split) {
+        samples[i] = loV + Math.sqrt(u * span * (modeV - loV));
+      } else {
+        samples[i] = hiV - Math.sqrt((1 - u) * span * (hiV - modeV));
+      }
+    }
+    return new Uncertain(samples, lo.dim, lo.disp);
+  },
+  percentile(args) {
+    if (args.length !== 2) throw new Error(`percentile: expected 2 args (x, p), got ${args.length}`);
+    const x = args[0];
+    const p = args[1];
+    if (!(x && x.__uncertain)) {
+      throw new Error('percentile: first argument must be an uncertain value');
+    }
+    const pv = p instanceof Quantity ? p.value : p;
+    if (typeof pv !== 'number' || !isFinite(pv) || pv < 0 || pv > 100) {
+      throw new Error('percentile: second argument must be a number in [0, 100]');
+    }
+    // Sort once; linear interpolation between adjacent order statistics
+    // (the "type-7" / Excel convention).
+    const sorted = Array.from(x.samples).sort((a, b) => a - b);
+    const idx = (pv / 100) * (sorted.length - 1);
+    const lo  = Math.floor(idx);
+    const hi  = Math.ceil(idx);
+    const v   = sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+    return new Quantity(v, x.dim, x.disp);
   },
   // maximum / minimum / median — list reductions. Upstream's
   // math::statistics defines maximum/minimum by direct head/tail
