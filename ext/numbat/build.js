@@ -70,6 +70,10 @@ const PUBLIC_API = [
   'Uncertain', 'samplesOf',
   'resetUncertaintyRng', 'setUncertaintySeed', 'getUncertaintyRng',
   'setSampleCount', 'getSampleCount',
+  // Sensitivity sweep — Swept is the deterministic sibling of Uncertain
+  // (samples linearly spaced over an input range; arithmetic propagates
+  // both the output samples and the original input axis).
+  'Swept', 'sweepSamplesOf',
   // Bundled vendored .nbt modules (v0.2) — Numbat.loadVendoredPrelude uses this.
   'VENDORED_MODULES',
 ];

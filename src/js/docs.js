@@ -103,6 +103,7 @@ export const DOCS = {
   lognormal:   { signature: 'lognormal<D>(mu: D, sigma: D) -> D', description: 'Draw samples from a lognormal distribution. `mu` and `sigma` are real-space mean and standard deviation; conversion to log-space happens internally. All samples are positive.', example: 'grade = lognormal(1.5 g/t, 0.4 g/t)' },
   triangular:  { signature: 'triangular<D>(lo: D, mode: D, hi: D) -> D', description: 'Draw samples from a triangular distribution with the given low, mode, and high points.', example: 'recovery = triangular(0.82, 0.91, 0.95)' },
   percentile:  { signature: 'percentile<D>(x: D, p: Scalar) -> D', description: 'Return the p-th percentile of an uncertain value (p in [0, 100]). Collapses to a regular Quantity. Linear interpolation between adjacent order statistics.', example: 'p95 = percentile(tonnage, 95)' },
+  sweep:       { signature: 'sweep<D>(start: D, end: D, n: Scalar) -> D', description: 'Vary a value linearly between `start` and `end` across `n` samples. Returns a Swept value: subsequent arithmetic carries both the output samples and the input axis through, so the output chip can render Y(X) as an inline line plot. Deterministic sibling of `normal` / `uniform` — sensitivity sweep rather than uncertainty propagation.', example: 'length = sweep(180 m, 220 m, 41)' },
   samples:     { signature: 'samples<D>(x: D) -> List<D>', description: 'Materialize an uncertain value as a regular List<Quantity> — escape hatch for custom reductions, ad-hoc plotting, or exporting. The dim and display unit of each element matches the Uncertain.', example: 'xs = samples(tonnage)\nmean(xs)  # same as mean(tonnage)' },
   pdf:         { signature: 'pdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the probability-density estimate (Gaussian KDE, Silverman bandwidth) of an uncertain value as a smooth curve inline.', example: 'pdf(tonnage, "tonnage", "density", "Resource estimate")' },
   cdf:         { signature: 'cdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline. P(X ≤ x).', example: 'cdf(tonnage)' },
@@ -229,6 +230,9 @@ export const DOC_GROUPS = [
   { label: 'Uncertainty (ep extension)', names: [
     'normal','uniform','lognormal','triangular',
     'percentile','samples','pdf','cdf',
+  ]},
+  { label: 'Sensitivity sweep (ep extension)', names: [
+    'sweep',
   ]},
   { label: 'Plots', names: [
     'plot','scatter','bar_chart','hist',

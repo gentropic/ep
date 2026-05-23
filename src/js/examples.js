@@ -176,6 +176,43 @@ gain = future_value - principal
   },
 
   {
+    slug: 'sensitivity_sweep',
+    name: 'Sensitivity sweep',
+    desc: 'Sweep drill-core diameter — sample volume / mass scale as d²',
+    body: `# Sensitivity sweep — the *deterministic* sibling of uncertainty.
+# \`sweep(start, end, n)\` varies a value linearly across n samples;
+# subsequent arithmetic carries the curve through automatically and
+# the output chip renders Y(X) as an inline line plot. Tap to enlarge.
+#
+# Drill-core sample volume goes as π/4 · d² · length, so sweeping the
+# core diameter produces a quadratic curve — the canonical case where
+# sensitivity matters. DCDMA sizes for reference: AQ ≈ 30 mm,
+# NQ ≈ 47 mm, HQ ≈ 64 mm, PQ ≈ 85 mm.
+
+@input
+diameter  = sweep(30 mm, 100 mm, 71)
+
+@input
+length    = 5 m
+
+@input
+density   = 2.7 g/cm3
+
+@input
+grade     = 1500 ppb
+
+@output(L)
+volume    = cylinder_volume(diameter, length)
+
+@output(kg)
+mass      = sample_mass(diameter, length, density)
+
+@output(g)
+metal     = mass * grade
+`,
+  },
+
+  {
     slug: 'uncertain_resource',
     name: 'Resource with uncertainty',
     desc: 'Monte Carlo propagation — normal / uniform / lognormal / triangular inputs → percentile bounds + PDF',

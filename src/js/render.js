@@ -2171,12 +2171,13 @@ export function renderOutputs() {
     const val = document.createElement('div');
     val.className = 'chip-out-val';
     const q = state._scope[name];
-    const isUnc = q && q.__uncertain;
+    const isUnc   = q && q.__uncertain;
+    const isSwept = q && q.__swept;
     let copyText = '';
-    // Hoisted to the row scope so the Uncertain-histogram click handler
+    // Hoisted to the row scope so the chip-thumbnail click handlers
     // (further down) can scale samples to the chip's display unit using
     // the same `n` / `u` it shows.
-    let n, u, sNum = null, err = null;
+    let n, u, sNum = null, sMin = null, sMax = null, err = null;
     if (q == null) {
       val.classList.add('error');
       val.textContent = 'undefined';
@@ -2186,8 +2187,19 @@ export function renderOutputs() {
       // expression so compound forms like ft^3 / kg/m^2 / km/h work even
       // when they aren't pre-registered aliases. For Uncertain values
       // (SPEC-UNCERTAINTY): also compute and display the stdev so the
-      // chip reads `mean ± stdev unit`, in the same display unit.
+      // chip reads `mean ± stdev unit`. For Swept values (sensitivity
+      // sweep): compute the output range so the chip reads `min … max`.
       const sigma = isUnc ? stdevOf(q.samples) : 0;
+      let minV = 0, maxV = 0;
+      if (isSwept) {
+        let mn = Infinity, mx = -Infinity;
+        for (let i = 0; i < q.samples.length; i++) {
+          const v = q.samples[i];
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+        minV = mn; maxV = mx;
+      }
       if (unit) {
         try {
           const spec = resolveUnitExpression(unit);
@@ -2196,15 +2208,23 @@ export function renderOutputs() {
           } else {
             n = fmtNum(q.value / spec.mul);
             u = spec.displayName;
-            if (isUnc) sNum = fmtNum(sigma / spec.mul);
+            if (isUnc)   sNum = fmtNum(sigma / spec.mul);
+            if (isSwept) {
+              sMin = fmtNum(minV / spec.mul);
+              sMax = fmtNum(maxV / spec.mul);
+            }
           }
         } catch (e) { err = e.message; }
       } else {
         [n, u] = fmt(q);
-        // Format the stdev in the same auto-chosen display the mean used
-        // — `fmt` picks a unit/scale from q's dim+disp; passing a
-        // matched Quantity for sigma yields the same display unit.
+        // Format ancillary values in the same auto-chosen display the
+        // mean used — `fmt` picks a unit/scale from q's dim+disp; passing
+        // a matched Quantity yields the same display unit.
         if (isUnc) [sNum] = fmt(new Q(sigma, q.dim, q.disp));
+        if (isSwept) {
+          [sMin] = fmt(new Q(minV, q.dim, q.disp));
+          [sMax] = fmt(new Q(maxV, q.dim, q.disp));
+        }
       }
       if (err) {
         // Don't try to render the full error message inside the chip —
@@ -2221,6 +2241,14 @@ export function renderOutputs() {
           `${n} <span class="u">±</span> ${sNum}` + (u ? ` <span class="u">${u}</span>` : '');
         val.title = chipTooltip(q);
         copyText = (`${n} ± ${sNum}` + (u ? ' ' + u : '')).replace(/,/g, '')
+                    .replace(/²/g, '^2').replace(/³/g, '^3');
+      } else if (isSwept) {
+        // Range display: "min … max unit". Compact enough to fit the
+        // chip; the inline thumbnail below carries the shape.
+        val.innerHTML =
+          `${sMin} <span class="u">…</span> ${sMax}` + (u ? ` <span class="u">${u}</span>` : '');
+        val.title = chipTooltip(q);
+        copyText = (`${sMin}..${sMax}` + (u ? ' ' + u : '')).replace(/,/g, '')
                     .replace(/²/g, '^2').replace(/³/g, '^3');
       } else {
         val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
@@ -2251,6 +2279,52 @@ export function renderOutputs() {
     }
 
     chip.append(lbl, row);
+    // Line-plot thumbnail for Swept outputs — a glanceable view of the
+    // input-vs-output relationship. Tap to open the full plot modal
+    // with axis labels (input dim x output dim).
+    if (isSwept) {
+      const cssW = 200, cssH = 60;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const cvs = document.createElement('canvas');
+      cvs.className = 'chip-out-hist';   // reuse Uncertain thumbnail styling (same dims, same cursor:pointer)
+      cvs.width  = cssW * dpr;
+      cvs.height = cssH * dpr;
+      cvs.style.width  = cssW + 'px';
+      cvs.style.height = cssH + 'px';
+      cvs.title = 'tap to enlarge';
+      const inputSamples = q.inputSamples;
+      const outputSamples = q.samples;
+      requestAnimationFrame(() => drawPlot(cvs, {
+        type: 'line',
+        xs: Array.from(inputSamples),
+        ys: Array.from(outputSamples),
+      }, dpr, { compact: true }));
+      cvs.addEventListener('click', () => {
+        // Modal: canonical values + the chip's display units; drawPlot
+        // handles the scaling. Input axis uses inputDisp from the
+        // original sweep() args; output axis uses `u` (whatever the
+        // chip resolved to for the mean / range display).
+        let xUnit = '';
+        try {
+          // Derive a display-unit label for the input axis by formatting
+          // a typical inputSamples value via fmt — this matches the
+          // unit string drawPlot's unitFactor can consume.
+          const midI = q.inputSamples[Math.floor(q.inputSamples.length / 2)];
+          const [, xMidUnit] = fmt(new Q(midI, q.inputDim, q.inputDisp));
+          xUnit = xMidUnit || '';
+        } catch {}
+        openPlotModal({
+          type: 'line',
+          xs: Array.from(inputSamples),
+          ys: Array.from(outputSamples),
+          xUnit, yUnit: u || '',
+          xLabel: xUnit,
+          yLabel: u || '',
+          title: `${name} — sweep`,
+        }, name);
+      });
+      chip.appendChild(cvs);
+    }
     // Histogram thumbnail for Uncertain outputs — a glanceable view of
     // the distribution shape, drawn from the sample array. Tap to open
     // a full-size hist in the plot modal (same path the other plot

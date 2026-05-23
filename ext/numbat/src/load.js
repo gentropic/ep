@@ -18,7 +18,7 @@
 // v0.2 covers the declarative subset only — `fn`, `if`, structs, `->`
 // in value expressions all error with a clear message.
 
-import { Quantity, DateTime, Uncertain, getUncertaintyRng, getSampleCount } from './quantity.js';
+import { Quantity, DateTime, Uncertain, Swept, getUncertaintyRng, getSampleCount } from './quantity.js';
 import { dimEq, dimMul, dimDiv, dimPow, dimEmpty, dimFormat } from './dimensions.js';
 import { formatDatetimeWith } from './format.js';
 import { tokenize } from './tokenize.js';
@@ -948,6 +948,37 @@ const BUILTIN_PROCS = {
       _plotSink({ type: 'line', xs: sorted, ys, xUnit: unit, ...labelOpts(args, 1) });
     }
     return new Quantity(0, {});
+  },
+  // ── Sensitivity sweep (companion to uncertainty) ────────────────
+  // Vary a quantity linearly between `start` and `end` across `n`
+  // samples. The result is a Swept value: subsequent arithmetic carries
+  // both the output samples and the original input axis through, so
+  // the chip display can render Y(X) at the end of the chain.
+  sweep(args) {
+    if (args.length !== 3) throw new Error(`sweep: expected 3 args (start, end, n), got ${args.length}`);
+    const start = args[0];
+    const end   = args[1];
+    const n     = args[2];
+    if (!(start instanceof Quantity) || !(end instanceof Quantity)) {
+      throw new Error('sweep: start and end must be quantities');
+    }
+    if (!dimEq(start.dim, end.dim)) {
+      throw new Error(`sweep: dim mismatch — start has [${dimFormat(start.dim)}] but end has [${dimFormat(end.dim)}]`);
+    }
+    const nv = n instanceof Quantity ? n.value : n;
+    if (!Number.isInteger(nv) || nv < 2) {
+      throw new Error(`sweep: n must be an integer ≥ 2 (got ${nv})`);
+    }
+    const startV = start.value, endV = end.value;
+    const samples = new Float64Array(nv);
+    for (let i = 0; i < nv; i++) {
+      samples[i] = startV + (endV - startV) * (i / (nv - 1));
+    }
+    // The initial Swept's samples ARE the input — subsequent arithmetic
+    // produces derived Swepts whose samples diverge but whose
+    // inputSamples reference stays the same (== "same sweep").
+    return new Swept(samples, start.dim, start.disp,
+                     samples, start.dim, start.disp);
   },
   // maximum / minimum / median — list reductions. Upstream's
   // math::statistics defines maximum/minimum by direct head/tail

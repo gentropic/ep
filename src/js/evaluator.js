@@ -117,6 +117,16 @@ function host() {
   ].join('\n'));
   try { _host.use('uncertainty::functions'); }
   catch (e) { console.warn('ep: uncertainty::functions load failed:', e && e.message || e); }
+  // sweep::functions — sensitivity sweep companion to uncertainty.
+  // Same pattern: ep-original, signature only, runtime in BUILTIN_PROCS.
+  _host.registerModule('sweep::functions', [
+    '@description("Vary a value linearly between `start` and `end` across `n` samples. Subsequent arithmetic carries both the output samples and the input axis forward — letting you see how a chained calculation moves as you scan one input. Deterministic sibling of `normal` / `uniform`.")',
+    '@example("length = sweep(180 m, 220 m, 41)")',
+    'fn sweep<D>(start: D, end: D, n: Scalar) -> D',
+    '',
+  ].join('\n'));
+  try { _host.use('sweep::functions'); }
+  catch (e) { console.warn('ep: sweep::functions load failed:', e && e.message || e); }
   // `format_datetime`: the vendored datetime module declares it strictly
   // 2-arg (`format_datetime(format, input)`), but numbat-js's FFI proc
   // accepts an optional 3rd `tz` arg. Drop the .nbt fn record so calls

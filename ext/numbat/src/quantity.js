@@ -23,9 +23,10 @@ export class Quantity {
     // A datetime on the right has its own affine algebra — defer to it
     // (`duration + datetime` is commutative → `datetime + duration`).
     if (other instanceof DateTime) return other.add(this);
-    // An Uncertain on the right gets the same treatment — commute and
-    // let the sample-bearing add path run.
+    // Uncertain / Swept on the right — commute and let their sample-
+    // bearing add path run.
     if (other && other.__uncertain) return other.add(this);
+    if (other && other.__swept)     return other.add(this);
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't add [${dimFormat(this.dim)}] + [${dimFormat(other.dim)}]`);
     }
@@ -48,6 +49,15 @@ export class Quantity {
       for (let i = 0; i < N; i++) r[i] = this.value - other.samples[i];
       return new Uncertain(r, this.dim);
     }
+    if (other && other.__swept) {
+      if (!dimEq(this.dim, other.dim)) {
+        throw new Error(`can't subtract [${dimFormat(this.dim)}] − [${dimFormat(other.dim)}]`);
+      }
+      const N = other.samples.length;
+      const r = new Float64Array(N);
+      for (let i = 0; i < N; i++) r[i] = this.value - other.samples[i];
+      return new Swept(r, this.dim, null, other.inputSamples, other.inputDim, other.inputDisp);
+    }
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't subtract [${dimFormat(this.dim)}] − [${dimFormat(other.dim)}]`);
     }
@@ -56,8 +66,10 @@ export class Quantity {
 
   mul(other) {
     if (other instanceof DateTime) throw new Error("can't multiply by a datetime");
-    // Commutative: defer to Uncertain.mul which broadcasts the scalar.
+    // Commutative: defer to the sample-bearing class which broadcasts
+    // the scalar across its own samples.
     if (other && other.__uncertain) return other.mul(this);
+    if (other && other.__swept)     return other.mul(this);
     return new Quantity(this.value * other.value, dimMul(this.dim, other.dim));
   }
 
@@ -71,6 +83,12 @@ export class Quantity {
       for (let i = 0; i < N; i++) r[i] = this.value / other.samples[i];
       return new Uncertain(r, dimDiv(this.dim, other.dim));
     }
+    if (other && other.__swept) {
+      const N = other.samples.length;
+      const r = new Float64Array(N);
+      for (let i = 0; i < N; i++) r[i] = this.value / other.samples[i];
+      return new Swept(r, dimDiv(this.dim, other.dim), null, other.inputSamples, other.inputDim, other.inputDisp);
+    }
     return new Quantity(this.value / other.value, dimDiv(this.dim, other.dim));
   }
 
@@ -81,6 +99,10 @@ export class Quantity {
       // dim depend on the sample — doesn't typecheck statically. Phase 1
       // rejects; Phase 2 can revisit for the dimensionless case.
       throw new Error('Phase 1: uncertain exponents are not supported');
+    }
+    if (exponent && exponent.__swept) {
+      // Same dim-depends-on-sample problem; reject in Phase 1.
+      throw new Error('Phase 1: swept exponents are not supported');
     }
     const expValue = exponent instanceof Quantity ? exponent.value : exponent;
     if (exponent instanceof Quantity && !dimEmpty(exponent.dim)) {
@@ -198,6 +220,12 @@ export function getUncertaintyRng() {
 // correlated, lazy) plug in: each kind implements its own materialization
 // here, and the rest of the arithmetic just works.
 export function samplesOf(q, N) {
+  // Phase 1: Uncertain × Swept combinations are out (the result would
+  // need a 2-D sample matrix). Fail loudly rather than silently lift
+  // the swept's mean or its axis.
+  if (q && q.__swept) {
+    throw new Error('cannot combine Uncertain with Swept (Phase 1)');
+  }
   if (q && q.__uncertain) {
     if (q.kind === 'samples') {
       if (q.samples.length === N) return q.samples;
@@ -303,5 +331,128 @@ export class Uncertain extends Quantity {
     // a new Uncertain so display picks it up. Samples stay canonical.
     const tagged = super.convertTo(unitName, registry);
     return new Uncertain(this.samples, this.dim, tagged.disp);
+  }
+}
+
+// ── Swept quantities (SPEC-UNCERTAINTY companion: sensitivity sweep) ──
+//
+// A Swept is a Quantity carrying a Float64Array of output samples PLUS
+// a Float64Array of input samples — the values of the @input that the
+// program is varying. Arithmetic propagates sample-wise (like
+// Uncertain), but Swept also carries the input axis through, so the
+// renderer can plot Y(X) at the end of the chain. Two Swepts combine
+// only when they share the same `inputSamples` array reference —
+// reference equality is how "same sweep" is identified, no IDs needed
+// (every chain derived from one `sweep(...)` call shares the same
+// inputSamples Float64Array).
+
+// Lift any operand to a Float64Array aligned to `ref`'s input axis.
+// Single point where new combination rules plug in.
+export function sweepSamplesOf(q, ref) {
+  // Phase 1: Swept × Uncertain isn't supported (2-D structure needed).
+  if (q && q.__uncertain) {
+    throw new Error('cannot combine Swept with Uncertain (Phase 1)');
+  }
+  if (q && q.__swept) {
+    if (q.inputSamples !== ref.inputSamples) {
+      throw new Error('swept: input axes incompatible — only one sweep per program (Phase 1)');
+    }
+    return q.samples;
+  }
+  const N = ref.inputSamples.length;
+  if (q instanceof Quantity) {
+    const a = new Float64Array(N);
+    a.fill(q.value);
+    return a;
+  }
+  if (typeof q === 'number') {
+    const a = new Float64Array(N);
+    a.fill(q);
+    return a;
+  }
+  throw new Error('sweepSamplesOf: expected a Quantity, number, or Swept');
+}
+
+export class Swept extends Quantity {
+  constructor(samples, dim, disp = null, inputSamples = null, inputDim = {}, inputDisp = null) {
+    // .value is the sample mean — same fallback contract as Uncertain.
+    super(meanOf(samples), dim, disp);
+    this.samples      = samples;       // Float64Array — the computed output values
+    this.inputSamples = inputSamples;  // Float64Array — the swept input values (shared by-ref)
+    this.inputDim     = inputDim;
+    this.inputDisp    = inputDisp;
+    this.__swept = true;
+    this.kind    = 'sweep';
+  }
+
+  add(other) {
+    if (!dimEq(this.dim, (other && other.dim) || {})) {
+      throw new Error(`can't add [${dimFormat((other && other.dim) || {})}] to [${dimFormat(this.dim)}]`);
+    }
+    const N = this.samples.length;
+    const o = sweepSamplesOf(other, this);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] + o[i];
+    return new Swept(r, this.dim, this.disp, this.inputSamples, this.inputDim, this.inputDisp);
+  }
+
+  sub(other) {
+    if (!dimEq(this.dim, (other && other.dim) || {})) {
+      throw new Error(`can't subtract [${dimFormat((other && other.dim) || {})}] from [${dimFormat(this.dim)}]`);
+    }
+    const N = this.samples.length;
+    const o = sweepSamplesOf(other, this);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] - o[i];
+    return new Swept(r, this.dim, this.disp, this.inputSamples, this.inputDim, this.inputDisp);
+  }
+
+  mul(other) {
+    const N = this.samples.length;
+    const o = sweepSamplesOf(other, this);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] * o[i];
+    return new Swept(r, dimMul(this.dim, (other && other.dim) || {}), null,
+                     this.inputSamples, this.inputDim, this.inputDisp);
+  }
+
+  div(other) {
+    const N = this.samples.length;
+    const o = sweepSamplesOf(other, this);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] / o[i];
+    return new Swept(r, dimDiv(this.dim, (other && other.dim) || {}), null,
+                     this.inputSamples, this.inputDim, this.inputDisp);
+  }
+
+  pow(exponent) {
+    if (exponent && exponent.__swept) {
+      throw new Error('Phase 1: swept exponents are not supported');
+    }
+    if (exponent && exponent.__uncertain) {
+      throw new Error('Phase 1: uncertain exponents are not supported');
+    }
+    const expValue = exponent instanceof Quantity ? exponent.value : exponent;
+    if (exponent instanceof Quantity && !dimEmpty(exponent.dim)) {
+      throw new Error('exponent must be dimensionless');
+    }
+    const N = this.samples.length;
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = Math.pow(this.samples[i], expValue);
+    return new Swept(r, dimPow(this.dim, expValue), null,
+                     this.inputSamples, this.inputDim, this.inputDisp);
+  }
+
+  neg() {
+    const N = this.samples.length;
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = -this.samples[i];
+    return new Swept(r, this.dim, this.disp, this.inputSamples, this.inputDim, this.inputDisp);
+  }
+
+  convertTo(unitName, registry) {
+    const tagged = super.convertTo(unitName, registry);
+    return new Swept(this.samples, this.dim, tagged.disp,
+                     this.inputSamples, this.inputDim, this.inputDisp);
   }
 }
