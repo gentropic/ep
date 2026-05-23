@@ -386,6 +386,14 @@ function startsStatement(tokens, i) {
   // statement. The multi-line if-in-fn-body case continues via the `=`
   // awaiting-operand path, not via `if` itself.)
   if (t.type === 'kw' && ['where','and','then','else'].includes(t.name)) return false;
+  // Pure-binary operators — `|>` (pipe), `->` / `→` (conversion / fn
+  // application) — have no unary meaning, so a line that opens with
+  // one is unambiguously a continuation. Lets multi-line fluent /
+  // pipeline forms split across lines:
+  //   stereonet()
+  //     |> with_planes(dd, dip)
+  //     |> with_title("…")
+  if (t.type === 'op' && ['|>','->','→'].includes(t.op)) return false;
   return true;
 }
 
@@ -999,6 +1007,13 @@ export function evaluate(body) {
       bindingRowByName.set(name, ownerIdx);
       row.result = q;
       row.error  = err;
+      // Auto-render Plot bindings only when they're tagged `@output` —
+      // that's the explicit "I want this rendered" signal for a binding.
+      // Plain `let p = stereonet() |> ...` doesn't render; the user can
+      // `show(p)` later (SPEC-LAYERED-PLOTS §Open questions).
+      if (q && q.__plot && isOutput && !plotsByRow.has(ownerIdx)) {
+        plotsByRow.set(ownerIdx, q);
+      }
       if (!err) noteLineResult(ownerIdx, q);
       // Annotation auto-suggest: when the row evaluates cleanly, has a
       // dim-shaped result, and the user hasn't already typed a `: Name`
@@ -1094,6 +1109,14 @@ export function evaluate(body) {
       try {
         const q = evalExprText(c.expr, env);
         row.result = q;
+        // Auto-render: a bare expression whose final value is a Plot
+        // emits to plotsByRow so the inline block widget picks it up.
+        // Bound `let p = stereonet() |> ...` is intentionally not
+        // auto-rendered — see SPEC-LAYERED-PLOTS §Open questions.
+        // `show(plot)` is the explicit-emit escape hatch for that case.
+        if (q && q.__plot && !plotsByRow.has(ownerIdx)) {
+          plotsByRow.set(ownerIdx, q);
+        }
         // `_` and `ans` resolve to the most recent expression / binding
         // result. Re-bind on every successful eval so the next
         // statement sees the right value.

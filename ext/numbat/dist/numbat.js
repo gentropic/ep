@@ -4700,11 +4700,55 @@ function _kdeGaussian(samples, gridSize) {
   return { xs, ys };
 }
 
-// Stereonet emission shared between stereonet_planes / stereonet_lines.
-// Each builder takes (azimuth, angle [, title]) where azimuth + angle
-// are either both lists or both scalars. Values are converted from
-// canonical (rad in Numbat) to degrees for bearing.js's API.
-function _emitStereonet(fnName, kind, args) {
+// Build an empty Plot of the given family. A Plot is a tagged plain
+// object — `__plot: true` signals "this is a renderable plot value",
+// `family` selects the render path, `layers` accumulates the features
+// added by `with_*` adders. ep's evaluator auto-renders any row whose
+// final value is a Plot (see SPEC-LAYERED-PLOTS).
+function _newPlot(family) {
+  return {
+    __plot: true,
+    family,
+    layers: [],
+    title: '',
+    xLabel: '',
+    yLabel: '',
+  };
+}
+
+// Convert canonical radians → degrees. The Numbat canonical for angles
+// is radians; bearing.js's API is degrees. `120 deg` arrives with
+// q.value ≈ 2.094; we want 120 for the SVG.
+function _angleToDeg(q) {
+  return (q instanceof Quantity ? q.value : Number(q)) * 180 / Math.PI;
+}
+
+// Append a stereonet layer (planes / lines / poles) to an existing
+// Plot of family 'stereonet'. Validates the Plot family, normalizes
+// scalar args into 1-element lists, converts radians → degrees.
+function _withStereonetLayer(fnName, kind, args) {
+  const plot = args[0];
+  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+  if (plot.family !== 'stereonet') {
+    throw new Error(`${fnName}: cannot add a stereonet layer to a '${plot.family}' plot`);
+  }
+  let xs = args[1], ys = args[2];
+  if (!Array.isArray(xs)) xs = [xs];
+  if (!Array.isArray(ys)) ys = [ys];
+  if (xs.length !== ys.length) {
+    throw new Error(`${fnName}: arg arrays must be the same length (got ${xs.length} and ${ys.length})`);
+  }
+  const pairs = [];
+  for (let i = 0; i < xs.length; i++) pairs.push([_angleToDeg(xs[i]), _angleToDeg(ys[i])]);
+  const layer = { kind, pairs, label: typeof args[3] === 'string' ? args[3] : '' };
+  return { ...plot, layers: [...plot.layers, layer] };
+}
+
+// Shared shape for the stereonet_planes / stereonet_lines shortcuts —
+// builds a single-layer Plot of family 'stereonet' and either returns
+// it (so the auto-render path picks it up) or attaches a title via
+// the standard `with_title`-equivalent path.
+function _shortcutStereonet(fnName, kind, args) {
   if (args.length < 2 || args.length > 3) {
     throw new Error(`${fnName}: expected 2..3 args (azimuth, angle [, title]), got ${args.length}`);
   }
@@ -4714,15 +4758,12 @@ function _emitStereonet(fnName, kind, args) {
   if (xs.length !== ys.length) {
     throw new Error(`${fnName}: arg arrays must be the same length (got ${xs.length} and ${ys.length})`);
   }
-  const toDeg = q => (q instanceof Quantity ? q.value : Number(q)) * 180 / Math.PI;
   const pairs = [];
-  for (let i = 0; i < xs.length; i++) pairs.push([toDeg(xs[i]), toDeg(ys[i])]);
-  if (typeof _plotSink === 'function') {
-    const desc = { type: 'stereonet', title: typeof args[2] === 'string' ? args[2] : '' };
-    desc[kind] = pairs;     // 'planes' or 'lines'
-    _plotSink(desc);
-  }
-  return new Quantity(0, {});
+  for (let i = 0; i < xs.length; i++) pairs.push([_angleToDeg(xs[i]), _angleToDeg(ys[i])]);
+  const plot = _newPlot('stereonet');
+  plot.layers = [{ kind, pairs, label: '' }];
+  if (typeof args[2] === 'string') plot.title = args[2];
+  return plot;
 }
 
 const BUILTIN_PROCS = {
@@ -4824,18 +4865,61 @@ const BUILTIN_PROCS = {
     return new Quantity(0, {});
   },
   // ── Stereonets (structural geology) ─────────────────────────────
-  // Equal-area stereonet plots — planes (great circles) and lines
-  // (points). Each builder accepts either two lists of equal length
-  // (the typical drillhole-CSV form: `stereonet_planes(faults.dd,
-  // faults.dip)`) or two scalars (single-attitude form). Angles are
-  // in radians (the Numbat canonical) — `120 deg` works; bare numbers
-  // are interpreted as radians per Numbat convention. The actual SVG
-  // render lives host-side in ep's render.js via bearing.js.
+  // Two ways to build one: the one-shot shortcuts (`stereonet_planes`,
+  // `stereonet_lines`) for single-layer cases; or the fluent form
+  // (`stereonet() |> with_planes(...) |> with_lines(...)`) for layered
+  // stereonets with both planes and lineations. Both produce the same
+  // Plot value; ep's evaluator auto-renders a row whose result is a
+  // Plot. See SPEC-LAYERED-PLOTS.
   stereonet_planes(args) {
-    return _emitStereonet('stereonet_planes', 'planes', args);
+    return _shortcutStereonet('stereonet_planes', 'planes', args);
   },
   stereonet_lines(args) {
-    return _emitStereonet('stereonet_lines', 'lines', args);
+    return _shortcutStereonet('stereonet_lines', 'lines', args);
+  },
+  // Fluent builder: empty stereonet, ready to layer.
+  stereonet(args) {
+    if (args.length !== 0) throw new Error(`stereonet: expected 0 args, got ${args.length}`);
+    return _newPlot('stereonet');
+  },
+  with_planes(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_planes: expected 3..4 args (plot, dipDirections, dips [, label]), got ${args.length}`);
+    return _withStereonetLayer('with_planes', 'planes', args);
+  },
+  with_lines(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_lines: expected 3..4 args (plot, trends, plunges [, label]), got ${args.length}`);
+    return _withStereonetLayer('with_lines', 'lines', args);
+  },
+  with_poles(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_poles: expected 3..4 args (plot, dipDirections, dips [, label]), got ${args.length}`);
+    return _withStereonetLayer('with_poles', 'poles', args);
+  },
+  // Plot-level common adders.
+  with_title(args) {
+    if (args.length !== 2) throw new Error(`with_title: expected 2 args (plot, title), got ${args.length}`);
+    const plot = args[0];
+    if (!(plot && plot.__plot)) throw new Error('with_title: first arg must be a Plot');
+    return { ...plot, title: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+  },
+  with_xlabel(args) {
+    if (args.length !== 2) throw new Error(`with_xlabel: expected 2 args (plot, label), got ${args.length}`);
+    const plot = args[0];
+    if (!(plot && plot.__plot)) throw new Error('with_xlabel: first arg must be a Plot');
+    return { ...plot, xLabel: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+  },
+  with_ylabel(args) {
+    if (args.length !== 2) throw new Error(`with_ylabel: expected 2 args (plot, label), got ${args.length}`);
+    const plot = args[0];
+    if (!(plot && plot.__plot)) throw new Error('with_ylabel: first arg must be a Plot');
+    return { ...plot, yLabel: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+  },
+  // Explicit emission — for a let-bound Plot that auto-render skips.
+  show(args) {
+    if (args.length !== 1) throw new Error(`show: expected 1 arg (plot), got ${args.length}`);
+    const plot = args[0];
+    if (!(plot && plot.__plot)) throw new Error('show: argument must be a Plot');
+    if (typeof _plotSink === 'function') _plotSink(plot);
+    return new Quantity(0, {});
   },
   hist(args) {
     if (args.length < 1 || args.length > 4) throw new Error(`hist: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);

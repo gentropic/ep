@@ -178,23 +178,34 @@ gain = future_value - principal
   {
     slug: 'stereonet',
     name: 'Stereonet — fault attitudes',
-    desc: 'Equal-area projection of planes + lineations via bearing.js',
+    desc: 'Fluent builder: layer planes + lineations on one stereonet',
     body: `# Stereonet — structural-geology attitudes plotted on an
 # equal-area (Schmidt) projection. Planes are drawn as great
-# circles; lineations as points. Inputs are paired lists of
-# (dip direction, dip) for planes and (trend, plunge) for
-# lineations — the typical structural-mapping CSV form.
+# circles; lineations as points. The fluent builder lets you
+# layer multiple feature kinds on a single stereonet via the
+# \`|>\` pipe — see SPEC-LAYERED-PLOTS.
 
 # A synthetic conjugate fault set (dip directions clustering
-# around 120° and 300°, dips ~45°). Numbat lists are
-# homogeneous — the trailing \`deg\` applies to every element.
+# around 120° and 300°, dips ~45°). Numbat lists are homogeneous —
+# the trailing \`deg\` applies to every element.
 faults_dd  = [120, 128, 115, 122, 130, 300, 295, 305, 310, 298] deg
 faults_dip = [ 45,  52,  48,  44,  50,  47,  52,  43,  49,  51] deg
 
-stereonet_planes(faults_dd, faults_dip, "Conjugate fault set")
-
 # A measured slip lineation on one of the planes.
-stereonet_lines(240 deg, 28 deg, "Slip vector")
+slip_trend  = 240 deg
+slip_plunge =  28 deg
+
+# Combined stereonet — planes AND the slip vector in one projection.
+# A bare-expression Plot value auto-renders inline (no explicit
+# \`show()\` needed).
+stereonet()
+  |> with_planes(faults_dd, faults_dip, "fault planes")
+  |> with_lines(slip_trend, slip_plunge, "slip vector")
+  |> with_title("Conjugate faults + slip")
+
+# Shortcut form (single-layer): \`stereonet_planes(...)\` is sugar
+# for \`stereonet() |> with_planes(...) |> with_title(...)\`.
+stereonet_planes(faults_dd, faults_dip, "Planes alone (shortcut)")
 `,
   },
 

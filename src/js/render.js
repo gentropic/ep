@@ -118,24 +118,28 @@ function drawUncertainHist(canvas, samples, dpr) {
   }
 }
 
-// Render a stereonet descriptor into `host` (a DOM div). bearing.js's
-// `Stereonet` accumulates features (planes, poles, lines) and emits an
-// SVG string; we set that as host.innerHTML. No canvas, no DPR — SVG
-// scales cleanly without extra plumbing. Hover inspection isn't wired
-// here in Phase 1; bearing.js's own SVG can carry tooltips natively if
-// we want to opt in later.
-function renderStereonet(host, descriptor) {
+// Render a stereonet Plot into `host` (a DOM div). The Plot's `layers`
+// array drives bearing.js's `.plane()` / `.line()` / `.pole()` calls;
+// the resulting SVG goes into `host.innerHTML`. No canvas, no DPR —
+// SVG scales cleanly. See SPEC-LAYERED-PLOTS for the Plot shape.
+// Hover inspection isn't wired here in Phase 1; bearing.js's own SVG
+// can carry tooltips natively if we want to opt in later.
+function renderStereonet(host, plot) {
   if (typeof Stereonet === 'undefined') {
     host.textContent = 'stereonet: bearing.js missing from build';
     return;
   }
   try {
     const sn = new Stereonet();
-    if (descriptor.planes) {
-      for (const [dd, dip] of descriptor.planes) sn.plane(dd, dip);
-    }
-    if (descriptor.lines) {
-      for (const [trend, plunge] of descriptor.lines) sn.line(trend, plunge);
+    for (const layer of (plot && plot.layers) || []) {
+      const pairs = layer.pairs || [];
+      if (layer.kind === 'planes') {
+        for (const [dd, dip] of pairs) sn.plane(dd, dip);
+      } else if (layer.kind === 'lines') {
+        for (const [trend, plunge] of pairs) sn.line(trend, plunge);
+      } else if (layer.kind === 'poles') {
+        for (const [dd, dip] of pairs) sn.pole(dd, dip);
+      }
     }
     host.innerHTML = sn.svg();
   } catch (e) {
@@ -815,7 +819,8 @@ function mountCm6() {
         // Stereonet plots (structural geology) are SVG, not canvas —
         // bearing.js generates the projection + features as an SVG
         // string. Same block-widget shape, different inner content.
-        if (this.plot && this.plot.type === 'stereonet') {
+        // Detects the layered Plot value (SPEC-LAYERED-PLOTS).
+        if (this.plot && this.plot.__plot && this.plot.family === 'stereonet') {
           const wrap = document.createElement('div');
           wrap.className = 'cm-ep-plot-block cm-ep-stereonet-block';
           if (this.plot.title) {
