@@ -176,6 +176,52 @@ gain = future_value - principal
   },
 
   {
+    slug: 'uncertain_resource',
+    name: 'Resource with uncertainty',
+    desc: 'Monte Carlo propagation — normal / uniform / lognormal / triangular inputs → percentile bounds + PDF',
+    body: `# Ore body — propagate measurement uncertainty through to tonnage.
+# Each @input below is a *distribution*; arithmetic carries the samples
+# forward automatically and the @output chips show \`mean ± stdev unit\`
+# plus a histogram thumbnail. \`percentile\` collapses an uncertain back
+# to a regular Quantity, so the P05 / P95 chips read as plain numbers.
+
+@input
+length    = normal(200 m, 5 m)
+
+@input
+width     = uniform(45 m, 55 m)
+
+@input
+thickness = 8 m
+
+@input
+density   = lognormal(2.7 g/cm3, 0.05 g/cm3)
+
+@input
+grade     = triangular(800 ppb, 1500 ppb, 2200 ppb)
+
+volume    = length * width * thickness
+
+@output(kt)
+tonnage   = volume * density
+
+@output(kg)
+metal     = tonnage * grade
+
+# Pessimistic and optimistic bounds — percentile collapses Uncertain to Quantity.
+@output(kt)
+p05_tonnage = percentile(tonnage, 5)
+
+@output(kt)
+p95_tonnage = percentile(tonnage, 95)
+
+# Inline plots — pdf() draws a Gaussian KDE, cdf() the empirical CDF.
+pdf(metal, "metal (kg)", "density", "Metal content distribution")
+cdf(tonnage, "tonnage (kt)", "P(X ≤ x)", "Tonnage CDF")
+`,
+  },
+
+  {
     slug: 'projectile',
     name: 'Projectile range',
     desc: 'No-drag ballistics — sin, sqrt, angle dimension',

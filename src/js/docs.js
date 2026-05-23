@@ -81,9 +81,9 @@ export const DOCS = {
 
   // ── List reductions ───────────────────────────────────────────────
   sum:     { signature: 'sum<D>(xs: List<D>) -> D', description: 'Sum of a list of quantities. All elements share the dim.', example: 'sum([10 kg, 5 kg, 2 kg]) = 17 kg' },
-  mean:    { signature: 'mean<D>(xs: List<D>) -> D', description: 'Arithmetic mean. Empty list → 0.', example: 'mean([2, 4, 9]) = 5' },
+  mean:    { signature: 'mean<D>(xs: List<D>) -> D', description: 'Arithmetic mean. Also accepts an `Uncertain<D>`, in which case it collapses the sample distribution to a regular Quantity. Errors on an empty list.', example: 'mean([2, 4, 9]) = 5\nmean(normal(10, 2)) ≈ 10' },
   variance:{ signature: 'variance<D>(xs: List<D>) -> D^2', description: 'Population variance.' },
-  stdev:   { signature: 'stdev<D>(xs: List<D>) -> D', description: 'Population standard deviation. sqrt(variance).', example: 'stdev([2, 4, 9])' },
+  stdev:   { signature: 'stdev<D>(xs: List<D>) -> D', description: 'Population standard deviation (divides by N, not N−1). Also accepts an `Uncertain<D>` — collapses the sample distribution to a regular Quantity carrying its spread.', example: 'stdev([2, 4, 9])\nstdev(normal(10, 2)) ≈ 2' },
   maximum: { signature: 'maximum<D>(xs: List<D>) -> D', description: 'Largest element. Errors on an empty list.', example: 'maximum([3, 9, 1]) = 9' },
   minimum: { signature: 'minimum<D>(xs: List<D>) -> D', description: 'Smallest element. Errors on an empty list.', example: 'minimum([3, 9, 1]) = 1' },
   median:  { signature: 'median<D>(xs: List<D>) -> D', description: 'Middle value (averages the middle pair for even length).', example: 'median([5, 1, 3]) = 3' },

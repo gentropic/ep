@@ -109,14 +109,11 @@ function host() {
     '@example("xs = samples(tonnage)")',
     'fn samples<D>(x: D) -> List<D>',
     '',
-    '@description("Plot the probability-density estimate (Gaussian KDE) of an uncertain value as a smooth curve inline.")',
-    '@example("pdf(tonnage)")',
-    'fn pdf<D>(x: D) -> Scalar',
-    '',
-    '@description("Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline.")',
-    '@example("cdf(tonnage)")',
-    'fn cdf<D>(x: D) -> Scalar',
-    '',
+    // pdf/cdf are not declared here — like plot/scatter/hist/bar_chart,
+    // they're plot-style variadics (accept 1..4 args: x, then optional
+    // label/title strings) that no current .nbt signature can express.
+    // Their runtime lives in BUILTIN_PROCS; the typechecker lets the
+    // call through under the existing plot-builtin pattern.
   ].join('\n'));
   try { _host.use('uncertainty::functions'); }
   catch (e) { console.warn('ep: uncertainty::functions load failed:', e && e.message || e); }
