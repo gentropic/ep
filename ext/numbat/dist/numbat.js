@@ -131,6 +131,9 @@ class Quantity {
     // A datetime on the right has its own affine algebra — defer to it
     // (`duration + datetime` is commutative → `datetime + duration`).
     if (other instanceof DateTime) return other.add(this);
+    // An Uncertain on the right gets the same treatment — commute and
+    // let the sample-bearing add path run.
+    if (other && other.__uncertain) return other.add(this);
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't add [${dimFormat(this.dim)}] + [${dimFormat(other.dim)}]`);
     }
@@ -142,6 +145,17 @@ class Quantity {
     if (other instanceof DateTime) {
       throw new Error("can't subtract a datetime from a duration");
     }
+    // Scalar − Uncertain: non-commutative; lift scalar and subtract
+    // pointwise.
+    if (other && other.__uncertain) {
+      if (!dimEq(this.dim, other.dim)) {
+        throw new Error(`can't subtract [${dimFormat(this.dim)}] − [${dimFormat(other.dim)}]`);
+      }
+      const N = other.samples.length;
+      const r = new Float64Array(N);
+      for (let i = 0; i < N; i++) r[i] = this.value - other.samples[i];
+      return new Uncertain(r, this.dim);
+    }
     if (!dimEq(this.dim, other.dim)) {
       throw new Error(`can't subtract [${dimFormat(this.dim)}] − [${dimFormat(other.dim)}]`);
     }
@@ -150,16 +164,32 @@ class Quantity {
 
   mul(other) {
     if (other instanceof DateTime) throw new Error("can't multiply by a datetime");
+    // Commutative: defer to Uncertain.mul which broadcasts the scalar.
+    if (other && other.__uncertain) return other.mul(this);
     return new Quantity(this.value * other.value, dimMul(this.dim, other.dim));
   }
 
   div(other) {
     if (other instanceof DateTime) throw new Error("can't divide by a datetime");
+    // Scalar / Uncertain: non-commutative; lift scalar and divide
+    // pointwise.
+    if (other && other.__uncertain) {
+      const N = other.samples.length;
+      const r = new Float64Array(N);
+      for (let i = 0; i < N; i++) r[i] = this.value / other.samples[i];
+      return new Uncertain(r, dimDiv(this.dim, other.dim));
+    }
     return new Quantity(this.value / other.value, dimDiv(this.dim, other.dim));
   }
 
   // pow accepts either a number or a dimensionless Quantity
   pow(exponent) {
+    if (exponent && exponent.__uncertain) {
+      // An Uncertain exponent on a dim-bearing base makes the result
+      // dim depend on the sample — doesn't typecheck statically. Phase 1
+      // rejects; Phase 2 can revisit for the dimensionless case.
+      throw new Error('Phase 1: uncertain exponents are not supported');
+    }
     const expValue = exponent instanceof Quantity ? exponent.value : exponent;
     if (exponent instanceof Quantity && !dimEmpty(exponent.dim)) {
       throw new Error('exponent must be dimensionless');
@@ -225,6 +255,162 @@ class DateTime extends Quantity {
   neg() { throw new Error("can't negate a datetime"); }
   convertTo() {
     throw new Error("a datetime has no display unit — use format_datetime() or tz()");
+  }
+}
+
+// ── Uncertain quantities (SPEC-UNCERTAINTY) ────────────────────────
+//
+// An Uncertain is a Quantity carrying a Float64Array of canonical-value
+// samples in addition to its scalar `.value` (the sample mean — keeps
+// Quantity's `.value` contract for any code that hasn't been taught
+// about uncertainty yet). Arithmetic on Uncertain (or `Uncertain ⊕
+// Quantity`) is sample-wise: a tight Float64Array loop per operation,
+// producing another Uncertain. Nonlinear ops (mul, div, pow, sqrt, …)
+// propagate distribution shape correctly because the operation runs on
+// each sample independently — no Taylor expansion, no Gaussian
+// assumption. Reductions (mean / stdev / percentile) collapse Uncertain
+// back to a regular Quantity. See SPEC-UNCERTAINTY.md for the full
+// design + the five extensibility hooks.
+
+// Per-call deterministic sub-seeding: the host increments _uCounter
+// every time a distribution builder runs; resetUncertaintyRng() zeroes
+// it at the start of an evaluation pass so re-rendering the same
+// program produces the same samples. Re-ordering a `normal(...)` call
+// shifts everything below it — by-name sub-seeding is a Phase 1.5
+// follow-up (see SPEC-UNCERTAINTY §Open questions).
+let _uSeed    = 42;
+let _uCounter = 0;
+let _uN       = 1000;   // Phase 1 default; settings panel will tune (100..10000).
+
+function setUncertaintySeed(seed)   { _uSeed = (seed | 0) >>> 0; }
+function resetUncertaintyRng()      { _uCounter = 0; }
+function setSampleCount(n)          { _uN = Math.max(1, n | 0); }
+function getSampleCount()           { return _uN; }
+
+// Returns a fresh mulberry32 stream — a small, fast PRNG, good enough
+// for engineering Monte Carlo. Each distribution builder calls this
+// once and draws N samples from the returned function.
+function getUncertaintyRng() {
+  let s = (_uSeed + _uCounter++) >>> 0;
+  return function() {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Lift any operand to a Float64Array of length N — an Uncertain returns
+// its own samples; a deterministic Quantity becomes a constant array.
+// This is the single point where future Uncertain kinds (analytical,
+// correlated, lazy) plug in: each kind implements its own materialization
+// here, and the rest of the arithmetic just works.
+function samplesOf(q, N) {
+  if (q && q.__uncertain) {
+    if (q.kind === 'samples') {
+      if (q.samples.length === N) return q.samples;
+      throw new Error(`uncertain: sample count mismatch (have ${q.samples.length}, want ${N})`);
+    }
+    throw new Error(`uncertain: unknown kind '${q.kind}'`);
+  }
+  if (q instanceof Quantity) {
+    const a = new Float64Array(N);
+    a.fill(q.value);
+    return a;
+  }
+  if (typeof q === 'number') {
+    const a = new Float64Array(N);
+    a.fill(q);
+    return a;
+  }
+  throw new Error('samplesOf: expected a Quantity, number, or Uncertain');
+}
+
+function meanOf(samples) {
+  if (samples.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i];
+  return sum / samples.length;
+}
+
+class Uncertain extends Quantity {
+  constructor(samples, dim, disp = null) {
+    // .value is the sample mean — gives Quantity's contract a sensible
+    // fallback (any display path that hasn't been taught about samples
+    // still gets a meaningful number).
+    super(meanOf(samples), dim, disp);
+    this.samples    = samples;     // Float64Array(N)
+    this.__uncertain = true;
+    this.kind       = 'samples';
+  }
+
+  add(other) {
+    if (!dimEq(this.dim, (other && other.dim) || {})) {
+      throw new Error(`can't add [${dimFormat((other && other.dim) || {})}] to [${dimFormat(this.dim)}]`);
+    }
+    const N = this.samples.length;
+    const o = samplesOf(other, N);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] + o[i];
+    return new Uncertain(r, this.dim, this.disp);
+  }
+
+  sub(other) {
+    if (!dimEq(this.dim, (other && other.dim) || {})) {
+      throw new Error(`can't subtract [${dimFormat((other && other.dim) || {})}] from [${dimFormat(this.dim)}]`);
+    }
+    const N = this.samples.length;
+    const o = samplesOf(other, N);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] - o[i];
+    return new Uncertain(r, this.dim, this.disp);
+  }
+
+  mul(other) {
+    const N = this.samples.length;
+    const o = samplesOf(other, N);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] * o[i];
+    return new Uncertain(r, dimMul(this.dim, (other && other.dim) || {}));
+  }
+
+  div(other) {
+    const N = this.samples.length;
+    const o = samplesOf(other, N);
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = this.samples[i] / o[i];
+    return new Uncertain(r, dimDiv(this.dim, (other && other.dim) || {}));
+  }
+
+  pow(exponent) {
+    if (exponent && exponent.__uncertain) {
+      // Uncertain exponent on a dim-bearing base makes the result dim
+      // depend on the sample, which doesn't typecheck statically.
+      // Phase 1: reject. Phase 2 can revisit for the dimensionless case.
+      throw new Error('Phase 1: uncertain exponents are not supported');
+    }
+    const expValue = exponent instanceof Quantity ? exponent.value : exponent;
+    if (exponent instanceof Quantity && !dimEmpty(exponent.dim)) {
+      throw new Error('exponent must be dimensionless');
+    }
+    const N = this.samples.length;
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = Math.pow(this.samples[i], expValue);
+    return new Uncertain(r, dimPow(this.dim, expValue));
+  }
+
+  neg() {
+    const N = this.samples.length;
+    const r = new Float64Array(N);
+    for (let i = 0; i < N; i++) r[i] = -this.samples[i];
+    return new Uncertain(r, this.dim, this.disp);
+  }
+
+  convertTo(unitName, registry) {
+    // Reuse Quantity's resolution + dim check; carry the disp tag onto
+    // a new Uncertain so display picks it up. Samples stay canonical.
+    const tagged = super.convertTo(unitName, registry);
+    return new Uncertain(this.samples, this.dim, tagged.disp);
   }
 }
 
@@ -4310,6 +4496,17 @@ function parseCsv(text, config, opts) {
 // an args array directly (so they can be 1/2/3-arg overloaded) and may return
 // a "void" sentinel — we use Quantity(0, {}) since v0.3 doesn't have a
 // dedicated Unit/Void type.
+
+// Box-Muller: one standard-normal sample from two uniforms in (0, 1).
+// Used by the `normal` distribution builder. Cheap enough to call per
+// sample in a tight loop (one log, one cos, two rng draws — well under
+// a microsecond on modern engines).
+function _boxMuller(rng) {
+  let u;
+  do { u = rng(); } while (u === 0);
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
+}
+
 const BUILTIN_PROCS = {
   // assert(bool): error if false. Used by upstream test programs.
   assert(args) {
@@ -4544,7 +4741,14 @@ const BUILTIN_PROCS = {
   mean(args) {
     if (args.length !== 1) throw new Error(`mean: expected 1 arg, got ${args.length}`);
     const xs = args[0];
-    if (!Array.isArray(xs)) throw new Error('mean: expected a list');
+    // Uncertain → collapse to its sample mean (a regular Quantity).
+    if (xs && xs.__uncertain) {
+      const s = xs.samples;
+      let sum = 0;
+      for (let i = 0; i < s.length; i++) sum += s[i];
+      return new Quantity(s.length ? sum / s.length : 0, xs.dim, xs.disp);
+    }
+    if (!Array.isArray(xs)) throw new Error('mean: expected a list or an uncertain value');
     if (xs.length === 0) throw new Error('mean: empty list');
     const s = BUILTIN_PROCS.sum([xs]);
     return new Quantity(s.value / xs.length, s.dim, s.disp);
@@ -4552,13 +4756,49 @@ const BUILTIN_PROCS = {
   stdev(args) {
     if (args.length !== 1) throw new Error(`stdev: expected 1 arg, got ${args.length}`);
     const xs = args[0];
-    if (!Array.isArray(xs)) throw new Error('stdev: expected a list');
+    // Uncertain → population stdev over its samples (a regular Quantity).
+    if (xs && xs.__uncertain) {
+      const s = xs.samples;
+      if (s.length === 0) return new Quantity(0, xs.dim, xs.disp);
+      let sum = 0;
+      for (let i = 0; i < s.length; i++) sum += s[i];
+      const m = sum / s.length;
+      let sumsq = 0;
+      for (let i = 0; i < s.length; i++) sumsq += (s[i] - m) * (s[i] - m);
+      return new Quantity(Math.sqrt(sumsq / s.length), xs.dim, xs.disp);
+    }
+    if (!Array.isArray(xs)) throw new Error('stdev: expected a list or an uncertain value');
     if (xs.length === 0) throw new Error('stdev: empty list');
     const m = BUILTIN_PROCS.mean([xs]);   // also dim-checks + finds the disp
     let sumsq = 0;
     for (const q of xs) sumsq += (q.value - m.value) ** 2;
     // Population standard deviation — matches upstream math::statistics.
     return new Quantity(Math.sqrt(sumsq / xs.length), m.dim, m.disp);
+  },
+  // ── Uncertainty (SPEC-UNCERTAINTY) ─────────────────────────────
+  // Distribution builders return Uncertain values; subsequent arithmetic
+  // propagates samples through automatically (see Uncertain in
+  // quantity.js). Phase 1: normal only; uniform / lognormal / triangular
+  // follow the same shape.
+  normal(args) {
+    if (args.length !== 2) throw new Error(`normal: expected 2 args (mu, sigma), got ${args.length}`);
+    const mu    = args[0];
+    const sigma = args[1];
+    if (!(mu instanceof Quantity) || !(sigma instanceof Quantity)) {
+      throw new Error('normal: both arguments must be quantities');
+    }
+    if (!dimEq(mu.dim, sigma.dim)) {
+      throw new Error(`normal: dim mismatch — mu has [${dimFormat(mu.dim)}] but sigma has [${dimFormat(sigma.dim)}]`);
+    }
+    const N      = getSampleCount();
+    const rng    = getUncertaintyRng();
+    const muV    = mu.value;
+    const sigmaV = sigma.value;
+    const samples = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      samples[i] = muV + sigmaV * _boxMuller(rng);
+    }
+    return new Uncertain(samples, mu.dim, mu.disp);
   },
   // maximum / minimum / median — list reductions. Upstream's
   // math::statistics defines maximum/minimum by direct head/tail
@@ -6585,4 +6825,4 @@ class Numbat {
     this.use('units::partsperx');
   }
 }
-export { Numbat, Quantity, DateTime, UnitRegistry, DimRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber, tokenize, parse, loadSource, loadModule, makeEnv, evalDimExpr, evalValueExpr, setQuantityFormatter, setPrintSink, setPlotSink, setCsvResolver, formatParts, typecheckStatement, typecheckModule, buildTypeEnv, parseCsv, detectCsvConfig, VENDORED_MODULES };
+export { Numbat, Quantity, DateTime, UnitRegistry, DimRegistry, dimEq, dimMul, dimDiv, dimPow, dimInv, dimEmpty, dimFormat, formatNumber, tokenize, parse, loadSource, loadModule, makeEnv, evalDimExpr, evalValueExpr, setQuantityFormatter, setPrintSink, setPlotSink, setCsvResolver, formatParts, typecheckStatement, typecheckModule, buildTypeEnv, parseCsv, detectCsvConfig, Uncertain, samplesOf, resetUncertaintyRng, setUncertaintySeed, getUncertaintyRng, setSampleCount, getSampleCount, VENDORED_MODULES };

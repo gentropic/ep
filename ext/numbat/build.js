@@ -64,6 +64,12 @@ const PUBLIC_API = [
   // CSV → Dataset parsing (datasets Phase 1). detectCsvConfig sniffs a
   // best-guess parseConfig; parseCsv turns text + config into a Dataset.
   'parseCsv', 'detectCsvConfig',
+  // Uncertainty propagation (SPEC-UNCERTAINTY) — Uncertain extends
+  // Quantity with sample-bearing arithmetic. The reset / seed / sample-
+  // count helpers let the host pin reproducibility per-evaluation.
+  'Uncertain', 'samplesOf',
+  'resetUncertaintyRng', 'setUncertaintySeed', 'getUncertaintyRng',
+  'setSampleCount', 'getSampleCount',
   // Bundled vendored .nbt modules (v0.2) — Numbat.loadVendoredPrelude uses this.
   'VENDORED_MODULES',
 ];

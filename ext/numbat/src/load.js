@@ -18,8 +18,8 @@
 // v0.2 covers the declarative subset only — `fn`, `if`, structs, `->`
 // in value expressions all error with a clear message.
 
-import { Quantity, DateTime } from './quantity.js';
-import { dimEq, dimMul, dimDiv, dimPow, dimEmpty } from './dimensions.js';
+import { Quantity, DateTime, Uncertain, getUncertaintyRng, getSampleCount } from './quantity.js';
+import { dimEq, dimMul, dimDiv, dimPow, dimEmpty, dimFormat } from './dimensions.js';
 import { formatDatetimeWith } from './format.js';
 import { tokenize } from './tokenize.js';
 import { parse } from './parse.js';
@@ -420,6 +420,17 @@ export function parseCsv(text, config, opts) {
 // an args array directly (so they can be 1/2/3-arg overloaded) and may return
 // a "void" sentinel — we use Quantity(0, {}) since v0.3 doesn't have a
 // dedicated Unit/Void type.
+
+// Box-Muller: one standard-normal sample from two uniforms in (0, 1).
+// Used by the `normal` distribution builder. Cheap enough to call per
+// sample in a tight loop (one log, one cos, two rng draws — well under
+// a microsecond on modern engines).
+function _boxMuller(rng) {
+  let u;
+  do { u = rng(); } while (u === 0);
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng());
+}
+
 const BUILTIN_PROCS = {
   // assert(bool): error if false. Used by upstream test programs.
   assert(args) {
@@ -654,7 +665,14 @@ const BUILTIN_PROCS = {
   mean(args) {
     if (args.length !== 1) throw new Error(`mean: expected 1 arg, got ${args.length}`);
     const xs = args[0];
-    if (!Array.isArray(xs)) throw new Error('mean: expected a list');
+    // Uncertain → collapse to its sample mean (a regular Quantity).
+    if (xs && xs.__uncertain) {
+      const s = xs.samples;
+      let sum = 0;
+      for (let i = 0; i < s.length; i++) sum += s[i];
+      return new Quantity(s.length ? sum / s.length : 0, xs.dim, xs.disp);
+    }
+    if (!Array.isArray(xs)) throw new Error('mean: expected a list or an uncertain value');
     if (xs.length === 0) throw new Error('mean: empty list');
     const s = BUILTIN_PROCS.sum([xs]);
     return new Quantity(s.value / xs.length, s.dim, s.disp);
@@ -662,13 +680,49 @@ const BUILTIN_PROCS = {
   stdev(args) {
     if (args.length !== 1) throw new Error(`stdev: expected 1 arg, got ${args.length}`);
     const xs = args[0];
-    if (!Array.isArray(xs)) throw new Error('stdev: expected a list');
+    // Uncertain → population stdev over its samples (a regular Quantity).
+    if (xs && xs.__uncertain) {
+      const s = xs.samples;
+      if (s.length === 0) return new Quantity(0, xs.dim, xs.disp);
+      let sum = 0;
+      for (let i = 0; i < s.length; i++) sum += s[i];
+      const m = sum / s.length;
+      let sumsq = 0;
+      for (let i = 0; i < s.length; i++) sumsq += (s[i] - m) * (s[i] - m);
+      return new Quantity(Math.sqrt(sumsq / s.length), xs.dim, xs.disp);
+    }
+    if (!Array.isArray(xs)) throw new Error('stdev: expected a list or an uncertain value');
     if (xs.length === 0) throw new Error('stdev: empty list');
     const m = BUILTIN_PROCS.mean([xs]);   // also dim-checks + finds the disp
     let sumsq = 0;
     for (const q of xs) sumsq += (q.value - m.value) ** 2;
     // Population standard deviation — matches upstream math::statistics.
     return new Quantity(Math.sqrt(sumsq / xs.length), m.dim, m.disp);
+  },
+  // ── Uncertainty (SPEC-UNCERTAINTY) ─────────────────────────────
+  // Distribution builders return Uncertain values; subsequent arithmetic
+  // propagates samples through automatically (see Uncertain in
+  // quantity.js). Phase 1: normal only; uniform / lognormal / triangular
+  // follow the same shape.
+  normal(args) {
+    if (args.length !== 2) throw new Error(`normal: expected 2 args (mu, sigma), got ${args.length}`);
+    const mu    = args[0];
+    const sigma = args[1];
+    if (!(mu instanceof Quantity) || !(sigma instanceof Quantity)) {
+      throw new Error('normal: both arguments must be quantities');
+    }
+    if (!dimEq(mu.dim, sigma.dim)) {
+      throw new Error(`normal: dim mismatch — mu has [${dimFormat(mu.dim)}] but sigma has [${dimFormat(sigma.dim)}]`);
+    }
+    const N      = getSampleCount();
+    const rng    = getUncertaintyRng();
+    const muV    = mu.value;
+    const sigmaV = sigma.value;
+    const samples = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      samples[i] = muV + sigmaV * _boxMuller(rng);
+    }
+    return new Uncertain(samples, mu.dim, mu.disp);
   },
   // maximum / minimum / median — list reductions. Upstream's
   // math::statistics defines maximum/minimum by direct head/tail

@@ -478,6 +478,16 @@ body {
   gap: 6px;
 }
 .chip-out-row .chip-out-val { flex: 1; min-width: 0; }
+/* Histogram thumbnail for Uncertain outputs (SPEC-UNCERTAINTY) — drawn
+ * below the mean±stdev row by render.js's drawUncertainHist. No frame
+ * or chrome; the bars in --sw-orange convey the distribution shape. */
+.chip-out-hist {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  border-radius: var(--sw-radius);
+  background: var(--sw-bg-raised);
+}
 .chip-copy {
   flex: 0 0 auto;
   background: transparent;

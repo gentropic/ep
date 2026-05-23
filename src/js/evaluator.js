@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, fmtDim } from './units.js';
-import { Numbat, Quantity, DateTime, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
 import { traceBlame } from './blame.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
@@ -78,6 +78,20 @@ function host() {
   // tradeoff.
   try { _host.use('datetime::functions'); }
   catch (e) { console.warn('ep: datetime::functions load failed:', e && e.message || e); }
+  // uncertainty::functions — ep-original; not vendored from upstream
+  // Numbat because uncertainty propagation is an ep extension. Registered
+  // here at runtime so numbat-js's typechecker has signatures for the
+  // distribution builders; the runtime implementations live in
+  // BUILTIN_PROCS (see ext/numbat/src/load.js). SPEC-UNCERTAINTY.md for
+  // the full design.
+  _host.registerModule('uncertainty::functions', [
+    '@description("Draw N samples from a normal distribution with mean `mu` and standard deviation `sigma`. Subsequent arithmetic propagates the samples through automatically — nonlinear operations get the right shape because each sample is computed independently.")',
+    '@example("density = normal(2.7 g/cm³, 0.1 g/cm³)")',
+    'fn normal<D>(mu: D, sigma: D) -> D',
+    '',
+  ].join('\n'));
+  try { _host.use('uncertainty::functions'); }
+  catch (e) { console.warn('ep: uncertainty::functions load failed:', e && e.message || e); }
   // `format_datetime`: the vendored datetime module declares it strictly
   // 2-arg (`format_datetime(format, input)`), but numbat-js's FFI proc
   // accepts an optional 3rd `tz` arg. Drop the .nbt fn record so calls
@@ -764,6 +778,11 @@ export function evaluate(body) {
   // identifiers. tz is left null (= host-local, resolved at format time);
   // `today` is local midnight, so it renders date-only.
   const h = host();
+  // Reset the uncertainty PRNG counter — every evaluate() pass starts
+  // from a fresh deterministic stream, so re-rendering the same program
+  // produces the same samples (no flicker). The seed itself is stable
+  // across calls.
+  resetUncertaintyRng();
   h.values.set('now', new DateTime(Date.now() / 1000));
   const _midnight = new Date();
   _midnight.setHours(0, 0, 0, 0);

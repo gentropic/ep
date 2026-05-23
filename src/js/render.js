@@ -18,7 +18,7 @@
 //                  we don't re-evaluate redundantly.
 
 import { state, evaluateAll } from './state.js';
-import { fmt, fmtNum, dEq, fmtDim, DT } from './units.js';
+import { fmt, fmtNum, dEq, fmtDim, DT, Q } from './units.js';
 import { resolveUnitExpression, getCompletionData, getCompatibleUnits } from './evaluator.js';
 import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
@@ -58,6 +58,66 @@ function escapeHtml(s) {
 //
 // All drawing is in CSS pixels (we apply ctx.scale(dpr, dpr) once at
 // the top), so coordinate math elsewhere uses CSS px directly.
+
+// Population stdev — used by the Uncertain chip display alongside the
+// mean (which is just q.value for an Uncertain). Same formula as
+// BUILTIN_PROCS.stdev in numbat-js — kept here so chip rendering
+// doesn't need a round trip through the evaluator.
+function stdevOf(samples) {
+  const N = samples.length;
+  if (N === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < N; i++) sum += samples[i];
+  const m = sum / N;
+  let sumsq = 0;
+  for (let i = 0; i < N; i++) sumsq += (samples[i] - m) * (samples[i] - m);
+  return Math.sqrt(sumsq / N);
+}
+
+// Histogram thumbnail for an Uncertain output chip — bin the samples
+// into ~30 cells and draw bars in the theme orange. No axes, no labels;
+// this is a glanceable "what does the distribution look like" widget,
+// not a serious plot. (The pdf/cdf builders, Phase 1+, will produce
+// full-chrome plots.)
+function drawUncertainHist(canvas, samples, dpr) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const w = canvas.width / dpr, h = canvas.height / dpr;
+  ctx.clearRect(0, 0, w, h);
+  const n = samples.length;
+  if (n === 0) return;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = samples[i];
+    if (v < mn) mn = v;
+    if (v > mx) mx = v;
+  }
+  if (!isFinite(mn) || !isFinite(mx)) return;
+  if (mn === mx) { mx = mn + 1; mn -= 1; }       // degenerate (constant)
+  const bins = 30;
+  const counts = new Int32Array(bins);
+  const span = mx - mn;
+  for (let i = 0; i < n; i++) {
+    let bi = Math.floor(((samples[i] - mn) / span) * bins);
+    if (bi < 0) bi = 0;
+    if (bi >= bins) bi = bins - 1;
+    counts[bi]++;
+  }
+  let peak = 0;
+  for (let i = 0; i < bins; i++) if (counts[i] > peak) peak = counts[i];
+  if (peak === 0) return;
+  const cs = getComputedStyle(document.documentElement);
+  const fill = (cs.getPropertyValue('--sw-orange') || '#D4672E').trim();
+  ctx.fillStyle = fill;
+  const barW = w / bins;
+  for (let i = 0; i < bins; i++) {
+    const barH = (counts[i] / peak) * (h - 2);   // leave 2px headroom
+    ctx.fillRect(i * barW, h - barH, Math.max(1, barW - 1), barH);
+  }
+}
+
 function drawPlot(canvas, descriptor, dpr, opts) {
   const ctx = canvas.getContext('2d');
   if (!ctx || !descriptor) return;
@@ -1958,6 +2018,7 @@ export function renderOutputs() {
     const val = document.createElement('div');
     val.className = 'chip-out-val';
     const q = state._scope[name];
+    const isUnc = q && q.__uncertain;
     let copyText = '';
     if (q == null) {
       val.classList.add('error');
@@ -1966,8 +2027,11 @@ export function renderOutputs() {
       // Per-output unit (if any) overrides the binding's own display.
       // resolveUnitExpression falls back to parsing the text as a Numbat
       // expression so compound forms like ft^3 / kg/m^2 / km/h work even
-      // when they aren't pre-registered aliases.
-      let n, u, err = null;
+      // when they aren't pre-registered aliases. For Uncertain values
+      // (SPEC-UNCERTAINTY): also compute and display the stdev so the
+      // chip reads `mean ± stdev unit`, in the same display unit.
+      let n, u, sNum = null, err = null;
+      const sigma = isUnc ? stdevOf(q.samples) : 0;
       if (unit) {
         try {
           const spec = resolveUnitExpression(unit);
@@ -1976,10 +2040,15 @@ export function renderOutputs() {
           } else {
             n = fmtNum(q.value / spec.mul);
             u = spec.displayName;
+            if (isUnc) sNum = fmtNum(sigma / spec.mul);
           }
         } catch (e) { err = e.message; }
       } else {
         [n, u] = fmt(q);
+        // Format the stdev in the same auto-chosen display the mean used
+        // — `fmt` picks a unit/scale from q's dim+disp; passing a
+        // matched Quantity for sigma yields the same display unit.
+        if (isUnc) [sNum] = fmt(new Q(sigma, q.dim, q.disp));
       }
       if (err) {
         // Don't try to render the full error message inside the chip —
@@ -1991,6 +2060,12 @@ export function renderOutputs() {
         val.classList.add('error');
         val.textContent = '--';
         val.title = err;
+      } else if (isUnc) {
+        val.innerHTML =
+          `${n} <span class="u">±</span> ${sNum}` + (u ? ` <span class="u">${u}</span>` : '');
+        val.title = chipTooltip(q);
+        copyText = (`${n} ± ${sNum}` + (u ? ' ' + u : '')).replace(/,/g, '')
+                    .replace(/²/g, '^2').replace(/³/g, '^3');
       } else {
         val.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
         val.title = chipTooltip(q);  // canonical + dim — see chipTooltip()
@@ -2020,6 +2095,21 @@ export function renderOutputs() {
     }
 
     chip.append(lbl, row);
+    // Histogram thumbnail for Uncertain outputs — a glanceable view of
+    // the distribution shape, drawn from the sample array.
+    if (isUnc) {
+      const cssW = 200, cssH = 60;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const hist = document.createElement('canvas');
+      hist.className = 'chip-out-hist';
+      hist.width  = cssW * dpr;
+      hist.height = cssH * dpr;
+      hist.style.width  = cssW + 'px';
+      hist.style.height = cssH + 'px';
+      const samples = q.samples;
+      requestAnimationFrame(() => drawUncertainHist(hist, samples, dpr));
+      chip.appendChild(hist);
+    }
     outChipsEl.append(chip);
   }
 }
