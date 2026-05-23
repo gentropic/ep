@@ -347,17 +347,18 @@ test('percentile: rejects p outside [0, 100]', () => {
 
 // ── hist(uncertain) ───────────────────────────────────────────────
 
-test('hist(uncertain) does not throw and feeds the plot sink', async () => {
-  const { setPlotSink } = await import('../src/load.js');
-  const captured = [];
-  setPlotSink(d => captured.push(d));
+test('hist(uncertain) returns a Plot with a bins layer over the samples', () => {
   const n = mkHost();
-  n.loadSource('let u = normal(50, 5)\nlet _h = hist(u, "x", "count", "Distribution")', '<t>');
-  setPlotSink(null);
-  assert.equal(captured.length, 1);
-  assert.equal(captured[0].type, 'hist');
-  assert.equal(captured[0].values.length, 1000);
-  assert.equal(captured[0].title, 'Distribution');
+  n.loadSource('let p = hist(normal(50, 5), "x", "count", "Distribution")', '<t>');
+  const p = n.values.get('p');
+  // hist now returns a Plot (SPEC-LAYERED-PLOTS) rather than emitting
+  // a legacy descriptor — ep's auto-render handles the sink.
+  assert.equal(p.__plot, true);
+  assert.equal(p.family, 'hist');
+  assert.equal(p.layers.length, 1);
+  assert.equal(p.layers[0].kind, 'bins');
+  assert.equal(p.layers[0].values.length, 1000);
+  assert.equal(p.title, 'Distribution');
 });
 
 // ── samples / pdf / cdf ───────────────────────────────────────────

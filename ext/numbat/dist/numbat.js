@@ -4744,6 +4744,95 @@ function _withStereonetLayer(fnName, kind, args) {
   return { ...plot, layers: [...plot.layers, layer] };
 }
 
+// Append an xy layer (line / scatter) to a plot of family 'xy'.
+// xs / ys are List<Quantity>; canonical values + unit hint go onto
+// the layer.
+function _withXyLayer(fnName, kind, args) {
+  const plot = args[0];
+  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+  if (plot.family !== 'xy') throw new Error(`${fnName}: cannot add an xy layer to a '${plot.family}' plot`);
+  const xs = _listToNumbers(args[1]);
+  const ys = _listToNumbers(args[2]);
+  if (xs.values.length !== ys.values.length) {
+    throw new Error(`${fnName}: xs and ys must be the same length (got ${xs.values.length} and ${ys.values.length})`);
+  }
+  const layer = {
+    kind,
+    xs: xs.values,
+    ys: ys.values,
+    xUnit: xs.unit,
+    yUnit: ys.unit,
+    label: typeof args[3] === 'string' ? args[3] : '',
+  };
+  return { ...plot, layers: [...plot.layers, layer] };
+}
+
+// Append a values-shaped layer (bar / hist bins) to the matching
+// family. Accepts a List<Quantity> or an Uncertain (samples taken
+// directly).
+function _withValuesLayer(fnName, requiredFamily, kind, args) {
+  const plot = args[0];
+  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+  if (plot.family !== requiredFamily) {
+    throw new Error(`${fnName}: cannot add a '${kind}' layer to a '${plot.family}' plot`);
+  }
+  const v = args[1];
+  let values, valueUnit;
+  if (v && v.__uncertain) {
+    values = Array.from(v.samples);
+    valueUnit = '';
+    try {
+      if (typeof _quantityFormatter === 'function') {
+        const p = _quantityFormatter(v);
+        if (p && p.unit) valueUnit = p.unit;
+      }
+    } catch {}
+  } else {
+    const cv = _listToNumbers(v);
+    values = cv.values;
+    valueUnit = cv.unit;
+  }
+  const layer = {
+    kind,
+    values,
+    valueUnit,
+    label: typeof args[2] === 'string' ? args[2] : '',
+  };
+  return { ...plot, layers: [...plot.layers, layer] };
+}
+
+// Shortcut: a one-shot xy builder (plot / scatter) wrapping the
+// fluent form — `_newPlot('xy') |> with_line/scatter(...)` plus the
+// optional trailing label args.
+function _shortcutXy(fnName, kind, args) {
+  if (args.length < 2 || args.length > 5) {
+    throw new Error(`${fnName}: expected 2..5 args (xs, ys [, xlabel, ylabel, title]), got ${args.length}`);
+  }
+  let p = _newPlot('xy');
+  p = _withXyLayer(fnName, kind, [p, args[0], args[1]]);
+  const labels = labelOpts(args, 2);
+  if (labels.xLabel) p = { ...p, xLabel: labels.xLabel };
+  if (labels.yLabel) p = { ...p, yLabel: labels.yLabel };
+  if (labels.title)  p = { ...p, title:  labels.title  };
+  return p;
+}
+
+// Shortcut: a one-shot values builder (bar / hist) wrapping the fluent
+// form. Family is captured per-call so the same helper covers both
+// families.
+function _shortcutValues(fnName, family, kind, args) {
+  if (args.length < 1 || args.length > 4) {
+    throw new Error(`${fnName}: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);
+  }
+  let p = _newPlot(family);
+  p = _withValuesLayer(fnName, family, kind, [p, args[0]]);
+  const labels = labelOpts(args, 1);
+  if (labels.xLabel) p = { ...p, xLabel: labels.xLabel };
+  if (labels.yLabel) p = { ...p, yLabel: labels.yLabel };
+  if (labels.title)  p = { ...p, title:  labels.title  };
+  return p;
+}
+
 // Shared shape for the stereonet_planes / stereonet_lines shortcuts —
 // builds a single-layer Plot of family 'stereonet' and either returns
 // it (so the auto-render path picks it up) or attaches a title via
@@ -4834,35 +4923,47 @@ const BUILTIN_PROCS = {
     return new Quantity(0, {});
   },
 
-  // plot()/scatter()/bar()/hist(): emit a plot descriptor to the host
-  // via _plotSink. Same role as print() for canvas/SVG output. Return
-  // the void sentinel so the call composes as a statement. Each list
-  // arg is coerced from List<Quantity> to plain number[] (canonical
-  // values — units captured separately if the host wants them); the
-  // host's renderer doesn't need to know about Numbat's Quantity type.
-  plot(args) {
-    if (args.length < 2 || args.length > 5) throw new Error(`plot: expected 2..5 args (xs, ys [, xlabel, ylabel, title]), got ${args.length}`);
-    if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'line', ...coerceXY(args[0], args[1]), ...labelOpts(args, 2) });
-    }
-    return new Quantity(0, {});
-  },
-  scatter(args) {
-    if (args.length < 2 || args.length > 5) throw new Error(`scatter: expected 2..5 args (xs, ys [, xlabel, ylabel, title]), got ${args.length}`);
-    if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'scatter', ...coerceXY(args[0], args[1]), ...labelOpts(args, 2) });
-    }
-    return new Quantity(0, {});
-  },
+  // plot / scatter / bar_chart / hist — one-shot shortcuts that
+  // construct a single-layer Plot and rely on ep's auto-render. Same
+  // shape the fluent builders below produce, so all plots go through
+  // one rendering path. See SPEC-LAYERED-PLOTS.
+  plot(args)      { return _shortcutXy    ('plot',      'line',    args); },
+  scatter(args)   { return _shortcutXy    ('scatter',   'scatter', args); },
   // Note: NOT named `bar` to avoid colliding with the `bar` pressure
-  // unit defined in units::misc. `bar_chart` matches upstream Numbat's
-  // plot::bar_chart constructor naming.
-  bar_chart(args) {
-    if (args.length < 1 || args.length > 4) throw new Error(`bar_chart: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);
-    if (typeof _plotSink === 'function') {
-      _plotSink({ type: 'bar', ...coerceValues(args[0]), ...labelOpts(args, 1) });
-    }
-    return new Quantity(0, {});
+  // unit defined in units::misc. `bar_chart` matches upstream Numbat.
+  bar_chart(args) { return _shortcutValues('bar_chart', 'bar',  'bars', args); },
+  // Fluent xy builders (empty plots, ready to layer).
+  line_plot(args) {
+    if (args.length !== 0) throw new Error(`line_plot: expected 0 args, got ${args.length}`);
+    return _newPlot('xy');
+  },
+  scatter_plot(args) {
+    if (args.length !== 0) throw new Error(`scatter_plot: expected 0 args, got ${args.length}`);
+    return _newPlot('xy');
+  },
+  bar_plot(args) {
+    if (args.length !== 0) throw new Error(`bar_plot: expected 0 args, got ${args.length}`);
+    return _newPlot('bar');
+  },
+  histogram(args) {
+    if (args.length !== 0) throw new Error(`histogram: expected 0 args, got ${args.length}`);
+    return _newPlot('hist');
+  },
+  with_line(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_line: expected 3..4 args (plot, xs, ys [, label]), got ${args.length}`);
+    return _withXyLayer('with_line', 'line', args);
+  },
+  with_scatter(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_scatter: expected 3..4 args (plot, xs, ys [, label]), got ${args.length}`);
+    return _withXyLayer('with_scatter', 'scatter', args);
+  },
+  with_bars(args) {
+    if (args.length < 2 || args.length > 3) throw new Error(`with_bars: expected 2..3 args (plot, values [, label]), got ${args.length}`);
+    return _withValuesLayer('with_bars', 'bar', 'bars', args);
+  },
+  with_bins(args) {
+    if (args.length < 2 || args.length > 3) throw new Error(`with_bins: expected 2..3 args (plot, values [, label]), got ${args.length}`);
+    return _withValuesLayer('with_bins', 'hist', 'bins', args);
   },
   // ── Stereonets (structural geology) ─────────────────────────────
   // Two ways to build one: the one-shot shortcuts (`stereonet_planes`,
@@ -4921,30 +5022,9 @@ const BUILTIN_PROCS = {
     if (typeof _plotSink === 'function') _plotSink(plot);
     return new Quantity(0, {});
   },
-  hist(args) {
-    if (args.length < 1 || args.length > 4) throw new Error(`hist: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);
-    if (typeof _plotSink === 'function') {
-      const v = args[0];
-      let values, valueUnit;
-      if (v && v.__uncertain) {
-        // Uncertain → bin its sample array directly. Samples are
-        // canonical; ask the formatter for the display unit so the
-        // axis label matches the chip.
-        values = Array.from(v.samples);
-        valueUnit = '';
-        try {
-          if (typeof _quantityFormatter === 'function') {
-            const p = _quantityFormatter(v);
-            if (p && p.unit) valueUnit = p.unit;
-          }
-        } catch {}
-      } else {
-        ({ values, valueUnit } = coerceValues(v));
-      }
-      _plotSink({ type: 'hist', values, valueUnit, ...labelOpts(args, 1) });
-    }
-    return new Quantity(0, {});
-  },
+  // hist — Uncertain handling lives inside `_withValuesLayer` now, so
+  // the shortcut path is uniform with bar_chart.
+  hist(args)      { return _shortcutValues('hist',      'hist', 'bins', args); },
 
   // ── Iterative list ops — host-native shadows of the recursive defs in
   // core::lists. Same semantics, no JS-stack cost. Numbat's prelude

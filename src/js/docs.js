@@ -119,10 +119,19 @@ export const DOCS = {
   cdf:         { signature: 'cdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline. P(X ≤ x).', example: 'cdf(tonnage)' },
 
   // ── Plots ─────────────────────────────────────────────────────────
-  plot:      { signature: 'plot(xs: List<X>, ys: List<Y> [, xlabel: String, ylabel: String, title: String])', description: 'Line chart of (x, y) pairs. Trailing strings are optional axis labels and a title.', example: 'plot(xs, sin(xs), "x", "sin(x)", "Sine wave")' },
-  scatter:   { signature: 'scatter(xs: List<X>, ys: List<Y> [, xlabel, ylabel, title])', description: 'Scatter plot of (x, y) pairs.' },
-  bar_chart: { signature: 'bar_chart(values: List<V> [, xlabel, ylabel, title])', description: 'Bar chart, one bar per value. Named `bar_chart` (not `bar`) to avoid clashing with the `bar` pressure unit.' },
-  hist:      { signature: 'hist(values: List<V> [, xlabel, ylabel, title])', description: 'Histogram. Bin count auto-set to ceil(sqrt(N)), capped at 50.' },
+  plot:      { signature: 'plot(xs: List<X>, ys: List<Y> [, xlabel, ylabel, title]) -> Plot', description: 'Shortcut for `line_plot() |> with_line(xs, ys) |> with_xlabel(...) |> with_ylabel(...) |> with_title(...)`. Returns a Plot value; ep auto-renders bare-expression Plots inline. Trailing strings are optional axis labels and a title.', example: 'plot(xs, sin(xs), "x", "sin(x)", "Sine wave")' },
+  scatter:   { signature: 'scatter(xs: List<X>, ys: List<Y> [, xlabel, ylabel, title]) -> Plot', description: 'Shortcut for `line_plot() |> with_scatter(xs, ys) |> with_*labels...`. Returns a Plot.' },
+  bar_chart: { signature: 'bar_chart(values: List<V> [, xlabel, ylabel, title]) -> Plot', description: 'Shortcut for `bar_plot() |> with_bars(values)`. Named `bar_chart` (not `bar`) to avoid clashing with the `bar` pressure unit.' },
+  hist:      { signature: 'hist(values: List<V> | Uncertain [, xlabel, ylabel, title]) -> Plot', description: 'Shortcut for `histogram() |> with_bins(values)`. Bin count auto-set to ceil(sqrt(N)), capped at 50. Accepts an Uncertain — bins its samples directly.' },
+  // Fluent xy / bar / hist builders (SPEC-LAYERED-PLOTS).
+  line_plot:    { signature: 'line_plot() -> Plot', description: 'Empty xy-family Plot, ready to layer with `with_line` / `with_scatter`. A bare-expression Plot auto-renders inline.', example: 'line_plot()\n  |> with_scatter(xs, ys, "measured")\n  |> with_line(xs, fit, "best fit")' },
+  scatter_plot: { signature: 'scatter_plot() -> Plot', description: 'Empty xy-family Plot (same family as `line_plot()`; different name for intent). Layer with `with_scatter` / `with_line`.' },
+  bar_plot:     { signature: 'bar_plot() -> Plot', description: 'Empty bar-family Plot. Layer with `with_bars`.' },
+  histogram:    { signature: 'histogram() -> Plot', description: 'Empty hist-family Plot. Layer with `with_bins`. Auto-bins each layer at ~√N (capped at 50).' },
+  with_line:    { signature: 'with_line(plot: Plot, xs: List<X>, ys: List<Y> [, label]) -> Plot', description: 'Add a line layer to an xy-family Plot. Returns a new Plot.', example: 'plot |> with_line(xs, ys, "best fit")' },
+  with_scatter: { signature: 'with_scatter(plot: Plot, xs: List<X>, ys: List<Y> [, label]) -> Plot', description: 'Add a scatter layer to an xy-family Plot.', example: 'plot |> with_scatter(xs, ys, "measured")' },
+  with_bars:    { signature: 'with_bars(plot: Plot, values: List<V> [, label]) -> Plot', description: 'Add a bars layer to a bar-family Plot.' },
+  with_bins:    { signature: 'with_bins(plot: Plot, values: List<V> | Uncertain [, label]) -> Plot', description: 'Add a bins layer to a hist-family Plot. Auto-bins at ~√N (capped at 50). Accepts an Uncertain — bins its samples directly.' },
 
   // ── Strings ───────────────────────────────────────────────────────
   hex:        { signature: 'hex(x: Scalar) -> String', description: 'Hexadecimal representation.', example: 'hex(255) = "0xff"' },
@@ -252,6 +261,8 @@ export const DOC_GROUPS = [
     'with_title','with_xlabel','with_ylabel','show',
   ]},
   { label: 'Plots', names: [
+    'line_plot','scatter_plot','bar_plot','histogram',
+    'with_line','with_scatter','with_bars','with_bins',
     'plot','scatter','bar_chart','hist',
   ]},
   { label: 'Strings', names: [

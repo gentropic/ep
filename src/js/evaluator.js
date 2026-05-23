@@ -858,14 +858,20 @@ export function evaluate(body) {
   // plot per row anyway).
   const plotsByRow = new Map();
   let currentRowIdx = -1;
+  // For multi-line statements (a fluent `stereonet() |> with_…` chain
+  // split across rows), plot widgets read better when anchored to the
+  // LAST line of the chain — otherwise the inline block lands between
+  // the first line and the rest of the pipe, splitting the source.
+  // Track that separately; print output stays anchored to the start.
+  let currentPlotIdx = -1;
   setPrintSink(text => {
     if (currentRowIdx < 0) return;
     const prev = printsByRow.get(currentRowIdx);
     printsByRow.set(currentRowIdx, prev ? prev + '\n' + text : text);
   });
   setPlotSink(descriptor => {
-    if (currentRowIdx < 0) return;
-    plotsByRow.set(currentRowIdx, descriptor);
+    if (currentPlotIdx < 0) return;
+    plotsByRow.set(currentPlotIdx, descriptor);
   });
   const params = [];
   const outputs = [];
@@ -914,7 +920,13 @@ export function evaluate(body) {
     const wantsChip = isInput || !!decoratorOptions;
 
     const ownerIdx = stmt.bindingLine - 1;
-    currentRowIdx = ownerIdx;
+    // For a multi-line pipeline (`stereonet() |> with_… |> with_…`),
+    // anchor any auto-rendered plot to the LAST line of the chain so
+    // the inline block doesn't split the source. Single-line statements
+    // collapse to the same index.
+    const endIdx   = (stmt.endLine || stmt.bindingLine) - 1;
+    currentRowIdx  = ownerIdx;
+    currentPlotIdx = endIdx;
     // `above` group scoping: any blank body line since the previous
     // statement resets the running group. Then expose the current
     // group as `above` so `sum(above)` / `mean(above)` see it during
@@ -969,7 +981,7 @@ export function evaluate(body) {
       // @output annotation against that would always mismatch. Skip the
       // dim check when this binding evaluated to a plot — the user wrote
       // @output(...) to mark it as an output, not as a dim assertion.
-      const isPlotRow = plotsByRow.has(ownerIdx);
+      const isPlotRow = plotsByRow.has(endIdx);
       if (q && !err && isOutput && outputUnit && !isPlotRow) {
         try {
           const spec = resolveUnitExpression(outputUnit);
@@ -1010,9 +1022,10 @@ export function evaluate(body) {
       // Auto-render Plot bindings only when they're tagged `@output` —
       // that's the explicit "I want this rendered" signal for a binding.
       // Plain `let p = stereonet() |> ...` doesn't render; the user can
-      // `show(p)` later (SPEC-LAYERED-PLOTS §Open questions).
-      if (q && q.__plot && isOutput && !plotsByRow.has(ownerIdx)) {
-        plotsByRow.set(ownerIdx, q);
+      // `show(p)` later (SPEC-LAYERED-PLOTS §Open questions). Anchor at
+      // endIdx so multi-line chains render after the last line.
+      if (q && q.__plot && isOutput && !plotsByRow.has(endIdx)) {
+        plotsByRow.set(endIdx, q);
       }
       if (!err) noteLineResult(ownerIdx, q);
       // Annotation auto-suggest: when the row evaluates cleanly, has a
@@ -1114,8 +1127,9 @@ export function evaluate(body) {
         // Bound `let p = stereonet() |> ...` is intentionally not
         // auto-rendered — see SPEC-LAYERED-PLOTS §Open questions.
         // `show(plot)` is the explicit-emit escape hatch for that case.
-        if (q && q.__plot && !plotsByRow.has(ownerIdx)) {
-          plotsByRow.set(ownerIdx, q);
+        // Anchor at endIdx so multi-line chains render after the last line.
+        if (q && q.__plot && !plotsByRow.has(endIdx)) {
+          plotsByRow.set(endIdx, q);
         }
         // `_` and `ans` resolve to the most recent expression / binding
         // result. Re-bind on every successful eval so the next
@@ -1135,7 +1149,7 @@ export function evaluate(body) {
       // (which would just show "0" or whatever the expr evaluated to)
       // is intentionally skipped — a name-less arbitrary expr in the
       // outputs panel is more confusing than missing.
-      if (isOutput && plotsByRow.has(ownerIdx)) {
+      if (isOutput && plotsByRow.has(endIdx)) {
         const synth = `plot_${ownerIdx + 1}`;
         row.name = synth;
         outputs.push({ name: synth, unit: outputUnit });

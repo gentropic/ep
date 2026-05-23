@@ -176,6 +176,33 @@ gain = future_value - principal
   },
 
   {
+    slug: 'layered_xy',
+    name: 'Layered xy — measured + fit',
+    desc: 'Fluent builder: scatter the measurements, overlay a fit line',
+    body: `# Layered xy plot — measured points + a fit line on the same axes.
+# \`line_plot()\` produces an empty xy plot; \`with_scatter\` and
+# \`with_line\` add layers in cycled colors (orange first, indigo
+# second). A bare-expression Plot auto-renders inline.
+
+# Synthetic drillhole grade vs depth.
+depth     = [10, 20, 35, 50, 70, 100, 140] m
+grade     = [0.4, 0.7, 1.1, 1.5, 1.8, 2.3, 2.7] g/t
+
+# Hand-picked linear fit. \`with_line\` overlays it on the scatter.
+slope     = 0.018 g/t/m
+intercept = 0.3 g/t
+fit_y     = depth * slope + intercept
+
+line_plot()
+  |> with_scatter(depth, grade, "measured")
+  |> with_line(depth, fit_y, "linear fit")
+  |> with_xlabel("depth")
+  |> with_ylabel("grade")
+  |> with_title("Drillhole grade vs depth")
+`,
+  },
+
+  {
     slug: 'stereonet',
     name: 'Stereonet — fault attitudes',
     desc: 'Fluent builder: layer planes + lineations on one stereonet',

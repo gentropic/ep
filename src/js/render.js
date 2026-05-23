@@ -147,9 +147,90 @@ function renderStereonet(host, plot) {
   }
 }
 
-function drawPlot(canvas, descriptor, dpr, opts) {
+// Auto-bin a list of values into ~√N bins (capped at 50). Used by
+// drawPlot's histogram-layer normalization.
+function _autoBin(values) {
+  if (!values || !values.length) return { xs: [], ys: [] };
+  let lo = Infinity, hi = -Infinity;
+  for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (lo === hi) { lo -= 0.5; hi += 0.5; }
+  const n = Math.max(2, Math.min(50, Math.ceil(Math.sqrt(values.length))));
+  const w = (hi - lo) / n;
+  const bins = new Array(n).fill(0);
+  for (const v of values) {
+    let i = Math.floor((v - lo) / w);
+    if (i >= n) i = n - 1;
+    if (i < 0)  i = 0;
+    bins[i]++;
+  }
+  return {
+    xs: bins.map((_, i) => lo + (i + 0.5) * w),
+    ys: bins,
+  };
+}
+
+// Flatten a Plot value (SPEC-LAYERED-PLOTS) — OR a legacy single-
+// descriptor — into a uniform array of layers, each
+// {kind, xs, ys, xUnit, yUnit, label}. Bar layers synthesize xs as
+// integer indices; hist layers auto-bin via _autoBin. The legacy
+// descriptor path is kept for the still-unmigrated pdf / cdf builtins
+// that emit { type:'line', xs, ys, … }.
+function _normalizePlotLayers(plot) {
+  if (!plot) return [];
+  if (plot.__plot) {
+    if (plot.family === 'xy') {
+      return (plot.layers || []).map(l => ({
+        kind: l.kind || 'line',
+        xs: l.xs || [], ys: l.ys || [],
+        xUnit: l.xUnit || '', yUnit: l.yUnit || '',
+        label: l.label || '',
+      }));
+    }
+    if (plot.family === 'bar') {
+      return (plot.layers || []).map(l => {
+        const ys = (l.values || []).slice();
+        return {
+          kind: 'bars',
+          xs: ys.map((_, i) => i), ys,
+          xUnit: '', yUnit: l.valueUnit || '',
+          label: l.label || '',
+        };
+      });
+    }
+    if (plot.family === 'hist') {
+      return (plot.layers || []).map(l => {
+        const { xs, ys } = _autoBin(l.values || []);
+        return {
+          kind: 'bins', xs, ys,
+          xUnit: l.valueUnit || '', yUnit: '',
+          label: l.label || '',
+        };
+      });
+    }
+    return [];
+  }
+  // Legacy descriptor shape (pdf / cdf, anything not yet migrated).
+  const type = plot.type;
+  if (type === 'line' || type === 'scatter') {
+    return [{ kind: type, xs: plot.xs || [], ys: plot.ys || [],
+              xUnit: plot.xUnit || '', yUnit: plot.yUnit || '', label: '' }];
+  }
+  if (type === 'bar') {
+    const ys = (plot.values || []).slice();
+    return [{ kind: 'bars', xs: ys.map((_, i) => i), ys,
+              xUnit: '', yUnit: plot.valueUnit || '', label: '' }];
+  }
+  if (type === 'hist') {
+    const { xs, ys } = _autoBin(plot.values || []);
+    return [{ kind: 'bins', xs, ys,
+              xUnit: plot.valueUnit || '', yUnit: '', label: '' }];
+  }
+  return [];
+}
+
+function drawPlot(canvas, plot, dpr, opts) {
   const ctx = canvas.getContext('2d');
-  if (!ctx || !descriptor) return;
+  if (!ctx || !plot) return;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.scale(dpr, dpr);
   const cssW = canvas.width  / dpr;
@@ -165,46 +246,51 @@ function drawPlot(canvas, descriptor, dpr, opts) {
 
   // Read theme colors from CSS variables on the document. Falls back
   // to muted neutrals when the variable isn't defined (e.g. canvas
-  // mounted into a PiP doc whose stylesheet copy missed).
+  // mounted into a PiP doc whose stylesheet copy missed). Layers are
+  // drawn in cycled colors from the theme palette.
   const cs = getComputedStyle(document.documentElement);
   const cssVar = (n, fallback) => (cs.getPropertyValue(n).trim() || fallback);
-  const colData = cssVar('--sw-orange',    '#B54E1A');
+  const colCycle = [
+    cssVar('--sw-orange',    '#B54E1A'),
+    cssVar('--sw-indigo',    '#4E5580'),
+    cssVar('--sw-teal',      '#1F6F69'),
+    cssVar('--sw-red',       '#A23A2F'),
+  ];
   const colAxis = cssVar('--sw-border',    '#B3B1AD');
   const colText = cssVar('--sw-text-soft', '#7A7875');
   const colBg   = cssVar('--sw-bg-raised', '#E4E3E1');
 
-  // Background
   ctx.fillStyle = colBg;
   ctx.fillRect(0, 0, cssW, cssH);
 
-  // Chart type + axis units. coerceXY / coerceValues tagged the
-  // descriptor with the source columns' display units (xUnit / yUnit /
-  // valueUnit); the values themselves are canonical. Resolve each
-  // unit's multiplier so the axes — and the plotted values — read in
-  // that unit (g/t, m, …) rather than 1e-6-scale canonical numbers.
-  // valueUnit drives the Y axis for a bar chart, the X axis for a
-  // histogram (whose value range is binned).
-  const type = descriptor.type || 'line';
+  // Flatten Plot → uniform layer list. Each layer carries its own
+  // xUnit / yUnit; the axis labels use the first layer's units, and
+  // each layer's data is scaled by its own unit factor so they line up.
+  const rawLayers = _normalizePlotLayers(plot);
   const unitFactor = (u) => {
     if (!u) return 1;
     try { return resolveUnitExpression(u).mul || 1; } catch { return 1; }
   };
-  let xUnit = '', yUnit = '';
-  if (type === 'line' || type === 'scatter') {
-    xUnit = descriptor.xUnit || ''; yUnit = descriptor.yUnit || '';
-  } else if (type === 'bar')  { yUnit = descriptor.valueUnit || ''; }
-  else if (type === 'hist')   { xUnit = descriptor.valueUnit || ''; }
-  const xFactor = unitFactor(xUnit), yFactor = unitFactor(yUnit);
-  // Axis labels: an explicit label from the plot call wins; otherwise
-  // the unit string stands in.
-  const xLabel = descriptor.xLabel || xUnit;
-  const yLabel = descriptor.yLabel || yUnit;
+  const layers = rawLayers.map(l => {
+    const xF = unitFactor(l.xUnit), yF = unitFactor(l.yUnit);
+    return {
+      kind:  l.kind,
+      xs:    l.xs.map(v => v / xF),
+      ys:    l.ys.map(v => v / yF),
+      xUnit: l.xUnit, yUnit: l.yUnit,
+      label: l.label,
+    };
+  });
 
-  // Plot area inset for axes + tick labels. Extra space at top for a
-  // title (when given), and at left/bottom for axis labels (when given).
-  // Compact mode collapses every margin to a small uniform inset so the
-  // data spans almost the whole canvas.
-  const hasTitle  = !compact && !!descriptor.title;
+  // Axis labels: explicit Plot label wins; otherwise first layer's unit.
+  const title  = (plot && plot.title)  || '';
+  const xUnit  = layers.length ? layers[0].xUnit : '';
+  const yUnit  = layers.length ? layers[0].yUnit : '';
+  const xLabel = (plot && plot.xLabel) || xUnit;
+  const yLabel = (plot && plot.yLabel) || yUnit;
+
+  // Margins.
+  const hasTitle  = !compact && !!title;
   const hasXLabel = !compact && !!xLabel;
   const hasYLabel = !compact && !!yLabel;
   const ML = compact ? 4 : (hasYLabel ? 50 : 36);
@@ -214,89 +300,54 @@ function drawPlot(canvas, descriptor, dpr, opts) {
   const PW = cssW - ML - MR;
   const PH = cssH - MT - MB;
 
-  // Title — top-center, slightly larger. compact mode forces hasTitle
-  // false above, so this block is naturally skipped.
   if (hasTitle) {
     ctx.fillStyle = cssVar('--sw-text', '#232322');
     ctx.font = '600 12px var(--sw-mono, monospace)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(descriptor.title, cssW / 2, 6);
+    ctx.fillText(title, cssW / 2, 6);
   }
 
-  // Pull data into (xs, ys) form depending on chart type, scaling each
-  // axis by its unit factor so the plot reads in the column's unit.
-  // Bar/hist synthesize xs from value index / bin centers.
-  let xs = [], ys = [];
-
-  if (type === 'line' || type === 'scatter') {
-    xs = (descriptor.xs || []).map(v => v / xFactor);
-    ys = (descriptor.ys || []).map(v => v / yFactor);
-    if (xs.length !== ys.length) {
-      const n = Math.min(xs.length, ys.length);
-      xs = xs.slice(0, n);
-      ys = ys.slice(0, n);
-    }
-  } else if (type === 'bar') {
-    const values = (descriptor.values || []).map(v => v / yFactor);
-    xs = values.map((_, i) => i);
-    ys = values.slice();
-  } else if (type === 'hist') {
-    const values = (descriptor.values || []).map(v => v / xFactor);
-    if (values.length) {
-      const n = Math.max(2, Math.min(50, Math.ceil(Math.sqrt(values.length))));
-      let lo = Infinity, hi = -Infinity;
-      for (const v of values) { if (v < lo) lo = v; if (v > hi) hi = v; }
-      if (lo === hi) { lo -= 0.5; hi += 0.5; }
-      const w = (hi - lo) / n;
-      const bins = new Array(n).fill(0);
-      for (const v of values) {
-        let i = Math.floor((v - lo) / w);
-        if (i >= n) i = n - 1;
-        if (i < 0)  i = 0;
-        bins[i]++;
-      }
-      xs = bins.map((_, i) => lo + (i + 0.5) * w);
-      ys = bins;
-    }
-  }
-
-  if (!xs.length || !ys.length) {
+  if (!layers.length || !layers.some(l => l.xs.length)) {
     ctx.fillStyle = colText;
     ctx.font = '11px var(--sw-mono, monospace)';
     ctx.textBaseline = 'middle';
     ctx.fillText('(no data)', ML + 4, MT + PH / 2);
-    canvas._plotState = null;   // hover should not fire on empty plots
+    canvas._plotState = null;
     return;
   }
 
-  // Bounds with 5% padding so points aren't on the frame.
-  let xMin = Math.min(...xs), xMax = Math.max(...xs);
-  let yMin = Math.min(...ys), yMax = Math.max(...ys);
+  // Combine bounds across every layer.
+  let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+  for (const layer of layers) {
+    for (let i = 0; i < layer.xs.length; i++) {
+      const x = layer.xs[i], y = layer.ys[i];
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+      if (y < yMin) yMin = y;
+      if (y > yMax) yMax = y;
+    }
+  }
   if (xMin === xMax) { xMin -= 0.5; xMax += 0.5; }
   if (yMin === yMax) { yMin -= 0.5; yMax += 0.5; }
   const xPad = (xMax - xMin) * 0.05;
   const yPad = (yMax - yMin) * 0.05;
-  // bar/hist: start y at 0 (bars need a baseline at 0 to read).
-  const yLo = (type === 'bar' || type === 'hist') ? Math.min(0, yMin - yPad) : yMin - yPad;
+  // bar/hist: pin y to 0 baseline.
+  const hasBars = layers.some(l => l.kind === 'bars' || l.kind === 'bins');
   const xLo = xMin - xPad;
   const xHi = xMax + xPad;
+  const yLo = hasBars ? Math.min(0, yMin - yPad) : (yMin - yPad);
   const yHi = yMax + yPad;
 
   const xPix = x => ML + ((x - xLo) / (xHi - xLo)) * PW;
   const yPix = y => MT + PH - ((y - yLo) / (yHi - yLo)) * PH;
 
-  // Frame. Compact mode skips this — the data shape carries enough
-  // visual signal without the rectangle around it.
   if (!compact) {
     ctx.strokeStyle = colAxis;
     ctx.lineWidth = 1;
     ctx.strokeRect(ML, MT, PW, PH);
-  }
 
-  // Axis tick labels — 3 on each side, formatted to a few sig digits.
-  // Compact mode skips ticks entirely (it's a thumbnail, not a chart).
-  if (!compact) {
+    // Tick labels.
     ctx.fillStyle = colText;
     ctx.font = '10px var(--sw-mono, monospace)';
     ctx.textBaseline = 'middle';
@@ -304,14 +355,12 @@ function drawPlot(canvas, descriptor, dpr, opts) {
       if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2)) return v.toExponential(1);
       return parseFloat(v.toPrecision(3)).toString();
     };
-    // y-axis: 3 ticks (low, mid, hi)
     for (let i = 0; i <= 2; i++) {
       const v = yLo + (yHi - yLo) * (i / 2);
       const py = yPix(v);
       ctx.textAlign = 'right';
       ctx.fillText(fmtTick(v), ML - 4, py);
     }
-    // x-axis: 3 ticks
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     for (let i = 0; i <= 2; i++) {
@@ -321,9 +370,7 @@ function drawPlot(canvas, descriptor, dpr, opts) {
     }
   }
 
-  // Axis labels — drawn after ticks so they sit further out. xLabel
-  // centered below the x-axis ticks; yLabel rotated -90° and centered
-  // vertically on the left margin.
+  // Axis labels.
   if (hasXLabel) {
     ctx.fillStyle = cssVar('--sw-text', '#232322');
     ctx.font = '500 11px var(--sw-mono, monospace)';
@@ -343,46 +390,54 @@ function drawPlot(canvas, descriptor, dpr, opts) {
     ctx.restore();
   }
 
-  // Data
-  ctx.strokeStyle = colData;
-  ctx.fillStyle = colData;
-  ctx.lineWidth = 1.5;
-  if (type === 'line') {
-    ctx.beginPath();
-    for (let i = 0; i < xs.length; i++) {
-      const px = xPix(xs[i]), py = yPix(ys[i]);
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-  } else if (type === 'scatter') {
-    for (let i = 0; i < xs.length; i++) {
+  // Draw each layer in its cycled color. Line / scatter / bars / bins
+  // share the same dispatch table.
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li];
+    const color = colCycle[li % colCycle.length];
+    ctx.strokeStyle = color;
+    ctx.fillStyle   = color;
+    ctx.lineWidth   = 1.5;
+    if (layer.kind === 'line') {
       ctx.beginPath();
-      ctx.arc(xPix(xs[i]), yPix(ys[i]), 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  } else if (type === 'bar' || type === 'hist') {
-    const baselinePx = yPix(Math.max(0, yLo));
-    // Bar width = bin width (or 1 unit for bar with integer x) scaled to px.
-    const dx = xs.length > 1 ? (xs[1] - xs[0]) : 1;
-    const wPx = Math.max(1, (dx / (xHi - xLo)) * PW * 0.8);
-    for (let i = 0; i < xs.length; i++) {
-      const cx = xPix(xs[i]);
-      const top = yPix(ys[i]);
-      const h = baselinePx - top;
-      ctx.fillRect(cx - wPx / 2, top, wPx, h);
+      for (let i = 0; i < layer.xs.length; i++) {
+        const px = xPix(layer.xs[i]), py = yPix(layer.ys[i]);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    } else if (layer.kind === 'scatter') {
+      for (let i = 0; i < layer.xs.length; i++) {
+        ctx.beginPath();
+        ctx.arc(xPix(layer.xs[i]), yPix(layer.ys[i]), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (layer.kind === 'bars' || layer.kind === 'bins') {
+      const baselinePx = yPix(Math.max(0, yLo));
+      const dx = layer.xs.length > 1 ? (layer.xs[1] - layer.xs[0]) : 1;
+      const wPx = Math.max(1, (dx / (xHi - xLo)) * PW * 0.8);
+      // With multiple bar/bin layers, narrow + offset slightly so they
+      // don't fully occlude one another. Phase 2 polish: proper grouped
+      // or stacked bar layouts.
+      const barW = layers.length > 1 ? wPx * 0.7 : wPx;
+      for (let i = 0; i < layer.xs.length; i++) {
+        const cx = xPix(layer.xs[i]);
+        const top = yPix(layer.ys[i]);
+        const h = baselinePx - top;
+        ctx.fillRect(cx - barW / 2, top, barW, h);
+      }
     }
   }
 
-  // Stash the plot's geometry + data on the canvas so attachPlotHover
-  // can do the inverse pixel → data transform and find the cursor's
-  // nearest data point. Compact thumbnails (chip outputs) skip this
-  // entirely — they're too small to inspect, and the lack of state
-  // makes the hover handler a no-op.
-  if (!compact) {
+  // Stash plot state for hover inspection. For Phase 1 multi-layer,
+  // hover uses the first layer's data; cross-layer nearest-point lookup
+  // is a Phase 2 polish.
+  if (!compact && layers.length) {
     canvas._plotState = {
       ML, MT, PW, PH,
       xLo, xHi, yLo, yHi,
-      xs, ys, type, xUnit, yUnit,
+      xs: layers[0].xs, ys: layers[0].ys,
+      type: layers[0].kind, xUnit, yUnit,
+      layers,
     };
   } else {
     canvas._plotState = null;
