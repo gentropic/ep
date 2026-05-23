@@ -1,6 +1,6 @@
 # SPEC-LAYERED-PLOTS — fluent multi-layer plot builders
 
-**Status**: Phase 1 designed (this document); implementation pending. Phases 2+ noted at the bottom.
+**Status**: Phase 1 + 2 shipped (Plot value, fluent builders for every family, multi-layer rendering, multi-layer chip thumbnails, cross-layer hover, grouped bars / alpha hist). Phase 3+ deferred items noted at the bottom.
 
 ## Motivation
 
@@ -260,9 +260,9 @@ The minimal vertical slice that's usable end-to-end:
 
 - **Richer styling — Phase 2.** When per-layer config grows past color + label (width, dash, marker size, alpha, …), graduate to a struct-based `StyleOpts`: `with_line(plot, xs, ys, "label", StyleOpts { color: "indigo", width: 2, dash: [4, 2] })`. Numbat supports structs, so the path is open. Phase 1 stays positional.
 
-- **Chip thumbnail rendering for multi-layer plots.** Compact mode currently picks one curve. For multi-layer it should show all in their cycled colors. Update the chip-thumbnail path accordingly.
+- **Chip thumbnail rendering for multi-layer plots.** Resolved — `drawPlot` iterates every layer in compact mode, so the chip already shows all curves in their cycled colors.
 
-- **Hover inspection across layers.** The closest-point search needs to compare across every layer's data. Tooltip text includes the layer label. Implementation tweak to the existing `attachPlotHover`.
+- **Hover inspection across layers.** Resolved — `attachPlotHover` picks the nearest sample across every layer in pixel space (honoring grouped bar offsets) and prefixes the tooltip with the winning layer's label when more than one layer is present.
 
 - **Backwards-compat assertions.** The legacy one-shot builders emit the same descriptor shape they do today — implementation will need to make sure `drawPlot`'s old descriptor path still works (or the shortcut wrappers construct full Plot values that the new dispatch handles).
 
@@ -270,4 +270,4 @@ The minimal vertical slice that's usable end-to-end:
 
 ## Status
 
-Phase 1 designed (this document). Implementation pending. The natural first vertical slice: the `Plot` value, `stereonet()` + `with_planes` + `with_lines` + `with_title` + auto-render. Migrate the existing `stereonet_planes` / `stereonet_lines` shortcuts to wrap the fluent form. Then fan out to the xy families (line/scatter/bar/hist) and the remaining shared adders.
+Phase 1 + 2 shipped. The vertical-slice landed first (`stereonet()` + `with_planes` / `with_lines` / `with_title` + auto-render), then fanned out to xy / bar / hist families with multi-line `|>` anchoring. The Phase-2 polish followed: multi-layer chip thumbnails, cross-layer hover inspection, and grouped bar / alpha-blended hist layouts so overlapping bar/bin layers stay legible. Phase 3+ items remain in the deferred list above (uncertainty bands, contours, error bars, struct-based per-layer styling, save/restore).

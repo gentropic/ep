@@ -390,8 +390,21 @@ function drawPlot(canvas, plot, dpr, opts) {
     ctx.restore();
   }
 
+  // For grouped bar layout: count bar-kind layers up front so each one
+  // can claim a slot of the shared x-position. bin-kind (hist) layers
+  // typically have non-aligned x grids across layers, so they fall
+  // back to alpha blending rather than slot-grouping.
+  const barLayerIdxs = [];
+  let binLayerCount = 0;
+  for (let li = 0; li < layers.length; li++) {
+    if (layers[li].kind === 'bars') barLayerIdxs.push(li);
+    else if (layers[li].kind === 'bins') binLayerCount++;
+  }
+  const numBars = barLayerIdxs.length;
+
   // Draw each layer in its cycled color. Line / scatter / bars / bins
-  // share the same dispatch table.
+  // share the same dispatch table. layer._drawOffsetPx is stashed on
+  // bar-kind layers so hover can map a bar back to the right group.
   for (let li = 0; li < layers.length; li++) {
     const layer = layers[li];
     const color = colCycle[li % colCycle.length];
@@ -411,32 +424,44 @@ function drawPlot(canvas, plot, dpr, opts) {
         ctx.arc(xPix(layer.xs[i]), yPix(layer.ys[i]), 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
-    } else if (layer.kind === 'bars' || layer.kind === 'bins') {
+    } else if (layer.kind === 'bars') {
       const baselinePx = yPix(Math.max(0, yLo));
       const dx = layer.xs.length > 1 ? (layer.xs[1] - layer.xs[0]) : 1;
-      const wPx = Math.max(1, (dx / (xHi - xLo)) * PW * 0.8);
-      // With multiple bar/bin layers, narrow + offset slightly so they
-      // don't fully occlude one another. Phase 2 polish: proper grouped
-      // or stacked bar layouts.
-      const barW = layers.length > 1 ? wPx * 0.7 : wPx;
+      const slotW = Math.max(1, (dx / (xHi - xLo)) * PW * 0.8);
+      const j = barLayerIdxs.indexOf(li);
+      const barW = numBars > 1 ? slotW / numBars : slotW;
+      const offset = numBars > 1 ? (j - (numBars - 1) / 2) * barW : 0;
+      layer._drawOffsetPx = offset;
+      layer._drawWidthPx  = barW;
       for (let i = 0; i < layer.xs.length; i++) {
-        const cx = xPix(layer.xs[i]);
+        const cx = xPix(layer.xs[i]) + offset;
         const top = yPix(layer.ys[i]);
         const h = baselinePx - top;
         ctx.fillRect(cx - barW / 2, top, barW, h);
       }
+    } else if (layer.kind === 'bins') {
+      const baselinePx = yPix(Math.max(0, yLo));
+      const dx = layer.xs.length > 1 ? (layer.xs[1] - layer.xs[0]) : 1;
+      const binW = Math.max(1, (dx / (xHi - xLo)) * PW * 0.95);
+      layer._drawOffsetPx = 0;
+      layer._drawWidthPx  = binW;
+      ctx.globalAlpha = binLayerCount > 1 ? 0.55 : 1;
+      for (let i = 0; i < layer.xs.length; i++) {
+        const cx = xPix(layer.xs[i]);
+        const top = yPix(layer.ys[i]);
+        const h = baselinePx - top;
+        ctx.fillRect(cx - binW / 2, top, binW, h);
+      }
+      ctx.globalAlpha = 1;
     }
   }
 
-  // Stash plot state for hover inspection. For Phase 1 multi-layer,
-  // hover uses the first layer's data; cross-layer nearest-point lookup
-  // is a Phase 2 polish.
+  // Stash plot state for hover inspection. attachPlotHover iterates
+  // every layer to find the nearest data point in pixel space.
   if (!compact && layers.length) {
     canvas._plotState = {
       ML, MT, PW, PH,
       xLo, xHi, yLo, yHi,
-      xs: layers[0].xs, ys: layers[0].ys,
-      type: layers[0].kind, xUnit, yUnit,
       layers,
     };
   } else {
@@ -494,7 +519,7 @@ function attachPlotHover(canvas) {
 
   const onMove = (e) => {
     const state = canvas._plotState;
-    if (!state) { hide(); return; }
+    if (!state || !state.layers || !state.layers.length) { hide(); return; }
     const rect = canvas.getBoundingClientRect();
     // Canvas reports in CSS pixels via getBoundingClientRect; the
     // plot state is stored in those same units, so no DPR scaling here.
@@ -504,42 +529,48 @@ function attachPlotHover(canvas) {
       hide();
       return;
     }
-    const dataX = state.xLo + (sx - state.ML) / state.PW * (state.xHi - state.xLo);
+    const xPix = x => state.ML + ((x - state.xLo) / (state.xHi - state.xLo)) * state.PW;
+    const yPix = y => state.MT + state.PH - ((y - state.yLo) / (state.yHi - state.yLo)) * state.PH;
 
-    let info = '', crosshairData = null;
-    if (state.type === 'line' || state.type === 'scatter') {
-      // Nearest sample on the x axis.
-      let bestI = 0, bestD = Infinity;
-      for (let i = 0; i < state.xs.length; i++) {
-        const d = Math.abs(state.xs[i] - dataX);
-        if (d < bestD) { bestD = d; bestI = i; }
+    // Find the nearest sample across every layer in pixel space.
+    // Bar layers offset their drawn x by layer._drawOffsetPx; the
+    // distance check honors that so grouped bars hit-test correctly.
+    let best = null;
+    for (let li = 0; li < state.layers.length; li++) {
+      const layer = state.layers[li];
+      if (!layer.xs || !layer.xs.length) continue;
+      if (layer.kind !== 'line' && layer.kind !== 'scatter'
+          && layer.kind !== 'bars' && layer.kind !== 'bins') continue;
+      const off = layer._drawOffsetPx || 0;
+      for (let i = 0; i < layer.xs.length; i++) {
+        const px = xPix(layer.xs[i]) + off;
+        const py = yPix(layer.ys[i]);
+        const d = Math.hypot(px - sx, py - sy);
+        if (!best || d < best.dist) {
+          best = { dist: d, layerIdx: li, sampleIdx: i };
+        }
       }
-      const xV = state.xs[bestI], yV = state.ys[bestI];
-      const xPart = `${fmtTickish(xV)}${state.xUnit ? ' ' + state.xUnit : ''}`;
-      const yPart = `${fmtTickish(yV)}${state.yUnit ? ' ' + state.yUnit : ''}`;
-      info = `${xPart} · ${yPart}`;
-      crosshairData = xV;
-    } else if (state.type === 'bar' || state.type === 'hist') {
-      // Pick the bin whose center is closest to the cursor x.
-      const dx = state.xs.length > 1 ? (state.xs[1] - state.xs[0]) : 1;
-      let bestI = -1, bestD = Infinity;
-      for (let i = 0; i < state.xs.length; i++) {
-        const d = Math.abs(state.xs[i] - dataX);
-        if (d < bestD) { bestD = d; bestI = i; }
-      }
-      if (bestI < 0 || bestD > dx) { hide(); return; }
-      const center = state.xs[bestI];
+    }
+    if (!best) { hide(); return; }
+
+    const layer = state.layers[best.layerIdx];
+    const xV = layer.xs[best.sampleIdx], yV = layer.ys[best.sampleIdx];
+    const labelPrefix = (state.layers.length > 1 && layer.label) ? `${layer.label} · ` : '';
+    let info, crosshairData;
+    if (layer.kind === 'bins') {
+      const dx = layer.xs.length > 1 ? (layer.xs[1] - layer.xs[0]) : 1;
       const half = dx / 2;
-      if (state.type === 'hist') {
-        info = `[${fmtTickish(center - half)}, ${fmtTickish(center + half)})${state.xUnit ? ' ' + state.xUnit : ''} · count ${state.ys[bestI]}`;
-      } else {
-        const yPart = `${fmtTickish(state.ys[bestI])}${state.yUnit ? ' ' + state.yUnit : ''}`;
-        info = `bar #${bestI} · ${yPart}`;
-      }
-      crosshairData = center;
+      info = `${labelPrefix}[${fmtTickish(xV - half)}, ${fmtTickish(xV + half)})${layer.xUnit ? ' ' + layer.xUnit : ''} · count ${yV}`;
+      crosshairData = xV;
+    } else if (layer.kind === 'bars') {
+      const yPart = `${fmtTickish(yV)}${layer.yUnit ? ' ' + layer.yUnit : ''}`;
+      info = `${labelPrefix}bar #${best.sampleIdx} · ${yPart}`;
+      crosshairData = xV;
     } else {
-      hide();
-      return;
+      const xPart = `${fmtTickish(xV)}${layer.xUnit ? ' ' + layer.xUnit : ''}`;
+      const yPart = `${fmtTickish(yV)}${layer.yUnit ? ' ' + layer.yUnit : ''}`;
+      info = `${labelPrefix}${xPart} · ${yPart}`;
+      crosshairData = xV;
     }
 
     // Position the crosshair at the picked data x (CSS pixels).
@@ -548,7 +579,8 @@ function attachPlotHover(canvas) {
     // padded `.cm-ep-plot-block`) offsets the canvas, and the tooltip
     // / line live in the parent's coordinate space.
     const cLeft = canvas.offsetLeft, cTop = canvas.offsetTop;
-    const cx = state.ML + (crosshairData - state.xLo) / (state.xHi - state.xLo) * state.PW;
+    const cx = state.ML + (crosshairData - state.xLo) / (state.xHi - state.xLo) * state.PW
+            + (layer._drawOffsetPx || 0);
     line.style.display = '';
     line.style.left   = (cLeft + cx)       + 'px';
     line.style.top    = (cTop  + state.MT) + 'px';
