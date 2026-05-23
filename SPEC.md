@@ -1298,7 +1298,7 @@ Total: M–L for the full stack, but spreadable over multiple releases. The prot
 ## 11. Status — what's built, what's left
 
 The roadmap above is almost entirely shipped. Audited against `src/js/`
-on 2026-05-22:
+on 2026-05-23:
 
 **Shipped:** §1 (drawer / autosave / persistence), §2 (keyboard
 shortcuts, drawer search, per-program descriptions, copy-source), §3 (URL
@@ -1313,8 +1313,21 @@ ergonomics — including timezone conversion via `->`), §9 (PWA update
 flow). Beyond the original
 roadmap, also shipped: the dataset lane (`load_csv`, CSV attach dialog,
 assets management, the virtualized viewer, columnar reductions, plots),
-the optional line-number gutter, `_N` / `above` line references, and a
-real `DateTime` value type with calendar arithmetic.
+the optional line-number gutter, `_N` / `above` line references, a real
+`DateTime` value type with calendar arithmetic, **first-class uncertain
+quantities** with Monte Carlo propagation (see SPEC-UNCERTAINTY.md —
+`normal` / `uniform` / `lognormal` / `triangular`, sample-bearing
+arithmetic, `mean` / `stdev` / `percentile` collapse, `pdf` / `cdf` /
+`hist` visualization, chip mean ± stdev display with histogram
+thumbnail, sample-count setting), **sensitivity sweep** as the
+deterministic sibling (`sweep(start, end, n)` returns a Swept value
+whose arithmetic carries an input axis forward to render Y(X) as an
+inline curve), **stereonet plotting** via the vendored bearing.js
+(equal-area projections, planes / lines / poles), a **layered-plot
+fluent builder** (see SPEC-LAYERED-PLOTS.md — Plot values with
+`with_*` adders combined via `|>`, multi-line pipe continuation,
+auto-render, end-line widget anchoring), and **plot hover inspection**
+(crosshair + tooltip on inline plot blocks + the modal).
 
 **Not built — the remaining todo:**
 
@@ -1338,5 +1351,5 @@ own, not polish. Every other roadmap item is shipped.
 
 *Roadmap section originated as a separate ENHANCEMENTS.md, May 2026,
 merged in alongside the original spec. §11 reflects an audit on
-2026-05-22; the rest will drift during implementation — treat as a guide
+2026-05-23; the rest will drift during implementation — treat as a guide
 rather than a contract.*

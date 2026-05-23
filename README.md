@@ -316,7 +316,7 @@ To inspect everything ep has stored: open your browser's DevTools → Applicatio
 
 ## Status
 
-Honest take, written 2026-05-22:
+Honest take, written 2026-05-23:
 
 **What's working:**
 
@@ -337,7 +337,12 @@ Honest take, written 2026-05-22:
 - Viewer artifact polish: program subtitle from first comment, accent-highlighted outputs panel, single-column on narrow screens, "modify this calculation" footer link that round-trips back to the editor via pointer.
 - **Datasets — eager Phase 1 shipped.** `load_csv("name")` attaches a CSV asset and binds a `Dataset`. Drag a `.csv` onto ep → an **attach dialog** parses a live preview with file-level config (delimiter, decimal, comment, skip rows, header) and per-column rename + unit overrides. Embedded CSVs travel with `.html` exports. Assets are managed from the drawer's `data` mode (re-configure, rename, view, remove); a **virtualized viewer** scrolls the full table without flooding the DOM. The `@input` file-picker chip turns a `load_csv("x")` binding into a drop-zone — a recipient of an exported form drops *their* CSV and the outputs recompute.
 - **Real `DateTime` value type** with calendar-aware arithmetic (`calendar_add`, leap-year / DST aware), timezone conversion via `->` (`dt -> tz("Asia/Tokyo")`, `-> UTC`, `-> local`), bare `today` / `now` as values, friendly durations in date arithmetic.
-- **868 tests** across ep + numbat-js (pure layers — units / parser / evaluator / typechecker / formatter / pointer / snapshot retention / datasets / datetime / conformance corpus); the DOM layers are exercised by manual browser testing only.
+- **First-class uncertain quantities** with Monte Carlo propagation (SPEC-UNCERTAINTY.md). Distribution builders — `normal(mu, sigma)`, `uniform(lo, hi)`, `lognormal(mu, sigma)`, `triangular(lo, mode, hi)` — produce sample-bearing `Uncertain` values that propagate through every arithmetic path. Nonlinear ops get the right distribution shape because each sample is computed independently. Reductions (`mean`, `stdev`, `percentile`) collapse back to a regular `Quantity`. Visualization: `pdf` (Gaussian KDE), `cdf`, `hist` plus a chip-level `mean ± stdev unit` display with an inline histogram thumbnail. Sample count + seeding are tunable in Settings.
+- **Sensitivity sweep** as the deterministic sibling — `sweep(start, end, n)` returns a `Swept` value whose arithmetic carries an input axis forward, so the dependent output chip renders as an inline Y(X) curve. Tap the chip thumbnail to open the modal.
+- **Stereonet plotting** via the vendored `bearing.js` (~56 KB, zero deps). Equal-area projections of planes (great circles), lineations, and poles, with the conjugate-fault example in the drawer.
+- **Layered plot fluent builder** (SPEC-LAYERED-PLOTS.md). A `Plot` value carries layers added by `with_*` adders combined with the `|>` pipe — `stereonet() |> with_planes(...) |> with_lines(...)` puts both feature kinds on one projection; `line_plot() |> with_scatter(measurements) |> with_line(fit)` is the engineering trend-with-data plot. Multi-line pipelines are recognized as one statement; auto-render anchors the inline widget at the end of the chain. Existing one-shot builders (`plot`, `scatter`, `bar_chart`, `hist`, `stereonet_planes`, `stereonet_lines`) are shortcuts for the fluent form.
+- **Plot hover inspection** — crosshair + value tooltip on every full-chrome plot canvas (inline + modal). Works for line / scatter / bar / hist; nearest-point on touch via pointer events.
+- **931 tests** across ep + numbat-js (pure layers — units / parser / evaluator / typechecker / formatter / pointer / snapshot retention / datasets / datetime / uncertainty / sweep / layered plots / conformance corpus); the DOM layers are exercised by manual browser testing only.
 
 **What's not yet:**
 
@@ -368,7 +373,7 @@ cd ep
 
 ```sh
 node build.js            # rebuild index.html + dist/viewer.html from src/
-node --test              # run the test suite (868 tests, no deps)
+node --test              # run the test suite (931 tests, no deps)
 ```
 
 Zero npm dependencies for the main build. `ext/cm6/` does use npm + rollup to produce the CodeMirror bundle, but the resulting `cm6.min.js` is committed so you don't need to rebuild it unless you're upgrading CM6 itself.
