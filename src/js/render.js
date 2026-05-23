@@ -237,6 +237,7 @@ function drawPlot(canvas, descriptor, dpr, opts) {
     ctx.font = '11px var(--sw-mono, monospace)';
     ctx.textBaseline = 'middle';
     ctx.fillText('(no data)', ML + 4, MT + PH / 2);
+    canvas._plotState = null;   // hover should not fire on empty plots
     return;
   }
 
@@ -342,6 +343,149 @@ function drawPlot(canvas, descriptor, dpr, opts) {
       ctx.fillRect(cx - wPx / 2, top, wPx, h);
     }
   }
+
+  // Stash the plot's geometry + data on the canvas so attachPlotHover
+  // can do the inverse pixel → data transform and find the cursor's
+  // nearest data point. Compact thumbnails (chip outputs) skip this
+  // entirely — they're too small to inspect, and the lack of state
+  // makes the hover handler a no-op.
+  if (!compact) {
+    canvas._plotState = {
+      ML, MT, PW, PH,
+      xLo, xHi, yLo, yHi,
+      xs, ys, type, xUnit, yUnit,
+    };
+  } else {
+    canvas._plotState = null;
+  }
+}
+
+// Hover inspection — wire a canvas drawn by drawPlot so the user can
+// move the cursor over it (or touch-drag) and read the nearest data
+// point in a tooltip, with a crosshair line at the picked x. The
+// canvas needs to have been drawn with `compact: false` (i.e. has
+// chrome / a plot area) — drawPlot stashes its geometry there as
+// `canvas._plotState`. attachPlotHover is idempotent: calling it twice
+// on the same canvas reuses the existing tooltip + listeners.
+function attachPlotHover(canvas) {
+  if (!canvas) return;
+  const parent = canvas.parentElement;
+  if (!parent) return;
+  // Anchor the absolutely-positioned tooltip + crosshair inside the
+  // canvas's wrapper. Only bump position when it's static — leave any
+  // explicit value (relative / absolute / fixed) alone.
+  const cs = getComputedStyle(parent);
+  if (cs.position === 'static') parent.style.position = 'relative';
+
+  // Get-or-create tooltip + crosshair line, one pair per canvas.
+  let tip  = canvas._plotTip;
+  let line = canvas._plotLine;
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'plot-hover-tip';
+    tip.style.display = 'none';
+    parent.appendChild(tip);
+    canvas._plotTip = tip;
+  }
+  if (!line) {
+    line = document.createElement('div');
+    line.className = 'plot-hover-line';
+    line.style.display = 'none';
+    parent.appendChild(line);
+    canvas._plotLine = line;
+  }
+
+  if (canvas._plotHoverWired) return;
+  canvas._plotHoverWired = true;
+
+  const hide = () => {
+    tip.style.display  = 'none';
+    line.style.display = 'none';
+  };
+  const fmtTickish = v => {
+    if (!isFinite(v)) return String(v);
+    if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2)) return v.toExponential(2);
+    return fmtNum(v);
+  };
+
+  const onMove = (e) => {
+    const state = canvas._plotState;
+    if (!state) { hide(); return; }
+    const rect = canvas.getBoundingClientRect();
+    // Canvas reports in CSS pixels via getBoundingClientRect; the
+    // plot state is stored in those same units, so no DPR scaling here.
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    if (sx < state.ML || sx > state.ML + state.PW || sy < state.MT || sy > state.MT + state.PH) {
+      hide();
+      return;
+    }
+    const dataX = state.xLo + (sx - state.ML) / state.PW * (state.xHi - state.xLo);
+
+    let info = '', crosshairData = null;
+    if (state.type === 'line' || state.type === 'scatter') {
+      // Nearest sample on the x axis.
+      let bestI = 0, bestD = Infinity;
+      for (let i = 0; i < state.xs.length; i++) {
+        const d = Math.abs(state.xs[i] - dataX);
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+      const xV = state.xs[bestI], yV = state.ys[bestI];
+      const xPart = `${fmtTickish(xV)}${state.xUnit ? ' ' + state.xUnit : ''}`;
+      const yPart = `${fmtTickish(yV)}${state.yUnit ? ' ' + state.yUnit : ''}`;
+      info = `${xPart} · ${yPart}`;
+      crosshairData = xV;
+    } else if (state.type === 'bar' || state.type === 'hist') {
+      // Pick the bin whose center is closest to the cursor x.
+      const dx = state.xs.length > 1 ? (state.xs[1] - state.xs[0]) : 1;
+      let bestI = -1, bestD = Infinity;
+      for (let i = 0; i < state.xs.length; i++) {
+        const d = Math.abs(state.xs[i] - dataX);
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+      if (bestI < 0 || bestD > dx) { hide(); return; }
+      const center = state.xs[bestI];
+      const half = dx / 2;
+      if (state.type === 'hist') {
+        info = `[${fmtTickish(center - half)}, ${fmtTickish(center + half)})${state.xUnit ? ' ' + state.xUnit : ''} · count ${state.ys[bestI]}`;
+      } else {
+        const yPart = `${fmtTickish(state.ys[bestI])}${state.yUnit ? ' ' + state.yUnit : ''}`;
+        info = `bar #${bestI} · ${yPart}`;
+      }
+      crosshairData = center;
+    } else {
+      hide();
+      return;
+    }
+
+    // Position the crosshair at the picked data x (CSS pixels).
+    // canvas.offsetLeft/Top translate from "inside canvas" to "inside
+    // the positioned parent" — needed because the parent (e.g. the
+    // padded `.cm-ep-plot-block`) offsets the canvas, and the tooltip
+    // / line live in the parent's coordinate space.
+    const cLeft = canvas.offsetLeft, cTop = canvas.offsetTop;
+    const cx = state.ML + (crosshairData - state.xLo) / (state.xHi - state.xLo) * state.PW;
+    line.style.display = '';
+    line.style.left   = (cLeft + cx)       + 'px';
+    line.style.top    = (cTop  + state.MT) + 'px';
+    line.style.height = state.PH + 'px';
+
+    tip.textContent = info;
+    tip.style.display = '';
+    // Position the tooltip near the cursor, clamping inside the canvas.
+    const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+    let tx = sx + 12, ty = sy + 12;
+    if (tx + tipW > rect.width)  tx = sx - tipW - 12;
+    if (ty + tipH > rect.height) ty = sy - tipH - 12;
+    if (tx < 0) tx = 0;
+    if (ty < 0) ty = 0;
+    tip.style.left = (cLeft + tx) + 'px';
+    tip.style.top  = (cTop  + ty) + 'px';
+  };
+
+  canvas.addEventListener('pointermove',  onMove);
+  canvas.addEventListener('pointerleave', hide);
+  canvas.addEventListener('pointercancel', hide);
 }
 
 // Open a centered overlay showing the plot at a comfortable size with
@@ -399,8 +543,12 @@ function openPlotModal(descriptor, name) {
 
   document.body.appendChild(scrim);
   // Defer the draw so the canvas is in the DOM (some browsers measure
-  // CSS variables off-tree as empty strings).
-  requestAnimationFrame(() => drawPlot(canvas, descriptor, dpr));
+  // CSS variables off-tree as empty strings). Wire hover inspection
+  // once the draw is committed so canvas._plotState is populated.
+  requestAnimationFrame(() => {
+    drawPlot(canvas, descriptor, dpr);
+    attachPlotHover(canvas);
+  });
 }
 
 // Scroll the CM6 editor so the row defining this named plot is in
@@ -665,8 +813,13 @@ function mountCm6() {
         wrap.appendChild(canvas);
         // Defer the draw to next frame: the canvas needs to be in the
         // DOM before getComputedStyle resolves --sw-* CSS variables.
+        // attachPlotHover runs after the draw so canvas._plotState is
+        // ready for the inverse pixel → data transform.
         const desc = this.plot;
-        requestAnimationFrame(() => drawPlot(canvas, desc, dpr));
+        requestAnimationFrame(() => {
+          drawPlot(canvas, desc, dpr);
+          attachPlotHover(canvas);
+        });
         return wrap;
       }
       if (this.kind === 'suggest') {
@@ -2020,6 +2173,10 @@ export function renderOutputs() {
     const q = state._scope[name];
     const isUnc = q && q.__uncertain;
     let copyText = '';
+    // Hoisted to the row scope so the Uncertain-histogram click handler
+    // (further down) can scale samples to the chip's display unit using
+    // the same `n` / `u` it shows.
+    let n, u, sNum = null, err = null;
     if (q == null) {
       val.classList.add('error');
       val.textContent = 'undefined';
@@ -2030,7 +2187,6 @@ export function renderOutputs() {
       // when they aren't pre-registered aliases. For Uncertain values
       // (SPEC-UNCERTAINTY): also compute and display the stdev so the
       // chip reads `mean ± stdev unit`, in the same display unit.
-      let n, u, sNum = null, err = null;
       const sigma = isUnc ? stdevOf(q.samples) : 0;
       if (unit) {
         try {
@@ -2096,7 +2252,9 @@ export function renderOutputs() {
 
     chip.append(lbl, row);
     // Histogram thumbnail for Uncertain outputs — a glanceable view of
-    // the distribution shape, drawn from the sample array.
+    // the distribution shape, drawn from the sample array. Tap to open
+    // a full-size hist in the plot modal (same path the other plot
+    // outputs use, so the chrome and close behavior are consistent).
     if (isUnc) {
       const cssW = 200, cssH = 60;
       const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -2106,8 +2264,29 @@ export function renderOutputs() {
       hist.height = cssH * dpr;
       hist.style.width  = cssW + 'px';
       hist.style.height = cssH + 'px';
+      hist.title = 'tap to enlarge';
       const samples = q.samples;
       requestAnimationFrame(() => drawUncertainHist(hist, samples, dpr));
+      // Build a hist descriptor whose values are in the chip's display
+      // unit (canonical / scale), so the modal's bin numbers match the
+      // chip's `mean ± stdev` text. Scale is recovered from the
+      // formatted mean: scale = canonical / displayed.
+      hist.addEventListener('click', () => {
+        const numStr = typeof n === 'string' ? n.replace(/,/g, '') : '';
+        const displayed = parseFloat(numStr);
+        const scale = (Number.isFinite(displayed) && displayed !== 0 && Number.isFinite(q.value))
+          ? q.value / displayed : 1;
+        const scaled = new Array(samples.length);
+        for (let i = 0; i < samples.length; i++) scaled[i] = samples[i] / scale;
+        openPlotModal({
+          type: 'hist',
+          values: scaled,
+          valueUnit: u || '',
+          title: `${name} — distribution`,
+          xLabel:  u || '',
+          yLabel: 'count',
+        }, name);
+      });
       chip.appendChild(hist);
     }
     outChipsEl.append(chip);

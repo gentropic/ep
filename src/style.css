@@ -480,13 +480,15 @@ body {
 .chip-out-row .chip-out-val { flex: 1; min-width: 0; }
 /* Histogram thumbnail for Uncertain outputs (SPEC-UNCERTAINTY) — drawn
  * below the mean±stdev row by render.js's drawUncertainHist. No frame
- * or chrome; the bars in --sw-orange convey the distribution shape. */
+ * or chrome; the bars in --sw-orange convey the distribution shape.
+ * Click to open a full-size version in the plot modal. */
 .chip-out-hist {
   display: block;
   width: 100%;
   margin-top: 6px;
   border-radius: var(--sw-radius);
   background: var(--sw-bg-raised);
+  cursor: pointer;
 }
 .chip-copy {
   flex: 0 0 auto;
@@ -1007,6 +1009,32 @@ body {
    * resize the backing store + redraw on layout changes. */
   max-width: 100%;
   height: auto;
+}
+
+/* Hover-inspect tooltip + crosshair drawn over a full-chrome plot
+ * canvas (inline plot blocks, plot modal). Positioned absolutely inside
+ * the canvas's positioned parent; pointer-events: none so they don't
+ * eat the canvas's own pointer events. */
+.plot-hover-tip {
+  position: absolute;
+  pointer-events: none;
+  background: var(--sw-text);
+  color: var(--sw-bg-bright);
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--sw-radius);
+  white-space: nowrap;
+  z-index: 5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.plot-hover-line {
+  position: absolute;
+  pointer-events: none;
+  width: 1px;
+  background: var(--sw-text-soft);
+  opacity: 0.55;
+  z-index: 4;
 }
 
 /* Compact @output chip thumbnail variant: smaller, no chrome (drawn
