@@ -71,6 +71,15 @@ const VENDORS = [
   // guard means modern browsers skip the polyfill body at runtime.
   {                                dist: 'ext/temporal/temporal-polyfill.min.js',
                                    wrap: 'if (typeof globalThis.Temporal === "undefined") { /* CONTENT */ }' },
+  // bearing.js — structural-geology stereonet library (SVG output).
+  // Pure JS, zero deps, ~56 KB raw. IIFE-wrapped so its internal
+  // helpers (e.g. `normalize`, which collides with numbat-js's own
+  // `normalize`) don't leak into flat scope; only the `Stereonet`
+  // entry point is hoisted out. render.js uses it to render
+  // `'stereonet'` plot descriptors.
+  {                                dist: 'ext/bearing/dist/bearing.js',
+                                   wrap: 'const __bearing = (function(){ /* CONTENT */ return { Stereonet }; })();\nconst Stereonet = __bearing.Stereonet;',
+                                   opaque: true },
 ];
 
 // JS subset for the viewer artifact — chip eval + render only. No editor,
@@ -190,6 +199,16 @@ function buildViewer() {
   const numbatRaw = readFileSync(join(ROOT, 'ext/numbat/dist/numbat.js'), 'utf8');
   const numbat    = stripModules(numbatRaw, 'ext/numbat/dist/numbat.js', { allowExportBlock: true });
 
+  // Stereonet support travels with the viewer too — a recipient who
+  // opens a program that uses stereonet_planes / stereonet_lines
+  // shouldn't get an "unknown identifier" or a blank canvas. Same
+  // IIFE wrap as the editor build, to avoid bearing's internal
+  // `normalize` colliding with numbat-js's.
+  const bearingRaw = readFileSync(join(ROOT, 'ext/bearing/dist/bearing.js'), 'utf8');
+  const bearing    = 'const __bearing = (function(){ '
+                   + stripModules(bearingRaw, 'ext/bearing/dist/bearing.js', { allowExportBlock: true })
+                   + ' return { Stereonet }; })();\nconst Stereonet = __bearing.Stereonet;';
+
   const srcStripped = VIEWER_JS_FILES.map(name => {
     const raw = readFileSync(join(JS_DIR, name), 'utf8');
     return { name, src: stripModules(raw, name) };
@@ -197,6 +216,7 @@ function buildViewer() {
 
   const parts = [];
   parts.push('// ─── (viewer vendor) numbat.js ' + '─'.repeat(40) + '\n' + numbat.replace(/\s+$/, ''));
+  parts.push('// ─── (viewer vendor) bearing.js ' + '─'.repeat(39) + '\n' + bearing.replace(/\s+$/, ''));
   for (const { name, src } of srcStripped) {
     const sep = `// ─── (viewer) ${name} ` + '─'.repeat(Math.max(0, 50 - name.length)) + '\n';
     parts.push(sep + src.replace(/\s+$/, ''));
@@ -253,13 +273,31 @@ function build() {
   });
 
   // Cross-file top-level-name collision check across everything.
+  // Vendors marked `opaque: true` are IIFE-wrapped (or otherwise enforce
+  // their own scope), so their internal declarations can't actually
+  // collide — skip them. We still scan the `wrap` template itself to
+  // catch collisions on names the wrap re-exports at top scope.
+  const opaqueVendors = new Set(VENDORS.filter(v => v.opaque).map(v => v.dist));
   const declOwner = new Map();
   const collisions = [];
   for (const { name, src } of [...vendorStripped, ...srcStripped]) {
+    if (opaqueVendors.has(name)) continue;
     for (const decl of topLevelNames(src)) {
       const prior = declOwner.get(decl);
       if (prior) collisions.push({ name: decl, files: [prior, name] });
       else declOwner.set(decl, name);
+    }
+  }
+  // For opaque vendors, only their wrap template's top-level decls
+  // matter — scan those separately (the wrap is the boundary between
+  // hidden internals and exposed names).
+  for (const v of VENDORS) {
+    if (!v.opaque || !v.wrap) continue;
+    const wrapTopLevel = v.wrap.replace('/* CONTENT */', '');
+    for (const decl of topLevelNames(wrapTopLevel)) {
+      const prior = declOwner.get(decl);
+      if (prior) collisions.push({ name: decl, files: [prior, v.dist] });
+      else declOwner.set(decl, v.dist);
     }
   }
   if (collisions.length) {

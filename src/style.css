@@ -998,6 +998,26 @@ body {
 [data-theme="dark"] .body .cm-content .cm-ep-plot-block {
   background: rgba(120, 130, 200, 0.06);
 }
+/* Stereonet block — bearing.js's SVG inside an ep plot-block wrapper.
+ * Equal-area projection is naturally circular, so we constrain width
+ * to the same comfortable size as a plot canvas and let the SVG scale
+ * to fit. */
+.cm-ep-stereonet-block { display: flex; flex-direction: column; align-items: flex-start; }
+.cm-ep-stereonet-title {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  color: var(--sw-text-soft);
+  margin-bottom: 4px;
+}
+.cm-ep-stereonet {
+  width: 320px;
+  max-width: 100%;
+  border-radius: var(--sw-radius);
+  background: var(--sw-bg-raised);
+  padding: 8px;
+}
+.cm-ep-stereonet svg { display: block; width: 100%; height: auto; }
+
 .cm-ep-plot-canvas {
   display: block;
   border-radius: var(--sw-radius);

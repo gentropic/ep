@@ -7,7 +7,7 @@ import { openUnitPicker } from './unit-picker.js';
 const TOKENS = [
   ['op', '+', '+'], ['op', '−', '-'], ['op', '×', '*'], ['op', '÷', '/'],
   ['op', '^', '^'], ['op', '(', '('], ['op', ')', ')'], ['op', '=', '='],
-  ['op', '→', ' -> '], ['op', 'to', ' to '],
+  ['op', '→', ' -> '], ['op', 'to', ' to '], ['op', '|>', ' |> '],
   ['fn', 'π', 'pi'], ['fn', '√', 'sqrt('],
   ['fn', 'sin', 'sin('], ['fn', 'cos', 'cos('],
   ['fn', 'ln', 'ln('], ['fn', 'log', 'log('],

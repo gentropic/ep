@@ -4700,6 +4700,31 @@ function _kdeGaussian(samples, gridSize) {
   return { xs, ys };
 }
 
+// Stereonet emission shared between stereonet_planes / stereonet_lines.
+// Each builder takes (azimuth, angle [, title]) where azimuth + angle
+// are either both lists or both scalars. Values are converted from
+// canonical (rad in Numbat) to degrees for bearing.js's API.
+function _emitStereonet(fnName, kind, args) {
+  if (args.length < 2 || args.length > 3) {
+    throw new Error(`${fnName}: expected 2..3 args (azimuth, angle [, title]), got ${args.length}`);
+  }
+  let xs = args[0], ys = args[1];
+  if (!Array.isArray(xs)) xs = [xs];
+  if (!Array.isArray(ys)) ys = [ys];
+  if (xs.length !== ys.length) {
+    throw new Error(`${fnName}: arg arrays must be the same length (got ${xs.length} and ${ys.length})`);
+  }
+  const toDeg = q => (q instanceof Quantity ? q.value : Number(q)) * 180 / Math.PI;
+  const pairs = [];
+  for (let i = 0; i < xs.length; i++) pairs.push([toDeg(xs[i]), toDeg(ys[i])]);
+  if (typeof _plotSink === 'function') {
+    const desc = { type: 'stereonet', title: typeof args[2] === 'string' ? args[2] : '' };
+    desc[kind] = pairs;     // 'planes' or 'lines'
+    _plotSink(desc);
+  }
+  return new Quantity(0, {});
+}
+
 const BUILTIN_PROCS = {
   // assert(bool): error if false. Used by upstream test programs.
   assert(args) {
@@ -4797,6 +4822,20 @@ const BUILTIN_PROCS = {
       _plotSink({ type: 'bar', ...coerceValues(args[0]), ...labelOpts(args, 1) });
     }
     return new Quantity(0, {});
+  },
+  // ── Stereonets (structural geology) ─────────────────────────────
+  // Equal-area stereonet plots — planes (great circles) and lines
+  // (points). Each builder accepts either two lists of equal length
+  // (the typical drillhole-CSV form: `stereonet_planes(faults.dd,
+  // faults.dip)`) or two scalars (single-attitude form). Angles are
+  // in radians (the Numbat canonical) — `120 deg` works; bare numbers
+  // are interpreted as radians per Numbat convention. The actual SVG
+  // render lives host-side in ep's render.js via bearing.js.
+  stereonet_planes(args) {
+    return _emitStereonet('stereonet_planes', 'planes', args);
+  },
+  stereonet_lines(args) {
+    return _emitStereonet('stereonet_lines', 'lines', args);
   },
   hist(args) {
     if (args.length < 1 || args.length > 4) throw new Error(`hist: expected 1..4 args (values [, xlabel, ylabel, title]), got ${args.length}`);

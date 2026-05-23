@@ -176,6 +176,29 @@ gain = future_value - principal
   },
 
   {
+    slug: 'stereonet',
+    name: 'Stereonet — fault attitudes',
+    desc: 'Equal-area projection of planes + lineations via bearing.js',
+    body: `# Stereonet — structural-geology attitudes plotted on an
+# equal-area (Schmidt) projection. Planes are drawn as great
+# circles; lineations as points. Inputs are paired lists of
+# (dip direction, dip) for planes and (trend, plunge) for
+# lineations — the typical structural-mapping CSV form.
+
+# A synthetic conjugate fault set (dip directions clustering
+# around 120° and 300°, dips ~45°). Numbat lists are
+# homogeneous — the trailing \`deg\` applies to every element.
+faults_dd  = [120, 128, 115, 122, 130, 300, 295, 305, 310, 298] deg
+faults_dip = [ 45,  52,  48,  44,  50,  47,  52,  43,  49,  51] deg
+
+stereonet_planes(faults_dd, faults_dip, "Conjugate fault set")
+
+# A measured slip lineation on one of the planes.
+stereonet_lines(240 deg, 28 deg, "Slip vector")
+`,
+  },
+
+  {
     slug: 'sensitivity_sweep',
     name: 'Sensitivity sweep',
     desc: 'Sweep drill-core diameter — sample volume / mass scale as d²',

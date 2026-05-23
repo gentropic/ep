@@ -104,6 +104,8 @@ export const DOCS = {
   triangular:  { signature: 'triangular<D>(lo: D, mode: D, hi: D) -> D', description: 'Draw samples from a triangular distribution with the given low, mode, and high points.', example: 'recovery = triangular(0.82, 0.91, 0.95)' },
   percentile:  { signature: 'percentile<D>(x: D, p: Scalar) -> D', description: 'Return the p-th percentile of an uncertain value (p in [0, 100]). Collapses to a regular Quantity. Linear interpolation between adjacent order statistics.', example: 'p95 = percentile(tonnage, 95)' },
   sweep:       { signature: 'sweep<D>(start: D, end: D, n: Scalar) -> D', description: 'Vary a value linearly between `start` and `end` across `n` samples. Returns a Swept value: subsequent arithmetic carries both the output samples and the input axis through, so the output chip can render Y(X) as an inline line plot. Deterministic sibling of `normal` / `uniform` — sensitivity sweep rather than uncertainty propagation.', example: 'length = sweep(180 m, 220 m, 41)' },
+  stereonet_planes: { signature: 'stereonet_planes(dipDirections, dips [, title])', description: 'Equal-area stereonet plot of one or more planes drawn as great circles. Each plane is specified by `dip direction` (azimuth of the dip vector, 0..360°) and `dip` (0..90°). Args may be two lists of equal length (typical CSV-column form) or two scalars (single-attitude form). Angles must be tagged with `deg` or `rad` — bare numbers are interpreted as radians per Numbat convention.', example: 'stereonet_planes(faults.dd, faults.dip)\nstereonet_planes(120 deg, 45 deg, "Single plane")' },
+  stereonet_lines:  { signature: 'stereonet_lines(trends, plunges [, title])', description: 'Equal-area stereonet plot of one or more lineations drawn as points. Each lineation is specified by `trend` (azimuth, 0..360°) and `plunge` (0..90° downward). Args may be two lists of equal length or two scalars.', example: 'stereonet_lines(lineations.trend, lineations.plunge)\nstereonet_lines(240 deg, 25 deg, "Slip vector")' },
   samples:     { signature: 'samples<D>(x: D) -> List<D>', description: 'Materialize an uncertain value as a regular List<Quantity> — escape hatch for custom reductions, ad-hoc plotting, or exporting. The dim and display unit of each element matches the Uncertain.', example: 'xs = samples(tonnage)\nmean(xs)  # same as mean(tonnage)' },
   pdf:         { signature: 'pdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the probability-density estimate (Gaussian KDE, Silverman bandwidth) of an uncertain value as a smooth curve inline.', example: 'pdf(tonnage, "tonnage", "density", "Resource estimate")' },
   cdf:         { signature: 'cdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline. P(X ≤ x).', example: 'cdf(tonnage)' },
@@ -233,6 +235,9 @@ export const DOC_GROUPS = [
   ]},
   { label: 'Sensitivity sweep (ep extension)', names: [
     'sweep',
+  ]},
+  { label: 'Stereonet (ep extension)', names: [
+    'stereonet_planes','stereonet_lines',
   ]},
   { label: 'Plots', names: [
     'plot','scatter','bar_chart','hist',

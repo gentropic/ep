@@ -118,6 +118,31 @@ function drawUncertainHist(canvas, samples, dpr) {
   }
 }
 
+// Render a stereonet descriptor into `host` (a DOM div). bearing.js's
+// `Stereonet` accumulates features (planes, poles, lines) and emits an
+// SVG string; we set that as host.innerHTML. No canvas, no DPR — SVG
+// scales cleanly without extra plumbing. Hover inspection isn't wired
+// here in Phase 1; bearing.js's own SVG can carry tooltips natively if
+// we want to opt in later.
+function renderStereonet(host, descriptor) {
+  if (typeof Stereonet === 'undefined') {
+    host.textContent = 'stereonet: bearing.js missing from build';
+    return;
+  }
+  try {
+    const sn = new Stereonet();
+    if (descriptor.planes) {
+      for (const [dd, dip] of descriptor.planes) sn.plane(dd, dip);
+    }
+    if (descriptor.lines) {
+      for (const [trend, plunge] of descriptor.lines) sn.line(trend, plunge);
+    }
+    host.innerHTML = sn.svg();
+  } catch (e) {
+    host.textContent = 'stereonet: ' + (e && e.message || e);
+  }
+}
+
 function drawPlot(canvas, descriptor, dpr, opts) {
   const ctx = canvas.getContext('2d');
   if (!ctx || !descriptor) return;
@@ -787,6 +812,25 @@ function mountCm6() {
     }
     toDOM() {
       if (this.kind === 'plot') {
+        // Stereonet plots (structural geology) are SVG, not canvas —
+        // bearing.js generates the projection + features as an SVG
+        // string. Same block-widget shape, different inner content.
+        if (this.plot && this.plot.type === 'stereonet') {
+          const wrap = document.createElement('div');
+          wrap.className = 'cm-ep-plot-block cm-ep-stereonet-block';
+          if (this.plot.title) {
+            const title = document.createElement('div');
+            title.className = 'cm-ep-stereonet-title';
+            title.textContent = this.plot.title;
+            wrap.appendChild(title);
+          }
+          const host = document.createElement('div');
+          host.className = 'cm-ep-stereonet';
+          wrap.appendChild(host);
+          const desc = this.plot;
+          requestAnimationFrame(() => renderStereonet(host, desc));
+          return wrap;
+        }
         // Canvas-rendered chart. Block widget so it claims its own row
         // below the plot()-calling line. ~400×200 default — big enough
         // to read, small enough not to push the page around. Lives in
