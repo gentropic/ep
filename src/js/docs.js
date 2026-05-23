@@ -131,6 +131,11 @@ export const DOCS = {
   with_line:    { signature: 'with_line(plot: Plot, xs: List<X>, ys: List<Y> [, label]) -> Plot', description: 'Add a line layer to an xy-family Plot. Returns a new Plot.', example: 'plot |> with_line(xs, ys, "best fit")' },
   with_scatter: { signature: 'with_scatter(plot: Plot, xs: List<X>, ys: List<Y> [, label]) -> Plot', description: 'Add a scatter layer to an xy-family Plot.', example: 'plot |> with_scatter(xs, ys, "measured")' },
   with_band:    { signature: 'with_band(plot: Plot, xs: List<X>, lo: List<Y>, hi: List<Y> [, label]) -> Plot', description: 'Add a shaded-envelope layer to an xy-family Plot — a filled polygon between `lo` and `hi` at each `x`. Designed to pair with `percentile` on uncertain or swept curves: shade the 5–95 % envelope, then overlay a median line.', example: 'line_plot()\n  |> with_band(xs, p05, p95, "P5–P95")\n  |> with_line(xs, med, "median")' },
+  with_color:   { signature: 'with_color(plot: Plot, color: String) -> Plot', description: 'Override the most-recently-added layer\'s color. Chain immediately after the `with_*` adder. Accepts any CSS color (name or hex). Without this, layers cycle through the theme palette.', example: 'plot |> with_line(xs, ys) |> with_color("indigo")' },
+  with_width:   { signature: 'with_width(plot: Plot, width: Scalar) -> Plot', description: 'Override the most-recently-added layer\'s line width (in CSS pixels). Defaults to 1.5.', example: 'plot |> with_line(xs, ys) |> with_width(3)' },
+  with_dash:    { signature: 'with_dash(plot: Plot, dash: List<Scalar>) -> Plot', description: 'Override the most-recently-added layer\'s dash pattern (canvas-style alternating on/off pixel lengths). Pass an empty list for solid.', example: 'plot |> with_line(xs, ys) |> with_dash([4, 2])' },
+  with_alpha:   { signature: 'with_alpha(plot: Plot, alpha: Scalar) -> Plot', description: 'Override the most-recently-added layer\'s opacity, in [0, 1]. Defaults: 1 for lines / scatter / bars, 0.35 for bands, 0.55 for overlapping hist layers.', example: 'plot |> with_band(xs, lo, hi) |> with_alpha(0.5)' },
+  with_marker_size: { signature: 'with_marker_size(plot: Plot, size: Scalar) -> Plot', description: 'Override the most-recently-added scatter layer\'s marker radius in CSS pixels. Defaults to 2.5.', example: 'plot |> with_scatter(xs, ys) |> with_marker_size(5)' },
   with_bars:    { signature: 'with_bars(plot: Plot, values: List<V> [, label]) -> Plot', description: 'Add a bars layer to a bar-family Plot.' },
   with_bins:    { signature: 'with_bins(plot: Plot, values: List<V> | Uncertain [, label]) -> Plot', description: 'Add a bins layer to a hist-family Plot. Auto-bins at ~√N (capped at 50). Accepts an Uncertain — bins its samples directly.' },
 
@@ -260,6 +265,7 @@ export const DOC_GROUPS = [
   ]},
   { label: 'Layered plots (ep extension)', names: [
     'with_title','with_xlabel','with_ylabel','show',
+    'with_color','with_width','with_dash','with_alpha','with_marker_size',
   ]},
   { label: 'Plots', names: [
     'line_plot','scatter_plot','bar_plot','histogram',

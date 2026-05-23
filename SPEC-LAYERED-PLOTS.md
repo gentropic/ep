@@ -1,6 +1,6 @@
 # SPEC-LAYERED-PLOTS — fluent multi-layer plot builders
 
-**Status**: Phase 1 + 2 shipped (Plot value, fluent builders for every family, multi-layer rendering, multi-layer chip thumbnails, cross-layer hover, grouped bars / alpha hist). Phase 3 adds `with_band` for shaded uncertainty envelopes. Phase 4+ deferred items noted at the bottom.
+**Status**: Phase 1 + 2 shipped (Plot value, fluent builders for every family, multi-layer rendering, multi-layer chip thumbnails, cross-layer hover, grouped bars / alpha hist). Phase 3 adds `with_band` for shaded uncertainty envelopes. Phase 4 adds per-layer styling adders (`with_color` / `with_width` / `with_dash` / `with_alpha` / `with_marker_size`) that target the most-recently-added layer. Phase 5+ deferred items noted at the bottom.
 
 ## Motivation
 
@@ -243,7 +243,6 @@ The minimal vertical slice that's usable end-to-end:
 - **`with_smallcircles(plot, axes, angles)`** — stereonet small circles.
 - **`with_contours(plot, dd, dip)`** — bearing.js's Kamb contouring on density of poles.
 - **`with_errorbars(plot, xs, ys, errs)`** — per-point error bars.
-- **Per-layer styling** — `with_line(plot, xs, ys, label, { color: 'indigo', dash: [4,2] })`.
 - **Combined uncertainty + sweep visualization** — sweep on x-axis, ±1σ band on y. Cross-Sample-Bearing layering.
 - **Save/restore plot configurations** — for templates.
 
@@ -257,7 +256,7 @@ The minimal vertical slice that's usable end-to-end:
   - `with_line(plot, xs, ys, "label", "indigo")` — explicit both
   Color cycle in Phase 1: `--sw-orange`, `--sw-indigo`, `--sw-teal`, then loop.
 
-- **Richer styling — Phase 2.** When per-layer config grows past color + label (width, dash, marker size, alpha, …), graduate to a struct-based `StyleOpts`: `with_line(plot, xs, ys, "label", StyleOpts { color: "indigo", width: 2, dash: [4, 2] })`. Numbat supports structs, so the path is open. Phase 1 stays positional.
+- **Richer styling.** Resolved by Phase 4 — `with_color` / `with_width` / `with_dash` / `with_alpha` / `with_marker_size` each target the most-recently-added layer. The trailing-struct shape (`StyleOpts { … }`) was rejected because numbat structs require every field at construction (no defaults), which would force callers to spell out fields they don't care about.
 
 - **Chip thumbnail rendering for multi-layer plots.** Resolved — `drawPlot` iterates every layer in compact mode, so the chip already shows all curves in their cycled colors.
 
@@ -269,4 +268,4 @@ The minimal vertical slice that's usable end-to-end:
 
 ## Status
 
-Phase 1 + 2 shipped. The vertical-slice landed first (`stereonet()` + `with_planes` / `with_lines` / `with_title` + auto-render), then fanned out to xy / bar / hist families with multi-line `|>` anchoring. The Phase-2 polish followed: multi-layer chip thumbnails, cross-layer hover inspection, and grouped bar / alpha-blended hist layouts so overlapping bar/bin layers stay legible. Phase 3 added `with_band` — a shaded-envelope xy layer that pairs naturally with `percentile` on `Uncertain` / `Swept` curves. Phase 4+ items remain in the deferred list above (Kamb contours, error bars, small circles, struct-based per-layer styling, save/restore).
+Phase 1 + 2 shipped. The vertical-slice landed first (`stereonet()` + `with_planes` / `with_lines` / `with_title` + auto-render), then fanned out to xy / bar / hist families with multi-line `|>` anchoring. The Phase-2 polish followed: multi-layer chip thumbnails, cross-layer hover inspection, and grouped bar / alpha-blended hist layouts so overlapping bar/bin layers stay legible. Phase 3 added `with_band` — a shaded-envelope xy layer that pairs naturally with `percentile` on `Uncertain` / `Swept` curves. Phase 4 added per-layer styling via target-the-last-layer adders (`with_color`, `with_width`, `with_dash`, `with_alpha`, `with_marker_size`) that flow through both the canvas families and the stereonet family via bearing.js's `style` arg. Phase 5+ items remain in the deferred list above (Kamb contours, error bars, small circles, save/restore).

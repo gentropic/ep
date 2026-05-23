@@ -603,6 +603,24 @@ function _withValuesLayer(fnName, requiredFamily, kind, args) {
   return { ...plot, layers: [...plot.layers, layer] };
 }
 
+// Apply a style override to the most-recently-added layer (the one the
+// preceding `with_*` adder just appended). Returns a new Plot with a
+// new layer carrying the override; the original is untouched. Errors
+// loudly if the plot has no layers yet — styling without an anchor
+// layer is almost certainly a typo.
+function _styleLastLayer(fnName, args, styleField, value) {
+  const plot = args[0];
+  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+  const layers = plot.layers || [];
+  if (layers.length === 0) {
+    throw new Error(`${fnName}: no layer to style — call a with_* layer adder first`);
+  }
+  const out = layers.slice();
+  const lastIdx = out.length - 1;
+  out[lastIdx] = { ...out[lastIdx], [styleField]: value };
+  return { ...plot, layers: out };
+}
+
 // Shortcut: a one-shot xy builder (plot / scatter) wrapping the
 // fluent form — `_newPlot('xy') |> with_line/scatter(...)` plus the
 // optional trailing label args.
@@ -819,6 +837,42 @@ const BUILTIN_PROCS = {
     const plot = args[0];
     if (!(plot && plot.__plot)) throw new Error('with_ylabel: first arg must be a Plot');
     return { ...plot, yLabel: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+  },
+  // ── Per-layer style adders ───────────────────────────────────────
+  // Each targets the most-recently-added layer, returning a new Plot
+  // with the override applied. Chain after a `with_*` layer adder:
+  //   plot |> with_line(xs, ys, "fit") |> with_color("indigo") |> with_width(2)
+  with_color(args) {
+    if (args.length !== 2) throw new Error(`with_color: expected 2 args (plot, color), got ${args.length}`);
+    const color = args[1];
+    if (typeof color !== 'string' || color.length === 0) throw new Error('with_color: color must be a non-empty string (CSS color name or hex)');
+    return _styleLastLayer('with_color', args, 'color', color);
+  },
+  with_width(args) {
+    if (args.length !== 2) throw new Error(`with_width: expected 2 args (plot, width), got ${args.length}`);
+    const w = args[1] instanceof Quantity ? args[1].value : Number(args[1]);
+    if (!Number.isFinite(w) || w <= 0) throw new Error('with_width: width must be a positive number');
+    return _styleLastLayer('with_width', args, 'width', w);
+  },
+  with_dash(args) {
+    if (args.length !== 2) throw new Error(`with_dash: expected 2 args (plot, dash), got ${args.length}`);
+    const arr = args[1];
+    if (!Array.isArray(arr)) throw new Error('with_dash: dash must be a list of numbers');
+    const dash = arr.map(v => v instanceof Quantity ? v.value : Number(v));
+    if (dash.some(v => !Number.isFinite(v) || v < 0)) throw new Error('with_dash: dash entries must be non-negative finite numbers');
+    return _styleLastLayer('with_dash', args, 'dash', dash);
+  },
+  with_alpha(args) {
+    if (args.length !== 2) throw new Error(`with_alpha: expected 2 args (plot, alpha), got ${args.length}`);
+    const a = args[1] instanceof Quantity ? args[1].value : Number(args[1]);
+    if (!Number.isFinite(a) || a < 0 || a > 1) throw new Error('with_alpha: alpha must be in [0, 1]');
+    return _styleLastLayer('with_alpha', args, 'alpha', a);
+  },
+  with_marker_size(args) {
+    if (args.length !== 2) throw new Error(`with_marker_size: expected 2 args (plot, size), got ${args.length}`);
+    const s = args[1] instanceof Quantity ? args[1].value : Number(args[1]);
+    if (!Number.isFinite(s) || s <= 0) throw new Error('with_marker_size: size must be a positive number');
+    return _styleLastLayer('with_marker_size', args, 'markerSize', s);
   },
   // Explicit emission — for a let-bound Plot that auto-render skips.
   show(args) {

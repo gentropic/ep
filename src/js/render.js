@@ -129,16 +129,38 @@ function renderStereonet(host, plot) {
     host.textContent = 'stereonet: bearing.js missing from build';
     return;
   }
+  // bearing.js's plane / line / pole accept a `style` object with SVG
+  // attrs (stroke, strokeWidth, strokeDasharray, opacity). Map the
+  // ep-side style fields onto those names. Default color cycles match
+  // the canvas family for visual consistency.
+  const cs = typeof getComputedStyle === 'function' ? getComputedStyle(document.documentElement) : null;
+  const cssVar = (n, fb) => cs ? (cs.getPropertyValue(n).trim() || fb) : fb;
+  const colCycle = [
+    cssVar('--sw-orange', '#B54E1A'),
+    cssVar('--sw-indigo', '#4E5580'),
+    cssVar('--sw-teal',   '#1F6F69'),
+    cssVar('--sw-red',    '#A23A2F'),
+  ];
+  const styleFor = (layer, li) => {
+    const out = { stroke: layer.color || colCycle[li % colCycle.length] };
+    if (layer.width !== undefined) out.strokeWidth = layer.width;
+    if (layer.dash && layer.dash.length) out.strokeDasharray = layer.dash.join(',');
+    if (layer.alpha !== undefined) out.opacity = layer.alpha;
+    return out;
+  };
   try {
     const sn = new Stereonet();
-    for (const layer of (plot && plot.layers) || []) {
+    const layers = (plot && plot.layers) || [];
+    for (let li = 0; li < layers.length; li++) {
+      const layer = layers[li];
       const pairs = layer.pairs || [];
+      const style = styleFor(layer, li);
       if (layer.kind === 'planes') {
-        for (const [dd, dip] of pairs) sn.plane(dd, dip);
+        for (const [dd, dip] of pairs) sn.plane(dd, dip, style);
       } else if (layer.kind === 'lines') {
-        for (const [trend, plunge] of pairs) sn.line(trend, plunge);
+        for (const [trend, plunge] of pairs) sn.line(trend, plunge, style);
       } else if (layer.kind === 'poles') {
-        for (const [dd, dip] of pairs) sn.pole(dd, dip);
+        for (const [dd, dip] of pairs) sn.pole(dd, dip, style);
       }
     }
     host.innerHTML = sn.svg();
@@ -177,6 +199,16 @@ function _autoBin(values) {
 // that emit { type:'line', xs, ys, … }.
 function _normalizePlotLayers(plot) {
   if (!plot) return [];
+  // Carry per-layer style overrides through the normalize step. Each
+  // is undefined → "use default"; the dispatch in drawPlot falls back
+  // to colCycle / 1.5 px / [] dash / kind-specific alpha as needed.
+  const styleFields = (l) => ({
+    color:      l.color,
+    width:      l.width,
+    dash:       l.dash,
+    alpha:      l.alpha,
+    markerSize: l.markerSize,
+  });
   if (plot.__plot) {
     if (plot.family === 'xy') {
       return (plot.layers || []).map(l => {
@@ -190,6 +222,7 @@ function _normalizePlotLayers(plot) {
             ys: [],
             xUnit: l.xUnit || '', yUnit: l.yUnit || '',
             label: l.label || '',
+            ...styleFields(l),
           };
         }
         return {
@@ -197,6 +230,7 @@ function _normalizePlotLayers(plot) {
           xs: l.xs || [], ys: l.ys || [],
           xUnit: l.xUnit || '', yUnit: l.yUnit || '',
           label: l.label || '',
+          ...styleFields(l),
         };
       });
     }
@@ -208,6 +242,7 @@ function _normalizePlotLayers(plot) {
           xs: ys.map((_, i) => i), ys,
           xUnit: '', yUnit: l.valueUnit || '',
           label: l.label || '',
+          ...styleFields(l),
         };
       });
     }
@@ -218,6 +253,7 @@ function _normalizePlotLayers(plot) {
           kind: 'bins', xs, ys,
           xUnit: l.valueUnit || '', yUnit: '',
           label: l.label || '',
+          ...styleFields(l),
         };
       });
     }
@@ -293,6 +329,8 @@ function drawPlot(canvas, plot, dpr, opts) {
       ys:    (l.ys || []).map(v => v / yF),
       xUnit: l.xUnit, yUnit: l.yUnit,
       label: l.label,
+      color: l.color, width: l.width, dash: l.dash,
+      alpha: l.alpha, markerSize: l.markerSize,
     };
     if (l.kind === 'band') {
       out.lo = (l.lo || []).map(v => v / yF);
@@ -433,15 +471,19 @@ function drawPlot(canvas, plot, dpr, opts) {
   }
   const numBars = barLayerIdxs.length;
 
-  // Draw each layer in its cycled color. Line / scatter / bars / bins
-  // share the same dispatch table. layer._drawOffsetPx is stashed on
-  // bar-kind layers so hover can map a bar back to the right group.
+  // Draw each layer in its cycled color (or its explicit `color`
+  // override). Line / scatter / bars / bins share the same dispatch
+  // table. layer._drawOffsetPx is stashed on bar-kind layers so hover
+  // can map a bar back to the right group. Per-layer style overrides
+  // (color, width, dash, alpha, markerSize) come from the with_color /
+  // with_width / with_dash / with_alpha / with_marker_size adders.
   for (let li = 0; li < layers.length; li++) {
     const layer = layers[li];
-    const color = colCycle[li % colCycle.length];
+    const color = layer.color || colCycle[li % colCycle.length];
     ctx.strokeStyle = color;
     ctx.fillStyle   = color;
-    ctx.lineWidth   = 1.5;
+    ctx.lineWidth   = layer.width ?? 1.5;
+    ctx.setLineDash(layer.dash && layer.dash.length ? layer.dash : []);
     if (layer.kind === 'band') {
       // Filled envelope between lo and hi. Drawn at low alpha so an
       // overlying line layer in the same color cycle reads cleanly on
@@ -457,22 +499,27 @@ function drawPlot(canvas, plot, dpr, opts) {
         ctx.lineTo(xPix(layer.xs[i]), yPix(layer.lo[i]));
       }
       ctx.closePath();
-      ctx.globalAlpha = 0.35;
+      ctx.globalAlpha = layer.alpha ?? 0.35;
       ctx.fill();
       ctx.globalAlpha = 1;
     } else if (layer.kind === 'line') {
+      ctx.globalAlpha = layer.alpha ?? 1;
       ctx.beginPath();
       for (let i = 0; i < layer.xs.length; i++) {
         const px = xPix(layer.xs[i]), py = yPix(layer.ys[i]);
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
       ctx.stroke();
+      ctx.globalAlpha = 1;
     } else if (layer.kind === 'scatter') {
+      ctx.globalAlpha = layer.alpha ?? 1;
+      const r = layer.markerSize ?? 2.5;
       for (let i = 0; i < layer.xs.length; i++) {
         ctx.beginPath();
-        ctx.arc(xPix(layer.xs[i]), yPix(layer.ys[i]), 2.5, 0, Math.PI * 2);
+        ctx.arc(xPix(layer.xs[i]), yPix(layer.ys[i]), r, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.globalAlpha = 1;
     } else if (layer.kind === 'bars') {
       const baselinePx = yPix(Math.max(0, yLo));
       const dx = layer.xs.length > 1 ? (layer.xs[1] - layer.xs[0]) : 1;
@@ -482,19 +529,21 @@ function drawPlot(canvas, plot, dpr, opts) {
       const offset = numBars > 1 ? (j - (numBars - 1) / 2) * barW : 0;
       layer._drawOffsetPx = offset;
       layer._drawWidthPx  = barW;
+      ctx.globalAlpha = layer.alpha ?? 1;
       for (let i = 0; i < layer.xs.length; i++) {
         const cx = xPix(layer.xs[i]) + offset;
         const top = yPix(layer.ys[i]);
         const h = baselinePx - top;
         ctx.fillRect(cx - barW / 2, top, barW, h);
       }
+      ctx.globalAlpha = 1;
     } else if (layer.kind === 'bins') {
       const baselinePx = yPix(Math.max(0, yLo));
       const dx = layer.xs.length > 1 ? (layer.xs[1] - layer.xs[0]) : 1;
       const binW = Math.max(1, (dx / (xHi - xLo)) * PW * 0.95);
       layer._drawOffsetPx = 0;
       layer._drawWidthPx  = binW;
-      ctx.globalAlpha = binLayerCount > 1 ? 0.55 : 1;
+      ctx.globalAlpha = layer.alpha ?? (binLayerCount > 1 ? 0.55 : 1);
       for (let i = 0; i < layer.xs.length; i++) {
         const cx = xPix(layer.xs[i]);
         const top = yPix(layer.ys[i]);
@@ -504,6 +553,8 @@ function drawPlot(canvas, plot, dpr, opts) {
       ctx.globalAlpha = 1;
     }
   }
+  // Reset dash so legend / chrome drawn after this loop isn't dashed.
+  ctx.setLineDash([]);
 
   // Stash plot state for hover inspection. attachPlotHover iterates
   // every layer to find the nearest data point in pixel space.

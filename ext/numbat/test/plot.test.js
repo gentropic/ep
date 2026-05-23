@@ -145,6 +145,67 @@ test('with_band: rejects non-xy family', () => {
     /cannot add an xy layer to a 'stereonet' plot/);
 });
 
+// ── per-layer style adders ───────────────────────────────────────
+
+test('with_color: overrides the previous layer\'s color', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let p = line_plot()',
+    '  |> with_line([0, 1, 2], [0, 1, 2], "a")',
+    '  |> with_color("indigo")',
+  ].join('\n'), '<t>');
+  const p = n.values.get('p');
+  assert.equal(p.layers.length, 1);
+  assert.equal(p.layers[0].color, 'indigo');
+});
+
+test('with_width / with_dash / with_alpha / with_marker_size stack onto the last layer', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let p = line_plot()',
+    '  |> with_scatter([0, 1, 2], [0, 1, 2])',
+    '  |> with_color("teal")',
+    '  |> with_width(2)',
+    '  |> with_dash([4, 2])',
+    '  |> with_alpha(0.5)',
+    '  |> with_marker_size(6)',
+  ].join('\n'), '<t>');
+  const layer = n.values.get('p').layers[0];
+  assert.equal(layer.color, 'teal');
+  assert.equal(layer.width, 2);
+  assert.deepEqual(layer.dash, [4, 2]);
+  assert.equal(layer.alpha, 0.5);
+  assert.equal(layer.markerSize, 6);
+});
+
+test('with_color: each layer keeps its own override', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let p = line_plot()',
+    '  |> with_line([0, 1], [0, 1])  |> with_color("orange")',
+    '  |> with_line([0, 1], [1, 2])  |> with_color("indigo")',
+  ].join('\n'), '<t>');
+  const layers = n.values.get('p').layers;
+  assert.equal(layers[0].color, 'orange');
+  assert.equal(layers[1].color, 'indigo');
+});
+
+test('with_color: errors when the plot has no layers yet', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource('let p = line_plot() |> with_color("indigo")', '<t>'),
+    /no layer to style/);
+});
+
+test('with_alpha: rejects out-of-range values', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource([
+      'let p = line_plot() |> with_line([0,1],[0,1]) |> with_alpha(1.5)',
+    ].join('\n'), '<t>'),
+    /alpha must be in \[0, 1\]/);
+});
+
 // ── immutability ──────────────────────────────────────────────────
 
 test('with_* are immutable — original Plot unchanged', () => {

@@ -181,6 +181,11 @@ const BUILTIN_PROC_SCHEMES = {
   with_title:    schemeWithLabel,
   with_xlabel:   schemeWithLabel,
   with_ylabel:   schemeWithLabel,
+  with_color:    schemeWithColor,
+  with_width:    schemeWithScalarStyle,
+  with_dash:     schemeWithDash,
+  with_alpha:    schemeWithScalarStyle,
+  with_marker_size: schemeWithScalarStyle,
   show:          schemeShow,
   stereonet_planes: schemeShortcutStereonet,
   stereonet_lines:  schemeShortcutStereonet,
@@ -428,6 +433,21 @@ function schemeShortcutStereonet() {
     tFn([a, b, tString()], p, { optional: 1 }),
     [a, b, p], []
   );
+}
+// Per-layer style adders — each takes the plot + one styling value
+// and returns the same plot type. Color is a String; width / alpha /
+// marker_size are Scalars; dash is a List<Scalar>.
+function schemeWithColor() {
+  const p = freshTVar();
+  return generalize(tFn([p, tString()], p), [p], []);
+}
+function schemeWithScalarStyle() {
+  const p = freshTVar();
+  return generalize(tFn([p, T_SCALAR], p), [p], []);
+}
+function schemeWithDash() {
+  const p = freshTVar();
+  return generalize(tFn([p, tList(T_SCALAR)], p), [p], []);
 }
 
 const BUILTIN_FN_SCHEMES = {
