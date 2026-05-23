@@ -316,7 +316,7 @@ To inspect everything ep has stored: open your browser's DevTools → Applicatio
 
 ## Status
 
-Honest take, written 2026-05-17:
+Honest take, written 2026-05-22:
 
 **What's working:**
 
@@ -335,14 +335,16 @@ Honest take, written 2026-05-17:
 - Light/dark theme toggle, configurable sig digits + format width, configurable bottom palette + new-file template, auto-hide of empty input/output panels.
 - Mobile-friendly: floating result gutter (doesn't push body width), unit-picker bottom sheet, touch-friendly tap targets.
 - Viewer artifact polish: program subtitle from first comment, accent-highlighted outputs panel, single-column on narrow screens, "modify this calculation" footer link that round-trips back to the editor via pointer.
-- **749 tests** for the pure layers (units / parser / evaluator / typechecker / formatter / pointer / snapshot retention / conformance corpus); the DOM layers are exercised by manual browser testing only.
+- **Datasets — eager Phase 1 shipped.** `load_csv("name")` attaches a CSV asset and binds a `Dataset`. Drag a `.csv` onto ep → an **attach dialog** parses a live preview with file-level config (delimiter, decimal, comment, skip rows, header) and per-column rename + unit overrides. Embedded CSVs travel with `.html` exports. Assets are managed from the drawer's `data` mode (re-configure, rename, view, remove); a **virtualized viewer** scrolls the full table without flooding the DOM. The `@input` file-picker chip turns a `load_csv("x")` binding into a drop-zone — a recipient of an exported form drops *their* CSV and the outputs recompute.
+- **Real `DateTime` value type** with calendar-aware arithmetic (`calendar_add`, leap-year / DST aware), timezone conversion via `->` (`dt -> tz("Asia/Tokyo")`, `-> UTC`, `-> local`), bare `today` / `now` as values, friendly durations in date arithmetic.
+- **868 tests** across ep + numbat-js (pure layers — units / parser / evaluator / typechecker / formatter / pointer / snapshot retention / datasets / datetime / conformance corpus); the DOM layers are exercised by manual browser testing only.
 
 **What's not yet:**
 
 - The "scenarios" feature (named presets of input values) ships but its UX is rough.
 - No incremental DAG evaluation. Every keystroke re-evaluates the whole program. Fast enough for typical programs (sub-millisecond on the demo).
 - No automated UI tests. JSDOM or Playwright would be nice when there's specific behavior worth pinning.
-- Datasets — the eager layer is built (`load_csv`, columns, `where`, reductions, `schema`; see "Datasets" above). Still designed-not-built in `SPEC-DATASETS.md`: the attach dialog (per-column unit/rename overrides, file references), lazy views, and block models.
+- Datasets Phase 2 — lazy views, streaming sources, block-model semantics — is the planned next chapter. Tied to SPEC §10 (long-running jobs / chunked workers / IDB checkpoint), which is also still future. File-referenced assets (CSVs that don't embed into the program) are deferred to pair with streaming.
 - `@gcu/pointer` Phase 2 reference loaders (`gh:` / `gist:` / `rentry:` / `url:`) aren't implemented — pointers using those schemes fall through to `EUNKNOWN`, which is the conforming graceful-degradation path per the spec.
 - Multi-tab consistency — IDB writes from one tab don't propagate to another tab's in-memory cache. `BroadcastChannel` install is the natural fix when it bites.
 
@@ -366,7 +368,7 @@ cd ep
 
 ```sh
 node build.js            # rebuild index.html + dist/viewer.html from src/
-node --test              # run the test suite (749 tests, no deps)
+node --test              # run the test suite (868 tests, no deps)
 ```
 
 Zero npm dependencies for the main build. `ext/cm6/` does use npm + rollup to produce the CodeMirror bundle, but the resulting `cm6.min.js` is committed so you don't need to rebuild it unless you're upgrading CM6 itself.

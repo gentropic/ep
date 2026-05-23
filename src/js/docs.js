@@ -116,6 +116,28 @@ export const DOCS = {
   str_append: { signature: 'str_append(a: String, b: String) -> String', description: 'Concatenate two strings.' },
   lowercase:  { signature: 'lowercase(s: String) -> String', description: 'Convert to lowercase.' },
   uppercase:  { signature: 'uppercase(s: String) -> String', description: 'Convert to uppercase.' },
+  str_prepend:  { signature: 'str_prepend(a: String, b: String) -> String', description: 'Concatenate with `a` prepended to `b` (i.e. b then a).', example: 'str_prepend("!", "Numbat") = "Numbat!"' },
+  str_find:     { signature: 'str_find(needle: String, haystack: String) -> Scalar', description: 'Index of the first occurrence of `needle` in `haystack`, or -1 if not found.', example: 'str_find("bat", "Numbat") = 3' },
+  str_contains: { signature: 'str_contains(needle: String, haystack: String) -> Bool', description: 'True if `haystack` contains `needle`.', example: 'str_contains("bat", "Numbat") = true' },
+  str_replace:  { signature: 'str_replace(pattern: String, replacement: String, s: String) -> String', description: 'Replace every occurrence of `pattern` with `replacement`.', example: 'str_replace("a", "@", "banana") = "b@n@n@"' },
+  str_repeat:   { signature: 'str_repeat(n: Scalar, s: String) -> String', description: 'Repeat `s` n times.', example: 'str_repeat(3, "ab") = "ababab"' },
+  dec:        { signature: 'dec(x: Scalar) -> String', description: 'Decimal representation as a string.', example: 'dec(42) = "42"' },
+
+  // ── Date / time ──────────────────────────────────────────────────
+  now:                { signature: 'now() -> DateTime', description: "Current date and time, stamped with the host's local timezone.", example: 'now()' },
+  datetime:           { signature: 'datetime(input: String) -> DateTime', description: 'Parse a date/time string. Accepts ISO with offsets, and named-zone forms like "2026-12-25 09:00:00 Europe/Berlin".', example: 'datetime("2026-12-25 09:00:00 Europe/Berlin")' },
+  today:              { signature: 'today() -> DateTime', description: "Today at midnight in the host's local timezone. Also usable as a bare value: `today` (ep extension).", example: 'today() + 7 days' },
+  date:               { signature: 'date(input: String) -> DateTime', description: 'Parse a date-only string. Time defaults to 00:00:00.', example: 'date("2026-12-25")' },
+  time:               { signature: 'time(input: String) -> DateTime', description: 'Parse a time-only string. Date defaults to today.', example: 'time("21:00")' },
+  format_datetime:    { signature: 'format_datetime(format: String, input: DateTime [, tz: String]) -> String', description: 'Format a DateTime via strftime-style tokens (%Y %m %d %H %M %S %z %Z %A %B %j). Optional third arg overrides the display timezone.', example: 'format_datetime("%Y-%m-%d %H:%M", now())' },
+  get_local_timezone: { signature: 'get_local_timezone() -> String', description: 'IANA timezone identifier for the host (e.g. "America/Sao_Paulo").', example: 'get_local_timezone()' },
+  tz:                 { signature: 'tz(name: String) -> Fn[(DateTime) -> DateTime]', description: "Build a timezone converter. Apply via the conversion operator: `dt -> tz(\"Asia/Tokyo\")` re-stamps a datetime's display zone while preserving the instant.", example: 'datetime("2026-05-17 12:00:00 UTC") -> tz("Asia/Tokyo")' },
+  UTC:                { signature: 'UTC : Fn[(DateTime) -> DateTime]', description: 'Pre-bound converter to UTC.', example: 'now() -> UTC' },
+  local:              { signature: 'local : Fn[(DateTime) -> DateTime]', description: "Pre-bound converter to the host's local timezone.", example: 'datetime("2026-05-17 12:00:00 UTC") -> local' },
+  weekday:            { signature: 'weekday(dt: DateTime) -> String', description: 'Day of the week as a name (e.g. "Friday").', example: 'weekday(datetime("2026-12-25"))' },
+  calendar_add:       { signature: 'calendar_add(dt: DateTime, span: Time) -> DateTime', description: 'Calendar-aware shift. A month lands on the same day-of-month; days are DST-aware; overflow constrains (Jan 31 + 1 month → Feb 28/29).', example: 'calendar_add(today(), 1 month)' },
+  calendar_sub:       { signature: 'calendar_sub(dt: DateTime, span: Time) -> DateTime', description: 'Calendar-aware subtract. Equivalent to `calendar_add(dt, -span)`.', example: 'calendar_sub(today(), 1 year)' },
+  has_unit:           { signature: 'has_unit(span: Time, target: Time) -> Bool', description: 'Whole-unit approximation — true when `span` is a whole multiple of `target`. Used by `calendar_add` to dispatch on days vs months vs years.', example: 'has_unit(2 months, months) = true' },
 
   // ── I/O + assertions ──────────────────────────────────────────────
   print:     { signature: 'print<T>(x: T) -> Scalar', description: 'Emit a value to the host\'s output sink. In ep, surfaces as an inline info block below the line.' },
@@ -188,25 +210,32 @@ export const DOC_GROUPS = [
   { label: 'Datasets (ep extension)', names: [
     'load_csv','dataset','schema',
   ]},
+  { label: 'Date / time', names: [
+    'now','datetime','today','date','time',
+    'format_datetime','get_local_timezone',
+    'tz','UTC','local',
+    'weekday','calendar_add','calendar_sub','has_unit',
+  ]},
   { label: 'Plots', names: [
     'plot','scatter','bar_chart','hist',
   ]},
   { label: 'Strings', names: [
-    'str_length','str_slice','str_append','str_contains','str_replace',
-    'str_starts_with','str_ends_with','str_upper','str_lower',
-    'chr','ord','to_string',
+    'str_length','str_eq','str_slice','str_append','str_prepend',
+    'str_find','str_contains','str_replace','str_repeat',
+    'chr','ord','lowercase','uppercase',
+    'hex','bin','oct','dec','base',
   ]},
   { label: 'I/O + assertions', names: [
-    'print','assert','assert_eq',
+    'print','println','assert','assert_eq','error',
   ]},
   { label: 'ep prelude', names: [
-    'tonnage_of','grade_of','metal_of',
+    'cylinder_volume','sample_mass',
   ]},
   { label: 'Decorators', names: [
     '@input','@output','@options','@range',
   ]},
   { label: 'Constants', names: [
-    'pi','e','tau','phi','c','g','h','N_A','k_B',
+    'pi','tau','e','NaN','inf',
   ]},
   { label: 'Keywords', names: [
     'let','fn','if','where','to','per','dimension','unit','struct','use',

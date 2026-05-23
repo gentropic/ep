@@ -247,6 +247,26 @@ body {
 .panel-hdr .meta    { font-size: 9px; }
 .panel-hdr .chevron { transition: transform 120ms; display: inline-block; }
 .panel.collapsed .panel-hdr .chevron { transform: rotate(-90deg); }
+/* Right-side action group inside a panel header — groups the export
+ * action button(s) with the chevron so they stay pinned at the right
+ * edge under the header's flex: space-between. */
+.panel-hdr-right { display: flex; align-items: center; gap: 6px; }
+.panel-act {
+  background: transparent;
+  border: none;
+  color: var(--sw-text-soft);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: normal;          /* override the header's 3px tracking */
+  text-transform: none;
+  padding: 2px 6px;
+  border-radius: var(--sw-radius);
+  cursor: pointer;
+  transition: color 120ms, background 120ms;
+}
+.panel-act:hover,
+.panel-act:focus { color: var(--sw-text); background: var(--sw-bg-raised); }
 .panel.collapsed .chip-grid { display: none; }
 .chip-grid {
   display: grid;

@@ -1890,6 +1890,15 @@ export function renderOutputs() {
   const panel = document.getElementById('outputsPanel');
   const specs = state.outputs;
   outMetaEl.textContent = `· ${specs.length} result${specs.length === 1 ? '' : 's'}`;
+  // Panel-level export affordance — built once, kept in the header next
+  // to the chevron. Hidden when there are no exportable outputs (any
+  // named, non-dataset result counts).
+  const exportBtn = ensureOutputsExportBtn(panel);
+  const exportable = specs.some(s => {
+    const q = s.name ? state._scope[s.name] : null;
+    return q != null && !(typeof q === 'object' && q.__dataset);
+  });
+  exportBtn.style.display = exportable ? '' : 'none';
   // Match the params-panel pattern: the .empty class plus app's
   // .auto-hide-empty drives visibility. When the setting is off, the
   // panel stays visible with its 0-results header.
@@ -2078,6 +2087,139 @@ function copyAsItems(name, q, plainText, onCopied) {
 function openCopyAsMenu(name, q, plainText, x, y, anchorBtn) {
   showMenu(copyAsItems(name, q, plainText, () => flashCopied(anchorBtn)),
            x, y, { alignRight: true });
+}
+
+// ── Bulk export of @output results ────────────────────────────────
+// The per-chip "copy" button copies one result; this is the panel-level
+// affordance — "give me all the outputs at once" as CSV / JSON / text,
+// either to the clipboard or as a downloaded file. The point is that an
+// exported viewer is a self-contained form: a recipient fills in the
+// chips, gets results, and now has a way out for those results.
+//
+// Dataset-valued outputs (a binding whose result is a load_csv view) are
+// skipped here — they're tabular and belong in the per-chip dataset
+// viewer / a future per-chip CSV export, not a row in this flat export.
+
+function outputRecord(spec) {
+  const { name, unit: targetUnit } = spec;
+  const q = state._scope[name];
+  if (q == null) return null;
+  if (q && typeof q === 'object' && q.__dataset) return { name, dataset: true };
+  let n, u;
+  if (targetUnit) {
+    try {
+      const sp = resolveUnitExpression(targetUnit);
+      if (!dEq(sp.dim, q.dim)) return null;
+      n = fmtNum(q.value / sp.mul);
+      u = sp.displayName;
+    } catch { return null; }
+  } else {
+    [n, u] = fmt(q);
+  }
+  const numAscii  = n.replace(/,/g, '');
+  const unitAscii = (u || '').replace(/²/g, '^2').replace(/³/g, '^3');
+  const num = parseFloat(numAscii);
+  return {
+    name,
+    value: Number.isFinite(num) ? num : numAscii,
+    unit:  unitAscii,
+    text:  numAscii + (unitAscii ? ' ' + unitAscii : ''),
+  };
+}
+
+function collectOutputRecords() {
+  return state.outputs
+    .map(outputRecord)
+    .filter(r => r && !r.dataset);
+}
+
+function csvEscape(s) {
+  const str = s == null ? '' : String(s);
+  return /[",\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
+}
+
+function exportOutputsCsv() {
+  const rs = collectOutputRecords();
+  const lines = ['name,value,unit'];
+  for (const r of rs) lines.push(`${csvEscape(r.name)},${r.value},${csvEscape(r.unit)}`);
+  return lines.join('\n') + '\n';
+}
+
+function exportOutputsJson() {
+  const rs = collectOutputRecords();
+  return JSON.stringify(rs.map(r => ({ name: r.name, value: r.value, unit: r.unit })), null, 2) + '\n';
+}
+
+function exportOutputsText() {
+  const rs = collectOutputRecords();
+  return rs.map(r => `${r.name} = ${r.text}`).join('\n') + '\n';
+}
+
+function downloadOutputName(ext) {
+  const hdr = document.getElementById('hdrFile');
+  const base = (hdr && hdr.textContent.trim()) || 'outputs';
+  return `${base.replace(/[^\w.-]/g, '_')}-outputs.${ext}`;
+}
+
+function downloadOutputs(content, mimeType, ext) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = downloadOutputName(ext);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Get-or-create the panel-header export button. The button lives in a
+// `.panel-hdr-right` wrapper alongside the chevron so the header's
+// `justify-content: space-between` still pins them to the right edge.
+function ensureOutputsExportBtn(panel) {
+  let btn = document.getElementById('outExportBtn');
+  if (btn) return btn;
+  const hdr = panel.querySelector('.panel-hdr');
+  const chevron = hdr.querySelector('.chevron');
+  let right = hdr.querySelector('.panel-hdr-right');
+  if (!right) {
+    right = document.createElement('span');
+    right.className = 'panel-hdr-right';
+    hdr.insertBefore(right, chevron);
+    right.appendChild(chevron);
+  }
+  btn = document.createElement('button');
+  btn.id = 'outExportBtn';
+  btn.type = 'button';
+  btn.className = 'panel-act';
+  btn.textContent = '⋯';
+  btn.title = 'copy or download these outputs';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();    // don't toggle the panel
+    const r = btn.getBoundingClientRect();
+    openOutputsExportMenu(r.right, r.bottom, btn);
+  });
+  right.insertBefore(btn, chevron);
+  return btn;
+}
+
+function openOutputsExportMenu(x, y, anchorBtn) {
+  // The anchor button shows an icon (⋯), not the word "copy" — use a
+  // local flash that restores whatever text the button started with.
+  const flash = anchorBtn ? () => {
+    const orig = anchorBtn.textContent;
+    anchorBtn.textContent = '✓';
+    setTimeout(() => { anchorBtn.textContent = orig; }, 900);
+  } : () => {};
+  const items = [
+    { label: 'copy as CSV',    action: async () => { await copyToClipboard(exportOutputsCsv()); flash(); } },
+    { label: 'copy as JSON',   action: async () => { await copyToClipboard(exportOutputsJson()); flash(); } },
+    { label: 'copy as text',   action: async () => { await copyToClipboard(exportOutputsText()); flash(); } },
+    { separator: true },
+    { label: 'download .csv',  action: () => downloadOutputs(exportOutputsCsv(),  'text/csv',         'csv') },
+    { label: 'download .json', action: () => downloadOutputs(exportOutputsJson(), 'application/json', 'json') },
+  ];
+  showMenu(items, x, y, { alignRight: true });
 }
 
 // ── Body-row context menu (§4 — desktop scope 2) ─────────────────
