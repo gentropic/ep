@@ -10,6 +10,8 @@
 import { getSetting, setSetting } from './storage.js';
 import { setFmtSigDigits } from './units.js';
 import { renderChips, renderResults } from './render.js';
+import { setSampleCount } from '../../ext/numbat/dist/numbat.js';
+import { evaluateAll } from './state.js';
 import { epConfirm } from './dialogs.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
 import { formatCurrentProgram } from './format-cmd.js';
@@ -18,6 +20,10 @@ import { checkForUpdateNow, getLastUpdateCheck, syncAutoCheckSetting } from './u
 
 const SIG_OPTIONS  = [3, 4, 5, 6];
 const WIDTH_OPTIONS = [30, 40, 50, 60, 80];
+// Monte Carlo sample count for uncertainty propagation. 1000 is the
+// sweet spot for live editing; 10000 gives smoother distributions and
+// tighter percentile estimates for a final report. SPEC-UNCERTAINTY §5.
+const SAMPLES_OPTIONS = [200, 500, 1000, 2000, 5000, 10000];
 const SORT_OPTIONS = [
   { key: 'recent', label: 'recent' },
   { key: 'alpha',  label: 'a → z'  },
@@ -69,6 +75,7 @@ const gcuShareControl   = document.getElementById('gcuShareControl');
 const desktopDrawerControl = document.getElementById('desktopDrawerControl');
 const suggestAnnotationsControl = document.getElementById('suggestAnnotationsControl');
 const lineNumbersControl        = document.getElementById('lineNumbersControl');
+const samplesNControl           = document.getElementById('samplesNControl');
 
 export function openSettings() {
   if (!panel) return;
@@ -90,6 +97,7 @@ export function applySettings() {
   applyTheme(getSetting('theme', 'auto'));
   applyAccessoryVisibility(getSetting('showAccessory', true));
   applyEmptyPanelHiding(getSetting('autoHideEmpty', true));
+  setSampleCount(getSetting('samplesN', 1000));
 }
 
 // Theme application — mirror auditable's [data-theme] pattern. 'auto'
@@ -193,6 +201,19 @@ function renderControls() {
       window.dispatchEvent(new CustomEvent('ep:line-numbers-setting-changed'));
       renderControls();
     });
+
+  // Uncertainty sample count. Changes N for every future distribution
+  // call, so a full re-evaluate is needed to redraw existing Uncertain
+  // outputs with the new sample size.
+  const samplesOpts = SAMPLES_OPTIONS.map(n => ({ key: n, label: String(n) }));
+  renderPillRow(samplesNControl, samplesOpts, getSetting('samplesN', 1000), v => {
+    setSetting('samplesN', v);
+    setSampleCount(v);
+    evaluateAll();
+    renderChips();
+    renderResults();
+    renderControls();
+  });
 
   renderPillRow(autoCheckControl, ON_OFF,
     getSetting('autoCheckUpdates', true) ? 'on' : 'off', v => {

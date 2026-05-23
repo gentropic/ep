@@ -3259,6 +3259,13 @@ button:focus-visible,
         </div>
         <div class="settings-row-control" id="lineNumbersControl"></div>
       </div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>uncertainty samples</div>
+          <div class="settings-row-hint">how many Monte Carlo samples each `normal(...)` / `uniform(...)` / `lognormal(...)` / `triangular(...)` draws. Higher = smoother distributions and tighter percentiles, but slower per-keystroke evaluation. 1000 is a good default for live editing; 10000 is "final answer" mode.</div>
+        </div>
+        <div class="settings-row-control" id="samplesNControl"></div>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -20760,6 +20767,10 @@ window.addEventListener('drop', async (e) => {
 
 const SIG_OPTIONS  = [3, 4, 5, 6];
 const WIDTH_OPTIONS = [30, 40, 50, 60, 80];
+// Monte Carlo sample count for uncertainty propagation. 1000 is the
+// sweet spot for live editing; 10000 gives smoother distributions and
+// tighter percentile estimates for a final report. SPEC-UNCERTAINTY §5.
+const SAMPLES_OPTIONS = [200, 500, 1000, 2000, 5000, 10000];
 const SORT_OPTIONS = [
   { key: 'recent', label: 'recent' },
   { key: 'alpha',  label: 'a → z'  },
@@ -20811,6 +20822,7 @@ const gcuShareControl   = document.getElementById('gcuShareControl');
 const desktopDrawerControl = document.getElementById('desktopDrawerControl');
 const suggestAnnotationsControl = document.getElementById('suggestAnnotationsControl');
 const lineNumbersControl        = document.getElementById('lineNumbersControl');
+const samplesNControl           = document.getElementById('samplesNControl');
 
 function openSettings() {
   if (!panel) return;
@@ -20832,6 +20844,7 @@ function applySettings() {
   applyTheme(getSetting('theme', 'auto'));
   applyAccessoryVisibility(getSetting('showAccessory', true));
   applyEmptyPanelHiding(getSetting('autoHideEmpty', true));
+  setSampleCount(getSetting('samplesN', 1000));
 }
 
 // Theme application — mirror auditable's [data-theme] pattern. 'auto'
@@ -20935,6 +20948,19 @@ function renderControls() {
       window.dispatchEvent(new CustomEvent('ep:line-numbers-setting-changed'));
       renderControls();
     });
+
+  // Uncertainty sample count. Changes N for every future distribution
+  // call, so a full re-evaluate is needed to redraw existing Uncertain
+  // outputs with the new sample size.
+  const samplesOpts = SAMPLES_OPTIONS.map(n => ({ key: n, label: String(n) }));
+  renderPillRow(samplesNControl, samplesOpts, getSetting('samplesN', 1000), v => {
+    setSetting('samplesN', v);
+    setSampleCount(v);
+    evaluateAll();
+    renderChips();
+    renderResults();
+    renderControls();
+  });
 
   renderPillRow(autoCheckControl, ON_OFF,
     getSetting('autoCheckUpdates', true) ? 'on' : 'off', v => {
@@ -21138,7 +21164,7 @@ if (resetBtn) {
 // In dev (when loading via dev.html with no build step), the placeholder
 // survives and the runtime check below collapses it to 'dev'.
 
-const _EP_VERSION_RAW = "2026-05-23 (ab85905+dirty)";
+const _EP_VERSION_RAW = "2026-05-23 (2ddf58f+dirty)";
 const EP_VERSION = _EP_VERSION_RAW.includes('__EP_VERSION__') ? 'dev' : _EP_VERSION_RAW;
 
 const INSTALLED_AT_KEY = 'ep:installedAt';

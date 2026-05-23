@@ -337,6 +337,13 @@
         </div>
         <div class="settings-row-control" id="lineNumbersControl"></div>
       </div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>uncertainty samples</div>
+          <div class="settings-row-hint">how many Monte Carlo samples each `normal(...)` / `uniform(...)` / `lognormal(...)` / `triangular(...)` draws. Higher = smoother distributions and tighter percentiles, but slower per-keystroke evaluation. 1000 is a good default for live editing; 10000 is "final answer" mode.</div>
+        </div>
+        <div class="settings-row-control" id="samplesNControl"></div>
+      </div>
     </div>
 
     <div class="settings-section">
