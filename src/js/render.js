@@ -179,12 +179,26 @@ function _normalizePlotLayers(plot) {
   if (!plot) return [];
   if (plot.__plot) {
     if (plot.family === 'xy') {
-      return (plot.layers || []).map(l => ({
-        kind: l.kind || 'line',
-        xs: l.xs || [], ys: l.ys || [],
-        xUnit: l.xUnit || '', yUnit: l.yUnit || '',
-        label: l.label || '',
-      }));
+      return (plot.layers || []).map(l => {
+        const kind = l.kind || 'line';
+        if (kind === 'band') {
+          return {
+            kind: 'band',
+            xs: l.xs || [], lo: l.lo || [], hi: l.hi || [],
+            // ys is empty for bands — the dispatch reads lo/hi instead,
+            // and the unified bounds-loop / hover skip the empty ys.
+            ys: [],
+            xUnit: l.xUnit || '', yUnit: l.yUnit || '',
+            label: l.label || '',
+          };
+        }
+        return {
+          kind,
+          xs: l.xs || [], ys: l.ys || [],
+          xUnit: l.xUnit || '', yUnit: l.yUnit || '',
+          label: l.label || '',
+        };
+      });
     }
     if (plot.family === 'bar') {
       return (plot.layers || []).map(l => {
@@ -273,13 +287,18 @@ function drawPlot(canvas, plot, dpr, opts) {
   };
   const layers = rawLayers.map(l => {
     const xF = unitFactor(l.xUnit), yF = unitFactor(l.yUnit);
-    return {
+    const out = {
       kind:  l.kind,
       xs:    l.xs.map(v => v / xF),
-      ys:    l.ys.map(v => v / yF),
+      ys:    (l.ys || []).map(v => v / yF),
       xUnit: l.xUnit, yUnit: l.yUnit,
       label: l.label,
     };
+    if (l.kind === 'band') {
+      out.lo = (l.lo || []).map(v => v / yF);
+      out.hi = (l.hi || []).map(v => v / yF);
+    }
+    return out;
   });
 
   // Axis labels: explicit Plot label wins; otherwise first layer's unit.
@@ -317,15 +336,27 @@ function drawPlot(canvas, plot, dpr, opts) {
     return;
   }
 
-  // Combine bounds across every layer.
+  // Combine bounds across every layer. Band layers contribute their
+  // lo + hi to the y range (the ys field is empty for bands).
   let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
   for (const layer of layers) {
+    const isBand = layer.kind === 'band';
     for (let i = 0; i < layer.xs.length; i++) {
-      const x = layer.xs[i], y = layer.ys[i];
+      const x = layer.xs[i];
       if (x < xMin) xMin = x;
       if (x > xMax) xMax = x;
-      if (y < yMin) yMin = y;
-      if (y > yMax) yMax = y;
+      if (isBand) {
+        const lo = layer.lo[i], hi = layer.hi[i];
+        if (lo < yMin) yMin = lo;
+        if (hi > yMax) yMax = hi;
+        // also widen on the other side in case lo > hi at some i
+        if (hi < yMin) yMin = hi;
+        if (lo > yMax) yMax = lo;
+      } else {
+        const y = layer.ys[i];
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+      }
     }
   }
   if (xMin === xMax) { xMin -= 0.5; xMax += 0.5; }
@@ -411,7 +442,25 @@ function drawPlot(canvas, plot, dpr, opts) {
     ctx.strokeStyle = color;
     ctx.fillStyle   = color;
     ctx.lineWidth   = 1.5;
-    if (layer.kind === 'line') {
+    if (layer.kind === 'band') {
+      // Filled envelope between lo and hi. Drawn at low alpha so an
+      // overlying line layer in the same color cycle reads cleanly on
+      // top. Skipped when fewer than 2 points (a polygon needs >= 3
+      // vertices to have area).
+      if (layer.xs.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(xPix(layer.xs[0]), yPix(layer.hi[0]));
+      for (let i = 1; i < layer.xs.length; i++) {
+        ctx.lineTo(xPix(layer.xs[i]), yPix(layer.hi[i]));
+      }
+      for (let i = layer.xs.length - 1; i >= 0; i--) {
+        ctx.lineTo(xPix(layer.xs[i]), yPix(layer.lo[i]));
+      }
+      ctx.closePath();
+      ctx.globalAlpha = 0.35;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (layer.kind === 'line') {
       ctx.beginPath();
       for (let i = 0; i < layer.xs.length; i++) {
         const px = xPix(layer.xs[i]), py = yPix(layer.ys[i]);

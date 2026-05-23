@@ -130,6 +130,7 @@ export const DOCS = {
   histogram:    { signature: 'histogram() -> Plot', description: 'Empty hist-family Plot. Layer with `with_bins`. Auto-bins each layer at ~√N (capped at 50).' },
   with_line:    { signature: 'with_line(plot: Plot, xs: List<X>, ys: List<Y> [, label]) -> Plot', description: 'Add a line layer to an xy-family Plot. Returns a new Plot.', example: 'plot |> with_line(xs, ys, "best fit")' },
   with_scatter: { signature: 'with_scatter(plot: Plot, xs: List<X>, ys: List<Y> [, label]) -> Plot', description: 'Add a scatter layer to an xy-family Plot.', example: 'plot |> with_scatter(xs, ys, "measured")' },
+  with_band:    { signature: 'with_band(plot: Plot, xs: List<X>, lo: List<Y>, hi: List<Y> [, label]) -> Plot', description: 'Add a shaded-envelope layer to an xy-family Plot — a filled polygon between `lo` and `hi` at each `x`. Designed to pair with `percentile` on uncertain or swept curves: shade the 5–95 % envelope, then overlay a median line.', example: 'line_plot()\n  |> with_band(xs, p05, p95, "P5–P95")\n  |> with_line(xs, med, "median")' },
   with_bars:    { signature: 'with_bars(plot: Plot, values: List<V> [, label]) -> Plot', description: 'Add a bars layer to a bar-family Plot.' },
   with_bins:    { signature: 'with_bins(plot: Plot, values: List<V> | Uncertain [, label]) -> Plot', description: 'Add a bins layer to a hist-family Plot. Auto-bins at ~√N (capped at 50). Accepts an Uncertain — bins its samples directly.' },
 
@@ -262,7 +263,7 @@ export const DOC_GROUPS = [
   ]},
   { label: 'Plots', names: [
     'line_plot','scatter_plot','bar_plot','histogram',
-    'with_line','with_scatter','with_bars','with_bins',
+    'with_line','with_scatter','with_band','with_bars','with_bins',
     'plot','scatter','bar_chart','hist',
   ]},
   { label: 'Strings', names: [

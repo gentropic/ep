@@ -1,6 +1,6 @@
 # SPEC-LAYERED-PLOTS — fluent multi-layer plot builders
 
-**Status**: Phase 1 + 2 shipped (Plot value, fluent builders for every family, multi-layer rendering, multi-layer chip thumbnails, cross-layer hover, grouped bars / alpha hist). Phase 3+ deferred items noted at the bottom.
+**Status**: Phase 1 + 2 shipped (Plot value, fluent builders for every family, multi-layer rendering, multi-layer chip thumbnails, cross-layer hover, grouped bars / alpha hist). Phase 3 adds `with_band` for shaded uncertainty envelopes. Phase 4+ deferred items noted at the bottom.
 
 ## Motivation
 
@@ -240,7 +240,6 @@ The minimal vertical slice that's usable end-to-end:
 
 ## Phase 2+ (deferred)
 
-- **`with_band(plot, xs, lo, hi)`** — shaded uncertainty envelope around a line. Pairs naturally with Uncertain values: `with_band(plot, xs, percentile(ys, 5), percentile(ys, 95))`.
 - **`with_smallcircles(plot, axes, angles)`** — stereonet small circles.
 - **`with_contours(plot, dd, dip)`** — bearing.js's Kamb contouring on density of poles.
 - **`with_errorbars(plot, xs, ys, errs)`** — per-point error bars.
@@ -270,4 +269,4 @@ The minimal vertical slice that's usable end-to-end:
 
 ## Status
 
-Phase 1 + 2 shipped. The vertical-slice landed first (`stereonet()` + `with_planes` / `with_lines` / `with_title` + auto-render), then fanned out to xy / bar / hist families with multi-line `|>` anchoring. The Phase-2 polish followed: multi-layer chip thumbnails, cross-layer hover inspection, and grouped bar / alpha-blended hist layouts so overlapping bar/bin layers stay legible. Phase 3+ items remain in the deferred list above (uncertainty bands, contours, error bars, struct-based per-layer styling, save/restore).
+Phase 1 + 2 shipped. The vertical-slice landed first (`stereonet()` + `with_planes` / `with_lines` / `with_title` + auto-render), then fanned out to xy / bar / hist families with multi-line `|>` anchoring. The Phase-2 polish followed: multi-layer chip thumbnails, cross-layer hover inspection, and grouped bar / alpha-blended hist layouts so overlapping bar/bin layers stay legible. Phase 3 added `with_band` — a shaded-envelope xy layer that pairs naturally with `percentile` on `Uncertain` / `Swept` curves. Phase 4+ items remain in the deferred list above (Kamb contours, error bars, small circles, struct-based per-layer styling, save/restore).

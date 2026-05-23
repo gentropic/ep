@@ -540,6 +540,35 @@ function _withXyLayer(fnName, kind, args) {
   return { ...plot, layers: [...plot.layers, layer] };
 }
 
+// Append a band (shaded envelope) layer to a plot of family 'xy'.
+// xs/lo/hi are three parallel List<Quantity>; lo and hi share a y unit
+// and bracket the envelope at each x. Designed to pair with the
+// percentile reduction on Uncertain / Swept curves:
+//   line_plot()
+//     |> with_band(xs, percentile(ys, 5), percentile(ys, 95), "P5–P95")
+//     |> with_line(xs, percentile(ys, 50), "median")
+function _withBandLayer(fnName, args) {
+  const plot = args[0];
+  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+  if (plot.family !== 'xy') throw new Error(`${fnName}: cannot add an xy layer to a '${plot.family}' plot`);
+  const xs = _listToNumbers(args[1]);
+  const lo = _listToNumbers(args[2]);
+  const hi = _listToNumbers(args[3]);
+  if (xs.values.length !== lo.values.length || xs.values.length !== hi.values.length) {
+    throw new Error(`${fnName}: xs / lo / hi must be the same length (got ${xs.values.length}, ${lo.values.length}, ${hi.values.length})`);
+  }
+  const layer = {
+    kind: 'band',
+    xs: xs.values,
+    lo: lo.values,
+    hi: hi.values,
+    xUnit: xs.unit,
+    yUnit: lo.unit,
+    label: typeof args[4] === 'string' ? args[4] : '',
+  };
+  return { ...plot, layers: [...plot.layers, layer] };
+}
+
 // Append a values-shaped layer (bar / hist bins) to the matching
 // family. Accepts a List<Quantity> or an Uncertain (samples taken
 // directly).
@@ -729,6 +758,10 @@ const BUILTIN_PROCS = {
   with_scatter(args) {
     if (args.length < 3 || args.length > 4) throw new Error(`with_scatter: expected 3..4 args (plot, xs, ys [, label]), got ${args.length}`);
     return _withXyLayer('with_scatter', 'scatter', args);
+  },
+  with_band(args) {
+    if (args.length < 4 || args.length > 5) throw new Error(`with_band: expected 4..5 args (plot, xs, lo, hi [, label]), got ${args.length}`);
+    return _withBandLayer('with_band', args);
   },
   with_bars(args) {
     if (args.length < 2 || args.length > 3) throw new Error(`with_bars: expected 2..3 args (plot, values [, label]), got ${args.length}`);
@@ -1326,10 +1359,13 @@ const BUILTIN_PROCS = {
     if (!Number.isFinite(n) || n < 0) throw new Error('linspace: n must be a non-negative finite scalar');
     const k = Math.round(n);
     if (k === 0) return [];
-    if (k === 1) return [new Quantity(startQ.value, startQ.dim)];
+    // Preserve the input quantity's disp tag so downstream axis labels
+    // display in the same unit the user typed (`linspace(0 s, 10 s, …)`
+    // → seconds, not whatever the auto-picker happens to land on).
+    if (k === 1) return [new Quantity(startQ.value, startQ.dim, startQ.disp)];
     const step = (endQ.value - startQ.value) / (k - 1);
     const out = new Array(k);
-    for (let i = 0; i < k; i++) out[i] = new Quantity(startQ.value + step * i, startQ.dim);
+    for (let i = 0; i < k; i++) out[i] = new Quantity(startQ.value + step * i, startQ.dim, startQ.disp);
     return out;
   },
   arange(args) {
@@ -1358,11 +1394,12 @@ const BUILTIN_PROCS = {
     if (!Number.isFinite(step) || step === 0) throw new Error('arange: step must be non-zero finite');
     const start = startQ.value, stop = stopQ.value;
     const dim = startQ.dim;
+    const disp = startQ.disp;
     const out = [];
     if (step > 0) {
-      for (let v = start; v < stop; v += step) out.push(new Quantity(v, dim));
+      for (let v = start; v < stop; v += step) out.push(new Quantity(v, dim, disp));
     } else {
-      for (let v = start; v > stop; v += step) out.push(new Quantity(v, dim));
+      for (let v = start; v > stop; v += step) out.push(new Quantity(v, dim, disp));
     }
     return out;
   },
@@ -1890,16 +1927,35 @@ function _listToNumbers(arr) {
     else if (typeof v === 'number') values.push(v);
     else values.push(Number(v));
   }
-  // Capture the dim of the first Quantity entry as the axis label
-  // hint. The host can use this for "Time (seconds)" type labeling.
+  // Capture the unit label by feeding the formatter the MAX-magnitude
+  // Quantity in the array, not arr[0]. If arr[0] is ~0 (e.g. a curve
+  // starting at the origin) the formatter's auto-picker falls into a
+  // tiebreaker that picks the largest available unit — `Qgregorian_year`
+  // or `Qm` — which both looks absurd and breaks downstream unit-factor
+  // resolution. Picking the representative-scale entry side-steps the
+  // tiebreaker entirely.
   let unit = '';
-  if (arr.length && arr[0] instanceof Quantity) {
-    try {
-      if (typeof _quantityFormatter === 'function') {
-        const p = _quantityFormatter(arr[0]);
-        if (p && p.unit) unit = p.unit;
+  if (arr.length) {
+    let pick = null;
+    let bestMag = -1;
+    for (const v of arr) {
+      if (v instanceof Quantity) {
+        const m = Math.abs(v.value);
+        if (Number.isFinite(m) && m > bestMag) {
+          bestMag = m;
+          pick = v;
+        }
+        if (pick === null) pick = v;  // first Quantity, even if zero
       }
-    } catch {}
+    }
+    if (pick) {
+      try {
+        if (typeof _quantityFormatter === 'function') {
+          const p = _quantityFormatter(pick);
+          if (p && p.unit) unit = p.unit;
+        }
+      } catch {}
+    }
   }
   return { values, unit };
 }

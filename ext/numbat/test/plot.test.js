@@ -105,6 +105,46 @@ test('stereonet_lines shortcut: single-layer Plot, kind=lines', () => {
   assert.equal(p.layers[0].kind, 'lines');
 });
 
+// ── with_band ────────────────────────────────────────────────────
+
+test('with_band: appends a band layer with lo/hi parallel arrays', () => {
+  const n = mkHost();
+  n.loadSource([
+    'let xs = [0, 1, 2, 3]',
+    'let lo = [0.1, 0.4, 0.6, 0.5]',
+    'let hi = [0.9, 1.4, 1.6, 1.5]',
+    'let p = line_plot() |> with_band(xs, lo, hi, "P5–P95")',
+  ].join('\n'), '<t>');
+  const p = n.values.get('p');
+  assert.equal(p.__plot, true);
+  assert.equal(p.family, 'xy');
+  assert.equal(p.layers.length, 1);
+  const layer = p.layers[0];
+  assert.equal(layer.kind, 'band');
+  assert.equal(layer.label, 'P5–P95');
+  assert.deepEqual(layer.xs, [0, 1, 2, 3]);
+  assert.deepEqual(layer.lo, [0.1, 0.4, 0.6, 0.5]);
+  assert.deepEqual(layer.hi, [0.9, 1.4, 1.6, 1.5]);
+});
+
+test('with_band: rejects mismatched lo / hi lengths', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource([
+      'let p = line_plot() |> with_band([0, 1, 2], [0.1, 0.2], [0.9, 1.0, 1.1])',
+    ].join('\n'), '<t>'),
+    /xs \/ lo \/ hi must be the same length/);
+});
+
+test('with_band: rejects non-xy family', () => {
+  const n = mkHost();
+  assert.throws(
+    () => n.loadSource([
+      'let p = stereonet() |> with_band([0, 1], [0, 0], [1, 1])',
+    ].join('\n'), '<t>'),
+    /cannot add an xy layer to a 'stereonet' plot/);
+});
+
 // ── immutability ──────────────────────────────────────────────────
 
 test('with_* are immutable — original Plot unchanged', () => {

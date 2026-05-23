@@ -57,13 +57,24 @@ export function formatParts(q, registry, opts = {}) {
       if (Math.abs(s) >= 0.01 && Math.abs(s) < 1e6) { best = { entry: c, scaled: s }; break; }
     }
   }
-  // Last resort: closest to magnitude 1 on log scale.
+  // Last resort: closest to magnitude 1 on log scale. For q.value === 0
+  // every candidate is equidistant (log of zero collapses to the
+  // 1e-30 fallback), so the tiebreaker falls back to the unit nearest
+  // mul=1 rather than whatever the descending-by-mul list happens to
+  // land on (which would otherwise be Q-prefixed monstrosities like
+  // "Qgregorian_year").
   if (!best) {
-    cands.sort((a, b) => {
-      const la = Math.abs(Math.log10(Math.abs(q.value / a.mul) || 1e-30));
-      const lb = Math.abs(Math.log10(Math.abs(q.value / b.mul) || 1e-30));
-      return la - lb;
-    });
+    if (q.value === 0) {
+      cands.sort((a, b) =>
+        Math.abs(Math.log10(a.mul)) - Math.abs(Math.log10(b.mul))
+      );
+    } else {
+      cands.sort((a, b) => {
+        const la = Math.abs(Math.log10(Math.abs(q.value / a.mul) || 1e-30));
+        const lb = Math.abs(Math.log10(Math.abs(q.value / b.mul) || 1e-30));
+        return la - lb;
+      });
+    }
     best = { entry: cands[0], scaled: q.value / cands[0].mul };
   }
   return { num: formatNumber(best.scaled, sig), unit: best.entry.displayName };

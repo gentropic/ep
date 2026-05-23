@@ -161,6 +161,29 @@ const BUILTIN_PROC_SCHEMES = {
   scatter:    schemePlot2,
   bar_chart:  schemePlot1,  // NOT `bar` — conflicts with the `bar` pressure unit
   hist:       schemePlot1,
+  // Layered-plot fluent builders (SPEC-LAYERED-PLOTS). Each adder threads
+  // the Plot value as the first arg and returns the same shape — typed
+  // here as a polymorphic P so chains typecheck without a first-class
+  // Plot type.
+  line_plot:     schemePlotEmpty,
+  scatter_plot:  schemePlotEmpty,
+  bar_plot:      schemePlotEmpty,
+  histogram:     schemePlotEmpty,
+  stereonet:     schemePlotEmpty,
+  with_line:     schemeWithXyLayer,
+  with_scatter:  schemeWithXyLayer,
+  with_band:     schemeWithBandLayer,
+  with_bars:     schemeWithValuesLayer,
+  with_bins:     schemeWithValuesLayer,
+  with_planes:   schemeWithStereonetLayer,
+  with_lines:    schemeWithStereonetLayer,
+  with_poles:    schemeWithStereonetLayer,
+  with_title:    schemeWithLabel,
+  with_xlabel:   schemeWithLabel,
+  with_ylabel:   schemeWithLabel,
+  show:          schemeShow,
+  stereonet_planes: schemeShortcutStereonet,
+  stereonet_lines:  schemeShortcutStereonet,
   // Iterative list ops — schemes mirror the script-level signatures in
   // core::lists. ep deletes the recursive user-fn defs after loading
   // the module so these native versions win dispatch; the schemes here
@@ -325,6 +348,85 @@ function schemePlot1() {
   return generalize(
     tFn([tList(v), tString(), tString(), tString()], T_SCALAR, { optional: 3 }),
     [v], []
+  );
+}
+// Layered-plot schemes (SPEC-LAYERED-PLOTS). The Plot value is a
+// tagged plain object the typechecker has no first-class type for —
+// so each scheme uses a fresh TVar `P` that flows through the chain.
+// Adders accept any P and return the same P, so `line_plot() |>
+// with_line(...) |> with_title("…")` typechecks cleanly. Permissive
+// on data args (TVar instead of List<TVar>) so single-Quantity
+// stereonet calls and Uncertain-as-input bar/hist calls don't fail
+// typecheck before the runtime gets a chance.
+function schemePlotEmpty() {
+  // () -> P  — line_plot / scatter_plot / bar_plot / histogram / stereonet
+  const p = freshTVar();
+  return generalize(tFn([], p), [p], []);
+}
+function schemeWithXyLayer() {
+  // <P, X, Y>(P, List<X>, List<Y>, String?) -> P  — with_line / with_scatter
+  const p = freshTVar();
+  const x = freshTVar();
+  const y = freshTVar();
+  return generalize(
+    tFn([p, tList(x), tList(y), tString()], p, { optional: 1 }),
+    [p, x, y], []
+  );
+}
+function schemeWithBandLayer() {
+  // <P, X, Y>(P, List<X>, List<Y>, List<Y>, String?) -> P  — with_band.
+  // lo and hi share Y so `percentile(ys, 5)` and `percentile(ys, 95)`
+  // unify with the same y dim.
+  const p = freshTVar();
+  const x = freshTVar();
+  const y = freshTVar();
+  return generalize(
+    tFn([p, tList(x), tList(y), tList(y), tString()], p, { optional: 1 }),
+    [p, x, y], []
+  );
+}
+function schemeWithValuesLayer() {
+  // <P, V>(P, V, String?) -> P  — with_bars / with_bins. Values arg is
+  // a TVar (not List<V>) so the Uncertain → samples shortcut typechecks.
+  const p = freshTVar();
+  const v = freshTVar();
+  return generalize(
+    tFn([p, v, tString()], p, { optional: 1 }),
+    [p, v], []
+  );
+}
+function schemeWithStereonetLayer() {
+  // <P, A, B>(P, A, B, String?) -> P  — with_planes / with_lines / with_poles.
+  // Permissive on the angle args so both single-Quantity and List<Angle>
+  // calls pass.
+  const p = freshTVar();
+  const a = freshTVar();
+  const b = freshTVar();
+  return generalize(
+    tFn([p, a, b, tString()], p, { optional: 1 }),
+    [p, a, b], []
+  );
+}
+function schemeWithLabel() {
+  // <P>(P, String) -> P  — with_title / with_xlabel / with_ylabel
+  const p = freshTVar();
+  return generalize(tFn([p, tString()], p), [p], []);
+}
+function schemeShow() {
+  // <P>(P) -> Scalar
+  const p = freshTVar();
+  return generalize(tFn([p], T_SCALAR), [p], []);
+}
+function schemeShortcutStereonet() {
+  // <A, B>(A, B, String?) -> P  — stereonet_planes / stereonet_lines.
+  // Returns a Plot; the result type is a fresh TVar so the value can
+  // chain through `with_title` etc.
+  const a = freshTVar();
+  const b = freshTVar();
+  const p = freshTVar();
+  return generalize(
+    tFn([a, b, tString()], p, { optional: 1 }),
+    [a, b, p], []
   );
 }
 
