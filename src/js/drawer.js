@@ -10,7 +10,8 @@ import { epConfirm, epPrompt } from './dialogs.js';
 import { DOCS, DOC_GROUPS } from './docs.js';
 import { GUIDES, renderMarkdown } from './guides.js';
 import { state, evaluateAll } from './state.js';
-import { renderChips, renderBody, renderResults } from './render.js';
+import { renderChips, renderBody, renderResults, insertUseStatement } from './render.js';
+import { VENDORED_MODULES } from '../../ext/numbat/dist/numbat.js';
 import { removeAsset, renameAsset, assetInfo, attachCsv } from './csv-assets.js';
 import { pickCsvAndAttach, showAttachDialog } from './attach-dialog.js';
 import { showDatasetViewer } from './dataset-viewer.js';
@@ -330,6 +331,40 @@ function renderDocsList() {
   // Skip when a single guide is opened — the user came in to read prose,
   // not browse symbols. The "← all guides" link brings them back.
   if (drawerOpenGuide) return;
+
+  // ── Modules section ────────────────────────────────────────────
+  // List every vendored numbat module path; click inserts
+  // `use module::path` at the top of the editor. Grouped by the
+  // top-level namespace (`units::*`, `math::*`, etc.) for browsability.
+  // Respects the same search filter as the rest of the docs panel.
+  if (VENDORED_MODULES && typeof VENDORED_MODULES === 'object') {
+    const allPaths = Object.keys(VENDORED_MODULES).filter(p => !q || p.toLowerCase().includes(q));
+    if (allPaths.length) {
+      const modHdr = document.createElement('div');
+      modHdr.className = 'drawer-docs-grouphdr';
+      modHdr.style.marginTop = '12px';
+      modHdr.textContent = 'Modules';
+      drawerDocsListEl.appendChild(modHdr);
+
+      // Group by top-level namespace (the part before the first `::`).
+      const byNs = new Map();
+      for (const p of allPaths.sort()) {
+        const ns = p.split('::')[0];
+        if (!byNs.has(ns)) byNs.set(ns, []);
+        byNs.get(ns).push(p);
+      }
+      for (const [ns, paths] of byNs) {
+        const subHdr = document.createElement('div');
+        subHdr.className = 'drawer-docs-grouphdr drawer-docs-grouphdr-sub';
+        subHdr.textContent = ns + '::';
+        drawerDocsListEl.appendChild(subHdr);
+        for (const path of paths) {
+          drawerDocsListEl.appendChild(buildModuleItem(path));
+        }
+      }
+    }
+  }
+
   const refHdr = document.createElement('div');
   refHdr.className = 'drawer-docs-grouphdr';
   refHdr.style.marginTop = '12px';
@@ -376,6 +411,138 @@ function renderDocsList() {
     empty.textContent = q ? `no docs match "${q}"` : 'no docs available';
     drawerDocsListEl.appendChild(empty);
   }
+}
+
+// Lightweight extractor: walks a .nbt source and pulls out the
+// declarations the user would care about — units, functions,
+// dimensions, structs. Misses some compound shapes (e.g. units with
+// multi-line annotations) but covers the common case for browsing
+// purposes. Not a parser; just regexes on stripped lines.
+function extractModuleSymbols(source) {
+  if (!source || typeof source !== 'string') return [];
+  const out = [];
+  const seen = new Set();
+  const push = (kind, name) => {
+    const key = kind + ':' + name;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ kind, name });
+  };
+  const unitRe   = /^unit\s+([A-Za-z_][\w]*)/;
+  const fnRe     = /^fn\s+([A-Za-z_][\w]*)/;
+  const dimRe    = /^dimension\s+([A-Za-z_][\w]*)/;
+  const structRe = /^struct\s+([A-Za-z_][\w]*)/;
+  // Strip the line of leading whitespace + a leading decorator block so
+  // `@metric_prefixes unit foo: …` still matches. Decorators that own
+  // their own line are handled by the per-line walk skipping them.
+  for (const raw of source.split(/\r?\n/)) {
+    const line = raw.replace(/^\s+/, '').replace(/^(?:@\w+(?:\([^)]*\))?\s*)+/, '');
+    let m;
+    if      ((m = unitRe.exec(line)))    push('unit',   m[1]);
+    else if ((m = fnRe.exec(line)))      push('fn',     m[1]);
+    else if ((m = dimRe.exec(line)))     push('dim',    m[1]);
+    else if ((m = structRe.exec(line)))  push('struct', m[1]);
+  }
+  return out;
+}
+
+// Module row — caret on the left toggles an expansion body showing
+// the module's exported symbols. Clicking the body of the row
+// (anywhere outside the caret) inserts `use module::path` at the top
+// of the editor and closes the drawer on mobile.
+function buildModuleItem(path) {
+  const row = document.createElement('div');
+  row.className = 'drawer-docs-row drawer-docs-row-module';
+
+  const headEl = document.createElement('div');
+  headEl.className = 'drawer-docs-mod-head';
+
+  const caret = document.createElement('span');
+  caret.className = 'drawer-docs-mod-caret';
+  caret.textContent = '▶';
+  caret.setAttribute('aria-label', 'expand');
+  headEl.appendChild(caret);
+
+  const body = document.createElement('div');
+  body.className = 'drawer-docs-mod-body-text';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'drawer-docs-name';
+  nameEl.textContent = path;
+  body.appendChild(nameEl);
+  const sig = document.createElement('div');
+  sig.className = 'drawer-docs-sig';
+  sig.textContent = `use ${path}`;
+  body.appendChild(sig);
+  headEl.appendChild(body);
+
+  row.appendChild(headEl);
+
+  // Expansion body: lazy-built on first toggle. Symbol list grouped by
+  // kind; each entry copies its name to the clipboard on click (same
+  // gesture as the Function reference rows).
+  let expansion = null;
+  let expanded = false;
+  const toggleExpansion = () => {
+    if (!expansion) {
+      expansion = document.createElement('div');
+      expansion.className = 'drawer-docs-mod-symbols';
+      const src = (typeof VENDORED_MODULES === 'object' && VENDORED_MODULES[path]) || '';
+      const syms = extractModuleSymbols(src);
+      if (!syms.length) {
+        const empty = document.createElement('div');
+        empty.className = 'drawer-docs-empty';
+        empty.textContent = '(no top-level declarations)';
+        expansion.appendChild(empty);
+      } else {
+        const byKind = { unit: [], fn: [], dim: [], struct: [] };
+        for (const s of syms) (byKind[s.kind] || (byKind[s.kind] = [])).push(s.name);
+        const labels = { unit: 'units', fn: 'functions', dim: 'dimensions', struct: 'structs' };
+        for (const kind of ['dim', 'struct', 'unit', 'fn']) {
+          const list = byKind[kind];
+          if (!list || !list.length) continue;
+          const hdr = document.createElement('div');
+          hdr.className = 'drawer-docs-mod-kindhdr';
+          hdr.textContent = `${labels[kind]} (${list.length})`;
+          expansion.appendChild(hdr);
+          const grid = document.createElement('div');
+          grid.className = 'drawer-docs-mod-symgrid';
+          for (const name of list) {
+            const tag = document.createElement('span');
+            tag.className = 'drawer-docs-mod-sym';
+            tag.textContent = name;
+            tag.addEventListener('click', (e) => {
+              e.stopPropagation();
+              try { navigator.clipboard && navigator.clipboard.writeText(name); } catch {}
+              tag.classList.add('drawer-docs-row-flash');
+              setTimeout(() => tag.classList.remove('drawer-docs-row-flash'), 400);
+            });
+            grid.appendChild(tag);
+          }
+          expansion.appendChild(grid);
+        }
+      }
+      row.appendChild(expansion);
+    }
+    expanded = !expanded;
+    expansion.style.display = expanded ? '' : 'none';
+    caret.textContent = expanded ? '▼' : '▶';
+    caret.setAttribute('aria-label', expanded ? 'collapse' : 'expand');
+  };
+
+  caret.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleExpansion();
+  });
+
+  // Click anywhere else on the row inserts the use statement.
+  body.addEventListener('click', () => {
+    insertUseStatement(path);
+    row.classList.add('drawer-docs-row-flash');
+    setTimeout(() => row.classList.remove('drawer-docs-row-flash'), 400);
+    if (!isDesktop()) closeDrawer();
+  });
+
+  return row;
 }
 
 function buildDocItem(name) {

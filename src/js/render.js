@@ -797,6 +797,31 @@ function scrollToPlotRow(name) {
   }
 }
 
+// Insert a `use module::path` statement at the top of the editor.
+// Called from the drawer's Modules section when a user clicks a
+// vendored-module entry. Skips duplicates so click-twice doesn't spam
+// the document, and focuses the editor afterward so the user sees the
+// insertion land. No-op if the editor isn't mounted yet.
+export function insertUseStatement(modulePath) {
+  if (!cmView) return;
+  const target = `use ${modulePath}`;
+  const doc = cmView.state.doc;
+  for (let i = 1; i <= doc.lines; i++) {
+    if (doc.line(i).text.trim() === target) {
+      // Already imported — just jump the cursor there so the user
+      // sees what's already in place.
+      const ln = doc.line(i);
+      cmView.dispatch({ selection: { anchor: ln.from } });
+      cmView.focus();
+      return;
+    }
+  }
+  cmView.dispatch({
+    changes: { from: 0, to: 0, insert: target + '\n' },
+  });
+  cmView.focus();
+}
+
 function resultMarkerHtml(lineIdx) {
   const r = state.body[lineIdx];
   if (!r) return null;

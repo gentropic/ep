@@ -395,7 +395,7 @@ What's still genuinely undecided. Items answered by the implementation have been
 - **Output pin UI.** Currently you toggle a binding into the output panel by adding/removing the `@output` decorator above its definition. A pin icon on each binding row to toggle that decorator visually is the natural gesture but isn't implemented.
 - **Multi-tab consistency.** IDB writes from one tab don't propagate to another tab's in-memory cache. A `BroadcastChannel('ep')` listener that invalidates the cache (or merges deltas) is the natural fix; not implemented because nobody's hit it yet.
 - **Inline error block dismissal.** Block widgets are always visible while the error stands. A click-to-dismiss (with restoration on next error change) might reduce vertical-space pressure on long error messages.
-- **Module discovery.** numbat-js has all 62 upstream modules vendored and `use module::path` works, but users have no way to browse what modules exist or what they provide. A "modules" section in the drawer (or autocomplete after `use `) would surface them.
+- **Module discovery.** Resolved — the drawer's Docs tab now has a "Modules" section listing every vendored path, grouped by top-level namespace. Click a path to insert `use module::path` at the top of the editor (duplicates dedupe; the cursor jumps to the existing line instead). Each module's contents still need surfacing — peeking at exported names would be a follow-up.
 
 ---
 

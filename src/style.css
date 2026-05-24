@@ -2447,6 +2447,64 @@ body {
   border-bottom: 1px solid var(--sw-border);
   margin-bottom: 4px;
 }
+/* Sub-header within the Modules section — one per top-level namespace
+   (`units::`, `math::`, …). Visually lighter than the section header
+   so the parent grouping stays the dominant hierarchy cue. */
+.drawer-docs-grouphdr-sub {
+  font-size: 9px;
+  padding: 8px 6px 2px;
+  border-bottom: none;
+  opacity: 0.7;
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* Module row — head (caret + name + sig) plus an optional expansion
+   body showing the module's exported symbols. */
+.drawer-docs-mod-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.drawer-docs-mod-caret {
+  font-size: 9px;
+  color: var(--sw-text-soft);
+  padding: 4px 4px 0;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+.drawer-docs-mod-caret:hover { color: var(--sw-orange); }
+.drawer-docs-mod-body-text { flex: 1; min-width: 0; }
+.drawer-docs-mod-symbols {
+  margin: 6px 6px 2px 14px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--sw-border);
+}
+.drawer-docs-mod-kindhdr {
+  font-family: var(--sw-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sw-text-soft);
+  margin: 6px 0 3px;
+}
+.drawer-docs-mod-symgrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.drawer-docs-mod-sym {
+  font-family: var(--sw-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--sw-border);
+  border-radius: var(--sw-radius);
+  background: var(--sw-bg-raised);
+  cursor: pointer;
+  user-select: none;
+  transition: background 80ms ease;
+}
+.drawer-docs-mod-sym:hover { background: var(--sw-bg-raised-2, var(--sw-bg-raised)); border-color: var(--sw-orange); }
 .drawer-docs-row {
   font-family: var(--sw-mono);
   padding: 6px 6px 7px;
