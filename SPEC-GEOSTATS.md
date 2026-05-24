@@ -26,7 +26,7 @@ Critically: **no matrix infrastructure is needed**. Hermite coefficients have cl
 
 ## Non-goals
 
-- **Not spatial geostats.** No coordinates, no distance, no variogram modelling, no kriging. Those live in a separate (much bigger) "spatial geostats" story — possibly leaning on SPEC-LINE once landed.
+- **Not spatial geostats in Phase 1.** No coordinates, no distance, no variogram fitting, no kriging. Phase 2 will pull in anisotropy + variogram models (drafted separately in **SPEC-VARIOGRAPHY**) so the `r` parameter for change of support can be derived properly instead of trusted as a scalar.
 - **Not block-model storage.** The block-support anamorphosis describes a population. Wiring it onto a 3-D block model is the block-model story (SPEC-DATASETS Phase 2 + SPEC §10 worker offload).
 - **Not non-Gaussian anamorphosis.** Empirical CDF anamorphosis, indicator-based recovery, multi-Gaussian uniform-conditioning extensions — all out of v1.
 - **Not real-world conditioning.** No "given these neighboring samples, what's the local recovery" — that's geostatistical simulation, kriging-flavored, out of scope.
@@ -93,7 +93,31 @@ Given point-support coefficients φ_k^point and a variance-reduction factor `r` 
 φ_k^block = φ_k^point · r^k
 ```
 
-That's it. `r` is user-input in the non-grid context (typically 0.4–0.9 depending on block size relative to sample support); in the full spatial context it would be derived from the variogram.
+That's the per-coefficient transformation; the rest of this section is about where `r` actually comes from.
+
+**The scalar-`r` express path (Phase 1).** The user provides `r` as a Scalar. This is genuinely useful — many studies report `r` directly, Isatis lets you punch in the number, and the typical reported range (0.4 for selective small-block mining → 0.9 for bulk panels relative to sample support) is well-tabulated. The Phase 1 path takes `r` as input and trusts it. This is the **shortcut**, and the doc framing should be honest about that — you've already done (or borrowed) the spatial work, just elsewhere.
+
+**The variogram-derived path (Phase 2, deferred to SPEC-VARIOGRAPHY).** From first principles, `r` is the square root of the variance-reduction ratio:
+
+```
+r² = (block-support variance) / (point-support variance)
+   = 1 − γ̄(v, v) / σ²_∞
+```
+
+Where γ̄(v, v) is the average variogram value between two random points inside the block `v`, and σ²_∞ is the total (sill) variance. Computing γ̄(v, v) requires:
+
+- a fitted variogram model (`spherical`, `exponential`, …) with sill, nugget, range, and **anisotropy**;
+- block dimensions (typically a 3-tuple);
+- numerical integration via block discretization (e.g., 5×5×5 sub-points, average γ over all pairs).
+
+So `r` is **not** a single number unless the block is cubic AND the variogram is isotropic — in general it depends on the block-to-range ratio in each direction. SPEC-VARIOGRAPHY's anisotropy + variogram models are the genuine prerequisite for the proper integration. Once they exist, the upgraded path is:
+
+```ep
+v = variogram_spherical(sill: ..., range: ..., aniso: ...)
+anam_block = with_block_support_from_variogram(anam_point, block_dims, v)
+```
+
+Phase 1 ships with `with_block_support(an, r: Scalar)`; Phase 2 adds the variogram-aware form alongside it (not replacing — the scalar shortcut remains a first-class API for the studies-already-have-`r` workflow).
 
 ### Recovery functions
 
@@ -229,7 +253,7 @@ histogram()
 
 - **Discrete data with ties.** Empirical normal-score transform needs to break ties — common approaches are random tie-breaking or midrank. v1 picks midrank (deterministic; reproducible). Document.
 
-- **The `r` parameter source.** For non-grid contexts, `r` is user input. v1 takes it as a Scalar with a docs blurb on typical values (~0.4 for selective mining, ~0.7 for bulk). Spatial contexts would derive `r` from a variogram — that's a future SPEC-VARIOGRAPHY.
+- **The `r` parameter source.** Acknowledged honestly above as the scalar-`r` shortcut. The proper derivation (γ̄(v, v) / σ²_∞ via block discretization + anisotropic variogram) lives in SPEC-VARIOGRAPHY → Phase 2 of this doc adds `with_block_support_from_variogram(an, block_dims, v)` alongside the Phase 1 scalar form. Both APIs survive long-term.
 
 - **Reset on parameter change.** When the user edits the source grade distribution (e.g., tweaks σ in `lognormal(μ, σ)`), the anamorphosis re-fits automatically because everything's in the topo-sorted DAG. Same reactive shape Uncertain / Swept already use. No special handling needed.
 
@@ -238,7 +262,7 @@ histogram()
 ## Phase 2+ (deferred)
 
 - **`anamorphosis_pchip`** — monotonic-spline anamorphosis (no Gibbs ringing, guarantees non-negative grades when the input is).
-- **`with_block_support_from_variogram`** — derive `r` from a variogram model + block size. Pulls in spatial work; out of v1 scope.
+- **`with_block_support_from_variogram(an, block_dims, v)`** — derive `r` from a variogram model + block size via numerical γ̄(v, v) integration. Phase 2 of this doc; depends on SPEC-VARIOGRAPHY's variogram + anisotropy types.
 - **Lane's cutoff optimization** — `lane_optimum(an, mining_cost, processing_cost, metal_price)` returns the economic optimum cutoff. Closed-form once recovery functions exist.
 - **Indicator-based recovery** — for non-Gaussian distributions where Hermite expansion is a bad fit (e.g., bimodal grade populations from multiple mineralization styles).
 - **Uniform conditioning** — multi-Gaussian extension for local recovery estimation given panel grades. Requires SPEC-LINE for the conditional-covariance math.
