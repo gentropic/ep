@@ -868,6 +868,43 @@ function resultMarkerHtml(lineIdx) {
     return { html: `<span class="u">${escapeHtml(label)}</span>`,
              text: `dataset ${label}`, cls: '' };
   }
+  // List value — inline a few elements via fmt(); show a shape summary
+  // when it's long or nested. Lets users glance-verify time-series ops,
+  // map results, dataset columns, etc. without resorting to print().
+  if (Array.isArray(r.result)) {
+    const arr = r.result;
+    const n = arr.length;
+    if (n === 0) {
+      return { html: `<span class="u">[]</span>`, text: '[]', cls: '' };
+    }
+    // List-of-lists (e.g. `roll(xs, w)`) — just show the nested shape.
+    if (Array.isArray(arr[0])) {
+      const inner = arr[0].length;
+      const label = `List<List, ${n} × ${inner}>`;
+      return { html: `<span class="u">${escapeHtml(label)}</span>`, text: label, cls: '' };
+    }
+    // List of structs (datasets-as-rows, etc.) — opaque shape summary.
+    if (arr[0] && typeof arr[0] === 'object' && arr[0].__struct) {
+      const label = `List<${arr[0].__struct}, ${n}>`;
+      return { html: `<span class="u">${escapeHtml(label)}</span>`, text: label, cls: '' };
+    }
+    const MAX = 6;
+    const slice = arr.slice(0, MAX);
+    const fmtElem = (v) => {
+      if (v && typeof v === 'object' && v.dim != null) {
+        const [num, unit] = fmt(v);
+        return unit ? `${num} ${unit}` : num;
+      }
+      if (typeof v === 'boolean') return v ? 'true' : 'false';
+      if (typeof v === 'string')  return '"' + v.slice(0, 16) + '"';
+      if (typeof v === 'number')  return String(v);
+      return String(v);
+    };
+    const fmted = slice.map(fmtElem);
+    const ellipsis = n > MAX ? `, … (${n} total)` : '';
+    const label = `[${fmted.join(', ')}${ellipsis}]`;
+    return { html: `<span class="u">${escapeHtml(label)}</span>`, text: label, cls: '' };
+  }
   // Non-Quantity values (Bool / String / fn-ref / struct) reach this
   // path when a binding's RHS evaluates to something other than a
   // dimensioned number. fmt() expects a Quantity; show a typed
