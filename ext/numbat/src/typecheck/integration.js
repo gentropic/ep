@@ -187,6 +187,7 @@ const BUILTIN_PROC_SCHEMES = {
   with_alpha:    schemeWithScalarStyle,
   with_marker_size: schemeWithScalarStyle,
   show:          schemeShow,
+  solve_for:     schemeSolveFor,
   stereonet_planes: schemeShortcutStereonet,
   stereonet_lines:  schemeShortcutStereonet,
   // Iterative list ops — schemes mirror the script-level signatures in
@@ -448,6 +449,18 @@ function schemeWithScalarStyle() {
 function schemeWithDash() {
   const p = freshTVar();
   return generalize(tFn([p, tList(T_SCALAR)], p), [p], []);
+}
+// solve_for: <D, R>(Fn[(D) -> R], R, D, D?) -> D
+//   3-arg: (f, target, x0)
+//   4-arg: (f, target, lo, hi)
+// Same scheme covers both — the trailing D is optional.
+function schemeSolveFor() {
+  const d = freshTVar();
+  const r = freshTVar();
+  return generalize(
+    tFn([tFn([d], r), r, d, d], d, { optional: 1 }),
+    [d, r], []
+  );
 }
 
 const BUILTIN_FN_SCHEMES = {

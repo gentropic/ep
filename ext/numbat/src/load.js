@@ -603,6 +603,94 @@ function _withValuesLayer(fnName, requiredFamily, kind, args) {
   return { ...plot, layers: [...plot.layers, layer] };
 }
 
+// Brent's method — robust bracketed root-finder for g(x) = 0 on [a, b]
+// where g(a) and g(b) straddle zero. Combines bisection, secant, and
+// inverse quadratic interpolation; guarantees convergence on any
+// continuous g with a sign change across the bracket. ~70 LOC,
+// classical implementation following the Numerical Recipes outline.
+function _brentRoot(g, lo, hi, tol, maxIter) {
+  let a = lo, b = hi;
+  let fa = g(a), fb = g(b);
+  if (!Number.isFinite(fa) || !Number.isFinite(fb)) {
+    throw new Error('solve_for: function returned non-finite value at a bracket endpoint');
+  }
+  if (fa * fb > 0) {
+    throw new Error('solve_for: target is not bracketed — g(lo) and g(hi) have the same sign (f(lo) and f(hi) both lie on the same side of the target)');
+  }
+  if (Math.abs(fa) < Math.abs(fb)) { [a, b] = [b, a]; [fa, fb] = [fb, fa]; }
+  let c = a, fc = fa, d = c, mflag = true;
+  for (let i = 0; i < maxIter; i++) {
+    if (fb === 0 || Math.abs(b - a) < tol) return b;
+    let s;
+    if (fa !== fc && fb !== fc) {
+      // Inverse quadratic interpolation.
+      s = a * fb * fc / ((fa - fb) * (fa - fc))
+        + b * fa * fc / ((fb - fa) * (fb - fc))
+        + c * fa * fb / ((fc - fa) * (fc - fb));
+    } else {
+      // Secant.
+      s = b - fb * (b - a) / (fb - fa);
+    }
+    const bound1 = (3 * a + b) / 4;
+    const sInRange = (bound1 < s && s < b) || (b < s && s < bound1);
+    const cond1 = !sInRange;
+    const cond2 =  mflag && Math.abs(s - b) >= Math.abs(b - c) / 2;
+    const cond3 = !mflag && Math.abs(s - b) >= Math.abs(c - d) / 2;
+    const cond4 =  mflag && Math.abs(b - c) < tol;
+    const cond5 = !mflag && Math.abs(c - d) < tol;
+    if (cond1 || cond2 || cond3 || cond4 || cond5) {
+      s = (a + b) / 2;
+      mflag = true;
+    } else {
+      mflag = false;
+    }
+    const fs = g(s);
+    if (!Number.isFinite(fs)) throw new Error('solve_for: function returned non-finite value during iteration');
+    d = c; c = b; fc = fb;
+    if (fa * fs < 0) { b = s; fb = fs; }
+    else             { a = s; fa = fs; }
+    if (Math.abs(fa) < Math.abs(fb)) { [a, b] = [b, a]; [fa, fb] = [fb, fa]; }
+  }
+  throw new Error(`solve_for: did not converge after ${maxIter} iterations`);
+}
+
+// Secant method from a starting guess — Excel-Goal-Seek-style. Takes
+// finite-difference steps from x0 toward the root. Bounds step size
+// after the first few iterations so divergent guesses don't fly off.
+// Less robust than Brent on awkward functions but doesn't need a
+// bracket; useful when you have a good guess of where the answer lives.
+function _secantRoot(g, x0, tol, maxIter) {
+  const h = x0 === 0 ? 1e-4 : Math.abs(x0) * 1e-4;
+  let xPrev = x0;
+  let fPrev = g(xPrev);
+  if (!Number.isFinite(fPrev)) throw new Error('solve_for: function returned non-finite value at x0');
+  if (Math.abs(fPrev) < tol) return xPrev;
+  let xCurr = x0 + h;
+  let fCurr = g(xCurr);
+  for (let i = 0; i < maxIter; i++) {
+    if (!Number.isFinite(fCurr)) throw new Error('solve_for: function returned non-finite value during iteration');
+    const xMag = Math.max(Math.abs(xCurr), 1);
+    if (Math.abs(fCurr) < tol || Math.abs(xCurr - xPrev) < tol * xMag) return xCurr;
+    const denom = fCurr - fPrev;
+    if (Math.abs(denom) < 1e-300) {
+      throw new Error('solve_for: secant step ill-conditioned (function appears flat near the iterate)');
+    }
+    let step = -fCurr * (xCurr - xPrev) / denom;
+    // Bound step size after the first few iterations to keep divergent
+    // sequences from flying off to ±∞.
+    if (i > 5) {
+      const range = Math.abs(xCurr - xPrev);
+      const maxStep = Math.max(100 * range, xMag * 10);
+      if (Math.abs(step) > maxStep) step = Math.sign(step) * maxStep;
+    }
+    xPrev = xCurr;
+    fPrev = fCurr;
+    xCurr += step;
+    fCurr = g(xCurr);
+  }
+  throw new Error(`solve_for: did not converge after ${maxIter} iterations`);
+}
+
 // Apply a style override to the most-recently-added layer (the one the
 // preceding `with_*` adder just appended). Returns a new Plot with a
 // new layer carrying the override; the original is untouched. Errors
@@ -1335,6 +1423,55 @@ const BUILTIN_PROCS = {
     let acc = acc0;
     for (const x of xs) acc = f(acc, x);
     return acc;
+  },
+  // solve_for(f, target, x0)         → secant method from a guess
+  // solve_for(f, target, lo, hi)     → Brent's method on the bracket
+  // Returns the input x such that f(x) ≈ target. The input and target
+  // dims drive the result dim; f's output dim must match target's. Both
+  // forms throw a clear error on failure (no sign change for the
+  // bracketed form, ill-conditioned secant step, max iterations).
+  solve_for(args) {
+    if (args.length < 3 || args.length > 4) {
+      throw new Error(`solve_for: expected 3..4 args (f, target, x0 | lo, hi), got ${args.length}`);
+    }
+    const f = args[0];
+    const target = args[1];
+    if (typeof f !== 'function') throw new Error('solve_for: first arg must be a function');
+    if (!(target instanceof Quantity)) throw new Error('solve_for: target must be a Quantity');
+    const tol = 1e-10;
+    const maxIter = 100;
+    // Build g(x) = f(Quantity(x, inputDim)).value - target.value. Re-
+    // wraps the canonical x as a Quantity so the user function sees
+    // a real dimensioned value, and unwraps the result back to a
+    // canonical number for the root-finder. Dim-mismatch errors fire
+    // here, on the first evaluation.
+    const mkG = (inputDim) => (xVal) => {
+      const xQ = new Quantity(xVal, inputDim);
+      const r = f(xQ);
+      if (!(r instanceof Quantity)) {
+        throw new Error('solve_for: function must return a Quantity');
+      }
+      if (!dimEq(r.dim, target.dim)) {
+        throw new Error(`solve_for: function output dim [${dimFormat(r.dim)}] doesn't match target dim [${dimFormat(target.dim)}]`);
+      }
+      return r.value - target.value;
+    };
+    if (args.length === 3) {
+      const x0 = args[2];
+      if (!(x0 instanceof Quantity)) throw new Error('solve_for: x0 must be a Quantity');
+      const inputDim = x0.dim;
+      const xRoot = _secantRoot(mkG(inputDim), x0.value, tol, maxIter);
+      return new Quantity(xRoot, inputDim, x0.disp);
+    }
+    const lo = args[2], hi = args[3];
+    if (!(lo instanceof Quantity)) throw new Error('solve_for: lo must be a Quantity');
+    if (!(hi instanceof Quantity)) throw new Error('solve_for: hi must be a Quantity');
+    if (!dimEq(lo.dim, hi.dim)) {
+      throw new Error(`solve_for: lo [${dimFormat(lo.dim)}] and hi [${dimFormat(hi.dim)}] must have the same dim`);
+    }
+    const inputDim = lo.dim;
+    const xRoot = _brentRoot(mkG(inputDim), lo.value, hi.value, tol, maxIter);
+    return new Quantity(xRoot, inputDim, lo.disp || hi.disp);
   },
   concat(args) {
     const [xs, ys] = args;
