@@ -188,6 +188,8 @@ const BUILTIN_PROC_SCHEMES = {
   with_marker_size: schemeWithScalarStyle,
   show:          schemeShow,
   solve_for:     schemeSolveFor,
+  minimize:      schemeOptimize,
+  maximize:      schemeOptimize,
   stereonet_planes: schemeShortcutStereonet,
   stereonet_lines:  schemeShortcutStereonet,
   // Iterative list ops — schemes mirror the script-level signatures in
@@ -462,6 +464,18 @@ function schemeSolveFor() {
     [d, r], []
   );
 }
+// minimize / maximize: <D, R>(Fn[(D) -> R], D, D) -> D
+//   Both return the x in [lo, hi] that minimizes / maximizes f. The
+//   output dim of f is unconstrained — minimization compares values
+//   within a single dim, so R floats free.
+function schemeOptimize() {
+  const d = freshTVar();
+  const r = freshTVar();
+  return generalize(
+    tFn([tFn([d], r), d, d], d),
+    [d, r], []
+  );
+}
 
 const BUILTIN_FN_SCHEMES = {
   // Dim-preserving
@@ -554,10 +568,19 @@ export function buildTypeEnv(runtimeEnv) {
   // Lift user fns. Runtime stores { generics, params, body, returnType, ... }.
   // We build a TScheme directly without re-running body inference —
   // hosts that want body validation should re-run checkModule.
+  //
+  // A fn whose signature uses an unknown dim (e.g. `MassPerMass` from a
+  // module the user hasn't `use`d) would throw out of fnRecordToScheme
+  // and bring down the whole env build. Catch per-fn and skip those —
+  // callers will then hit "unknown function" at typecheck time, which
+  // the host's "drop tc errors when runtime succeeds" policy will
+  // swallow if the runtime happens to handle the call OK.
   if (runtimeEnv.fns) {
     for (const [name, rec] of runtimeEnv.fns) {
       if (!tcEnv.fns.has(name)) {
-        typeEnvBindFn(tcEnv, name, fnRecordToScheme(rec, tcEnv));
+        try {
+          typeEnvBindFn(tcEnv, name, fnRecordToScheme(rec, tcEnv));
+        } catch { /* signature unresolvable — leave this fn untyped */ }
       }
     }
   }

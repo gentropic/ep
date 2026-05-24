@@ -114,7 +114,9 @@ export const DOCS = {
   with_xlabel:      { signature: 'with_xlabel(plot: Plot, label: String) -> Plot', description: 'Set the x-axis label on a Plot. Returns a new Plot.', example: 'plot |> with_xlabel("temperature (K)")' },
   with_ylabel:      { signature: 'with_ylabel(plot: Plot, label: String) -> Plot', description: 'Set the y-axis label on a Plot. Returns a new Plot.', example: 'plot |> with_ylabel("rate (1/s)")' },
   show:             { signature: 'show(plot: Plot) -> Scalar', description: 'Explicitly render a Plot inline. A row whose final value is a Plot auto-renders, so `show()` is mostly useful when the Plot is bound to a name and re-displayed elsewhere: `show(my_plot)`.', example: 'p = stereonet() |> with_planes(dd, dip)\nshow(p)' },
-  solve_for:        { signature: 'solve_for<D, R>(f: Fn[(D) -> R], target: R, x0: D) -> D\n               | (f, target, lo: D, hi: D) -> D', description: 'Find the input value where `f(x) = target`. Two forms: pass a starting guess `x0` (secant method, Excel-Goal-Seek-style) or pass a bracket `[lo, hi]` over which f changes sign (Brent\'s method — bulletproof when bracketed). Both throw on failure: no sign change, ill-conditioned step, or no convergence within 100 iterations.', example: 'fn metal_at(c: MassPerMass) -> MassPerMass = tonnage_above(an, c) * mean_above(an, c)\nopt_cutoff = solve_for(metal_at, 1 g/t, 0 g/t, 5 g/t)' },
+  solve_for:        { signature: 'solve_for<D, R>(f: Fn[(D) -> R], target: R, x0: D) -> D\n               | (f, target, lo: D, hi: D) -> D', description: 'Find the input value where `f(x) = target`. Two forms: pass a starting guess `x0` (secant method, Excel-Goal-Seek-style) or pass a bracket `[lo, hi]` over which f changes sign (Brent\'s method — bulletproof when bracketed). Both throw on failure: no sign change, ill-conditioned step, or no convergence within 100 iterations.', example: 'fn area(L: Length) -> Area = L^2\nside = solve_for(area, 25 m^2, 0 m, 10 m)' },
+  minimize:         { signature: 'minimize<D, R>(f: Fn[(D) -> R], lo: D, hi: D) -> D', description: 'Find the x in [lo, hi] where f is minimized. Brent\'s parabolic-interpolation method on the bracket — combines golden-section search with parabolic fits. Converges to a boundary when f is monotonic on the interval.', example: 'fn parab(x: Scalar) -> Scalar = (x - 2)^2 + 1\nx_min = minimize(parab, 0, 5)' },
+  maximize:         { signature: 'maximize<D, R>(f: Fn[(D) -> R], lo: D, hi: D) -> D', description: 'Find the x in [lo, hi] where f is maximized. Same algorithm as `minimize` on `-f`. Useful for Lane-style cutoff optimization, design-for-yield, profit maximization.', example: 'fn nparab(x: Scalar) -> Scalar = 5 - (x - 3)^2\nx_max = maximize(nparab, 0, 6)' },
   samples:     { signature: 'samples<D>(x: D) -> List<D>', description: 'Materialize an uncertain value as a regular List<Quantity> — escape hatch for custom reductions, ad-hoc plotting, or exporting. The dim and display unit of each element matches the Uncertain.', example: 'xs = samples(tonnage)\nmean(xs)  # same as mean(tonnage)' },
   pdf:         { signature: 'pdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the probability-density estimate (Gaussian KDE, Silverman bandwidth) of an uncertain value as a smooth curve inline.', example: 'pdf(tonnage, "tonnage", "density", "Resource estimate")' },
   cdf:         { signature: 'cdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline. P(X ≤ x).', example: 'cdf(tonnage)' },
@@ -261,7 +263,7 @@ export const DOC_GROUPS = [
     'sweep',
   ]},
   { label: 'Solvers (ep extension)', names: [
-    'solve_for',
+    'solve_for','minimize','maximize',
   ]},
   { label: 'Stereonet (ep extension)', names: [
     'stereonet','with_planes','with_lines','with_poles',

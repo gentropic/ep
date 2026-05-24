@@ -3778,6 +3778,8 @@ const BUILTIN_PROC_SCHEMES = {
   with_marker_size: schemeWithScalarStyle,
   show:          schemeShow,
   solve_for:     schemeSolveFor,
+  minimize:      schemeOptimize,
+  maximize:      schemeOptimize,
   stereonet_planes: schemeShortcutStereonet,
   stereonet_lines:  schemeShortcutStereonet,
   // Iterative list ops — schemes mirror the script-level signatures in
@@ -4052,6 +4054,18 @@ function schemeSolveFor() {
     [d, r], []
   );
 }
+// minimize / maximize: <D, R>(Fn[(D) -> R], D, D) -> D
+//   Both return the x in [lo, hi] that minimizes / maximizes f. The
+//   output dim of f is unconstrained — minimization compares values
+//   within a single dim, so R floats free.
+function schemeOptimize() {
+  const d = freshTVar();
+  const r = freshTVar();
+  return generalize(
+    tFn([tFn([d], r), d, d], d),
+    [d, r], []
+  );
+}
 
 const BUILTIN_FN_SCHEMES = {
   // Dim-preserving
@@ -4144,10 +4158,19 @@ function buildTypeEnv(runtimeEnv) {
   // Lift user fns. Runtime stores { generics, params, body, returnType, ... }.
   // We build a TScheme directly without re-running body inference —
   // hosts that want body validation should re-run checkModule.
+  //
+  // A fn whose signature uses an unknown dim (e.g. `MassPerMass` from a
+  // module the user hasn't `use`d) would throw out of fnRecordToScheme
+  // and bring down the whole env build. Catch per-fn and skip those —
+  // callers will then hit "unknown function" at typecheck time, which
+  // the host's "drop tc errors when runtime succeeds" policy will
+  // swallow if the runtime happens to handle the call OK.
   if (runtimeEnv.fns) {
     for (const [name, rec] of runtimeEnv.fns) {
       if (!tcEnv.fns.has(name)) {
-        typeEnvBindFn(tcEnv, name, fnRecordToScheme(rec, tcEnv));
+        try {
+          typeEnvBindFn(tcEnv, name, fnRecordToScheme(rec, tcEnv));
+        } catch { /* signature unresolvable — leave this fn untyped */ }
       }
     }
   }
@@ -5027,6 +5050,79 @@ function _brentRoot(g, lo, hi, tol, maxIter) {
   throw new Error(`solve_for: did not converge after ${maxIter} iterations`);
 }
 
+// Brent's parabolic-interpolation method for 1-D minimization on
+// [lo, hi]. Combines golden-section search (always-safe fallback)
+// with parabolic interpolation through three points (the fast path).
+// Different algorithm from _brentRoot — same author, optimization
+// flavor. Classical NR shape; ~100 LOC. Returns the x in [lo, hi]
+// where f(x) is minimized.
+function _brentMin(f, lo, hi, tol, maxIter) {
+  // Golden ratio for the fallback step.
+  const PHI = (3 - Math.sqrt(5)) / 2;   // ≈ 0.381966
+  const ZEPS = 1e-10;                    // small abs floor on the tolerance
+  let a = lo, b = hi;
+  if (a > b) { [a, b] = [b, a]; }
+  // x: best point so far. w: second-best. v: previous w.
+  // Start all three at the midpoint; warm up via the first iteration.
+  let x = a + PHI * (b - a);
+  let w = x, v = x;
+  let fx = f(x), fw = fx, fv = fx;
+  if (!Number.isFinite(fx)) throw new Error('minimize: function returned non-finite value at the initial probe');
+  let d = 0, e = 0;
+  for (let iter = 0; iter < maxIter; iter++) {
+    const xm = (a + b) / 2;
+    const tol1 = tol * Math.abs(x) + ZEPS;
+    const tol2 = 2 * tol1;
+    if (Math.abs(x - xm) <= tol2 - (b - a) / 2) return x;
+    let useParabolic = false;
+    if (Math.abs(e) > tol1) {
+      // Parabolic interpolation through (x, fx), (w, fw), (v, fv).
+      const r = (x - w) * (fx - fv);
+      let q = (x - v) * (fx - fw);
+      let p = (x - v) * q - (x - w) * r;
+      q = 2 * (q - r);
+      if (q > 0) p = -p;
+      q = Math.abs(q);
+      const etemp = e;
+      e = d;
+      // Accept the parabolic step only if it stays inside [a, b] and
+      // is at most half the previous step (avoids cycles).
+      if (Math.abs(p) < Math.abs(0.5 * q * etemp) &&
+          p > q * (a - x) && p < q * (b - x)) {
+        d = p / q;
+        const u = x + d;
+        // Don't probe arbitrarily close to a / b.
+        if (u - a < tol2 || b - u < tol2) d = (xm - x >= 0 ? tol1 : -tol1);
+        useParabolic = true;
+      }
+    }
+    if (!useParabolic) {
+      // Golden-section fallback: step toward whichever side is wider.
+      e = (x >= xm) ? (a - x) : (b - x);
+      d = PHI * e;
+    }
+    // Don't take a step smaller than tol1.
+    const u = (Math.abs(d) >= tol1) ? (x + d) : (x + (d >= 0 ? tol1 : -tol1));
+    const fu = f(u);
+    if (!Number.isFinite(fu)) throw new Error('minimize: function returned non-finite value during iteration');
+    if (fu <= fx) {
+      if (u >= x) a = x; else b = x;
+      v = w; fv = fw;
+      w = x; fw = fx;
+      x = u; fx = fu;
+    } else {
+      if (u < x) a = u; else b = u;
+      if (fu <= fw || w === x) {
+        v = w; fv = fw;
+        w = u; fw = fu;
+      } else if (fu <= fv || v === x || v === w) {
+        v = u; fv = fu;
+      }
+    }
+  }
+  throw new Error(`minimize: did not converge after ${maxIter} iterations`);
+}
+
 // Secant method from a starting guess — Excel-Goal-Seek-style. Takes
 // finite-difference steps from x0 toward the root. Bounds step size
 // after the first few iterations so divergent guesses don't fly off.
@@ -5062,6 +5158,32 @@ function _secantRoot(g, x0, tol, maxIter) {
     fCurr = g(xCurr);
   }
   throw new Error(`solve_for: did not converge after ${maxIter} iterations`);
+}
+
+// Shared dispatch for `minimize` / `maximize`. `sign` is +1 for
+// minimization (use the function value directly) or -1 for
+// maximization (negate so the minimizer finds the max). Same Quantity
+// unwrap / rewrap pattern as `solve_for`; the kernel only sees plain
+// numbers in canonical units.
+function _optimize(fnName, args, sign) {
+  if (args.length !== 3) throw new Error(`${fnName}: expected 3 args (f, lo, hi), got ${args.length}`);
+  const [f, lo, hi] = args;
+  if (typeof f !== 'function') throw new Error(`${fnName}: first arg must be a function`);
+  if (!(lo instanceof Quantity)) throw new Error(`${fnName}: lo must be a Quantity`);
+  if (!(hi instanceof Quantity)) throw new Error(`${fnName}: hi must be a Quantity`);
+  if (!dimEq(lo.dim, hi.dim)) {
+    throw new Error(`${fnName}: lo [${dimFormat(lo.dim)}] and hi [${dimFormat(hi.dim)}] must have the same dim`);
+  }
+  const inputDim = lo.dim;
+  const g = (xVal) => {
+    const r = f(new Quantity(xVal, inputDim));
+    if (!(r instanceof Quantity)) {
+      throw new Error(`${fnName}: function must return a Quantity`);
+    }
+    return sign * r.value;
+  };
+  const xOpt = _brentMin(g, lo.value, hi.value, 1e-10, 100);
+  return new Quantity(xOpt, inputDim, lo.disp || hi.disp);
 }
 
 // Apply a style override to the most-recently-added layer (the one the
@@ -5846,6 +5968,14 @@ const BUILTIN_PROCS = {
     const xRoot = _brentRoot(mkG(inputDim), lo.value, hi.value, tol, maxIter);
     return new Quantity(xRoot, inputDim, lo.disp || hi.disp);
   },
+  // minimize(f, lo, hi) / maximize(f, lo, hi) — find the x in [lo, hi]
+  // where f is minimized / maximized. Brent's parabolic-interpolation
+  // method on the bracket. The result dim is the input dim of f;
+  // f's output dim is unconstrained (any dim is comparable to itself).
+  // If f is monotonic on [lo, hi], the optimum lives at an endpoint —
+  // the algorithm converges to it within tolerance.
+  minimize(args) { return _optimize('minimize', args, +1); },
+  maximize(args) { return _optimize('maximize', args, -1); },
   concat(args) {
     const [xs, ys] = args;
     if (!Array.isArray(xs) || !Array.isArray(ys)) throw new Error('concat: both args must be lists');
