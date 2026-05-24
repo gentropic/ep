@@ -190,6 +190,9 @@ const BUILTIN_PROC_SCHEMES = {
   solve_for:     schemeSolveFor,
   minimize:      schemeOptimize,
   maximize:      schemeOptimize,
+  diff:          schemeDiffOrCumsum,
+  cumsum:        schemeDiffOrCumsum,
+  roll:          schemeRoll,
   stereonet_planes: schemeShortcutStereonet,
   stereonet_lines:  schemeShortcutStereonet,
   // Iterative list ops — schemes mirror the script-level signatures in
@@ -475,6 +478,17 @@ function schemeOptimize() {
     tFn([tFn([d], r), d, d], d),
     [d, r], []
   );
+}
+// Time-series operators — dim-preserving over a list.
+// diff / cumsum: <D>(List<D>) -> List<D>
+// roll:          <D>(List<D>, Scalar) -> List<List<D>>
+function schemeDiffOrCumsum() {
+  const d = freshTVar();
+  return generalize(tFn([tList(d)], tList(d)), [d], []);
+}
+function schemeRoll() {
+  const d = freshTVar();
+  return generalize(tFn([tList(d), T_SCALAR], tList(tList(d))), [d], []);
 }
 
 const BUILTIN_FN_SCHEMES = {

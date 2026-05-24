@@ -117,6 +117,9 @@ export const DOCS = {
   solve_for:        { signature: 'solve_for<D, R>(f: Fn[(D) -> R], target: R, x0: D) -> D\n               | (f, target, lo: D, hi: D) -> D', description: 'Find the input value where `f(x) = target`. Two forms: pass a starting guess `x0` (secant method, Excel-Goal-Seek-style) or pass a bracket `[lo, hi]` over which f changes sign (Brent\'s method — bulletproof when bracketed). Both throw on failure: no sign change, ill-conditioned step, or no convergence within 100 iterations.', example: 'fn area(L: Length) -> Area = L^2\nside = solve_for(area, 25 m^2, 0 m, 10 m)' },
   minimize:         { signature: 'minimize<D, R>(f: Fn[(D) -> R], lo: D, hi: D) -> D', description: 'Find the x in [lo, hi] where f is minimized. Brent\'s parabolic-interpolation method on the bracket — combines golden-section search with parabolic fits. Converges to a boundary when f is monotonic on the interval.', example: 'fn parab(x: Scalar) -> Scalar = (x - 2)^2 + 1\nx_min = minimize(parab, 0, 5)' },
   maximize:         { signature: 'maximize<D, R>(f: Fn[(D) -> R], lo: D, hi: D) -> D', description: 'Find the x in [lo, hi] where f is maximized. Same algorithm as `minimize` on `-f`. Useful for Lane-style cutoff optimization, design-for-yield, profit maximization.', example: 'fn nparab(x: Scalar) -> Scalar = 5 - (x - 3)^2\nx_max = maximize(nparab, 0, 6)' },
+  diff:             { signature: 'diff<D>(xs: List<D>) -> List<D>', description: 'Forward differences. Returns a list of length N−1 where `out[i] = xs[i+1] − xs[i]`. All elements must share the same dim; differences preserve it. Pair with `cumsum` for round-trip integration / differentiation on discrete series.', example: 'levels = [10 m, 12 m, 11 m, 14 m]\nchanges = diff(levels)            # → [2 m, -1 m, 3 m]' },
+  cumsum:           { signature: 'cumsum<D>(xs: List<D>) -> List<D>', description: 'Cumulative sum. Returns a list of length N where `out[i] = xs[0] + ... + xs[i]`. Useful for running totals (production, rainfall, cost accumulation, …).', example: 'daily_rain = [3 mm, 0 mm, 5 mm, 8 mm]\ncumulative = cumsum(daily_rain)   # → [3 mm, 3 mm, 8 mm, 16 mm]' },
+  roll:             { signature: 'roll<D>(xs: List<D>, window: Scalar) -> List<List<D>>', description: 'Sliding windows of width `window`. Returns N−window+1 sub-lists. Compose with reductions for rolling statistics — `map(mean, roll(xs, 5))` is a 5-sample rolling mean, `map(stdev, roll(xs, 30))` a rolling std.', example: 'xs = [1, 2, 3, 4, 5]\nwindows  = roll(xs, 3)             # → [[1,2,3], [2,3,4], [3,4,5]]\nrolling_mean = map(mean, windows)  # → [2, 3, 4]' },
   samples:     { signature: 'samples<D>(x: D) -> List<D>', description: 'Materialize an uncertain value as a regular List<Quantity> — escape hatch for custom reductions, ad-hoc plotting, or exporting. The dim and display unit of each element matches the Uncertain.', example: 'xs = samples(tonnage)\nmean(xs)  # same as mean(tonnage)' },
   pdf:         { signature: 'pdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the probability-density estimate (Gaussian KDE, Silverman bandwidth) of an uncertain value as a smooth curve inline.', example: 'pdf(tonnage, "tonnage", "density", "Resource estimate")' },
   cdf:         { signature: 'cdf<D>(x: D [, xlabel, ylabel, title])', description: 'Plot the empirical cumulative distribution of an uncertain value as a sorted-step curve inline. P(X ≤ x).', example: 'cdf(tonnage)' },
@@ -242,6 +245,9 @@ export const DOC_GROUPS = [
   ]},
   { label: 'List reductions', names: [
     'sum','mean','variance','stdev','maximum','minimum','median',
+  ]},
+  { label: 'Time-series ops (ep extension)', names: [
+    'diff','cumsum','roll',
   ]},
   { label: 'Line references (ep extension)', names: [
     'above','_',

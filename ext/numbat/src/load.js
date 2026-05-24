@@ -1235,6 +1235,70 @@ const BUILTIN_PROCS = {
     // Population standard deviation — matches upstream math::statistics.
     return new Quantity(Math.sqrt(sumsq / xs.length), m.dim, m.disp);
   },
+  // ── Time-series operators ──────────────────────────────────────
+  // diff / cumsum / roll. Length-changing semantics throughout —
+  // diff returns N-1, cumsum returns N, roll(xs, w) returns
+  // N-w+1 windows. Companion to the existing list reductions for
+  // any time-series-shaped workflow (assays, production data,
+  // sensor logs).
+  diff(args) {
+    if (args.length !== 1) throw new Error(`diff: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('diff: expected a list');
+    if (xs.length < 2) return [];
+    const out = new Array(xs.length - 1);
+    for (let i = 0; i < xs.length - 1; i++) {
+      const a = xs[i], b = xs[i + 1];
+      if (!(a instanceof Quantity) || !(b instanceof Quantity)) {
+        throw new Error('diff: list elements must be Quantities');
+      }
+      if (!dimEq(a.dim, b.dim)) {
+        throw new Error(`diff: list dims must match (saw [${dimFormat(a.dim)}] and [${dimFormat(b.dim)}] at index ${i})`);
+      }
+      out[i] = new Quantity(b.value - a.value, a.dim, a.disp);
+    }
+    return out;
+  },
+  cumsum(args) {
+    if (args.length !== 1) throw new Error(`cumsum: expected 1 arg, got ${args.length}`);
+    const xs = args[0];
+    if (!Array.isArray(xs)) throw new Error('cumsum: expected a list');
+    if (xs.length === 0) return [];
+    const out = new Array(xs.length);
+    let acc = 0;
+    const dim = xs[0] instanceof Quantity ? xs[0].dim : {};
+    const disp = xs[0] instanceof Quantity ? xs[0].disp : null;
+    for (let i = 0; i < xs.length; i++) {
+      const x = xs[i];
+      if (!(x instanceof Quantity)) throw new Error('cumsum: list elements must be Quantities');
+      if (!dimEq(x.dim, dim)) {
+        throw new Error(`cumsum: list dims must match (saw [${dimFormat(x.dim)}] vs [${dimFormat(dim)}] at index ${i})`);
+      }
+      acc += x.value;
+      out[i] = new Quantity(acc, dim, disp);
+    }
+    return out;
+  },
+  // roll(xs, w) → sliding windows of width w as a List<List<D>>.
+  // length N-w+1. Compose with the existing reductions for rolling
+  // statistics: `map(mean, roll(xs, 3))` is a 3-sample rolling mean,
+  // `map(stdev, roll(xs, 5))` is the 5-sample rolling std, etc.
+  roll(args) {
+    if (args.length !== 2) throw new Error(`roll: expected 2 args (xs, window), got ${args.length}`);
+    const xs = args[0];
+    const wArg = args[1];
+    if (!Array.isArray(xs)) throw new Error('roll: first arg must be a list');
+    const w = wArg instanceof Quantity ? wArg.value : Number(wArg);
+    if (!Number.isFinite(w) || w < 1 || w !== Math.floor(w)) {
+      throw new Error(`roll: window must be a positive integer, got ${w}`);
+    }
+    if (xs.length < w) return [];
+    const out = new Array(xs.length - w + 1);
+    for (let i = 0; i <= xs.length - w; i++) {
+      out[i] = xs.slice(i, i + w);
+    }
+    return out;
+  },
   // ── Uncertainty (SPEC-UNCERTAINTY) ─────────────────────────────
   // Distribution builders return Uncertain values; subsequent arithmetic
   // propagates samples through automatically (see Uncertain in
