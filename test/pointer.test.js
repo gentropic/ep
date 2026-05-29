@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeInlineI, encodeInlineQ, resolvePointer,
+  fragmentEncode, fragmentDecode,
 } from '../src/js/pointer.js';
 
 test('pointer: encodeInlineI → resolvePointer round-trips', async () => {
@@ -71,4 +72,37 @@ test('pointer: brotli codec returns EUNSUPPORTEDCODEC', async () => {
     () => resolvePointer('i:bAAAA'),
     /EUNSUPPORTEDCODEC/,
   );
+});
+
+// ── fragment safety for base45 (q:) payloads ──────────────────────
+
+test('fragmentEncode/Decode: round-trip the two unsafe chars', () => {
+  // raw strings exercising space, %, and the adversarial literal "%20"
+  for (const raw of ['', 'plain', 'a b c', 'a%b', '100%', '%20', '% 20%', 'x%25y',
+                     'q:d8N9C7%S7 RKUU8', 'q:r+8D VD82EK4F.KE5TC']) {
+    assert.equal(fragmentDecode(fragmentEncode(raw)), raw, JSON.stringify(raw));
+  }
+});
+
+test('fragmentEncode: leaves base64url untouched (no space or %)', () => {
+  const s = 'i:dK8lIVSgszUzOVkgqyi_PU0jLr1DIKs0tKFbIL0stUigBSuckVlUqpOSn6wEA';
+  assert.equal(fragmentEncode(s), s);
+});
+
+test('pointer: q: round-trips through a fragment-encoded URL hash', async () => {
+  // Find a program whose q: encoding contains a space or %, then simulate
+  // the full QR → URL → location.hash → boot path via fragmentEncode/Decode.
+  let hit = null;
+  for (let i = 0; i < 80 && !hit; i++) {
+    const text = `@input\ngrade row ${i} = ${i} g/t\nyield = grade row ${i} * 1.5\n`;
+    const q = await encodeInlineQ(text);
+    if (q.includes(' ') || q.includes('%')) hit = { text, q };
+  }
+  assert.ok(hit, 'expected at least one space/%-bearing q: payload in the sample set');
+  const inUrlHash = fragmentEncode(hit.q);          // what share.js puts after '#'
+  assert.ok(!inUrlHash.includes(' '), 'no raw space survives into the fragment');
+  const backToPointer = fragmentDecode(inUrlHash);  // what consumePointer reverses
+  assert.equal(backToPointer, hit.q);
+  const decoded = await resolvePointer(backToPointer);
+  assert.equal(decoded, hit.text);
 });

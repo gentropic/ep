@@ -15,33 +15,24 @@ import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { uniqueProgramName, setCurrentProgramName, saveCurrentProgram } from './storage.js';
 import { encodeQR, qrToSvg } from '../../ext/qrcode/dist/qrcode.js';
-import { encodeInlineI, encodeInlineQ, hasPointerFragment, consumePointer } from './pointer.js';
+import { encodeInlineI, encodeInlineQ, hasPointerFragment, consumePointer, fragmentEncode } from './pointer.js';
 
 export async function generateShareUrl(text) {
   const pointer = await encodeInlineI(text);
-  return location.origin + location.pathname + '#' + pointer;
+  // fragmentEncode is a no-op for base64url (`i:`) but uniform + safe.
+  return location.origin + location.pathname + '#' + fragmentEncode(pointer);
 }
 
 export async function generateShareUrlForQR(text) {
   const pointer = await encodeInlineQ(text);
-  return location.origin + location.pathname + '#' + pointer;
+  // base45 (`q:`) can contain space and `%` — escape them so the
+  // fragment round-trips through QR-scan → browser-navigation → boot.
+  return location.origin + location.pathname + '#' + fragmentEncode(pointer);
 }
 
 // Boot-side compatibility re-exports — main.js still imports these names.
 export function hasShareParam() { return hasPointerFragment(); }
 export async function consumeShareParam() { return consumePointer(); }
-
-// Render a URL (or any text) as an inline SVG QR code. Picks ECC level M
-// for a balance of density and error tolerance. Returns an SVG string.
-export function qrSvgFor(text, opts = {}) {
-  const qr = encodeQR(text, { ecc: opts.ecc || 'M' });
-  return qrToSvg(qr, {
-    moduleSize: opts.moduleSize || 4,
-    margin:     opts.margin     ?? 2,
-    foreground: opts.foreground || 'currentColor',
-    background: opts.background || 'none',
-  });
-}
 
 // Render a URL (or any text) as an inline SVG QR code. Picks ECC level M
 // for a balance of density and error tolerance. Returns an SVG string.

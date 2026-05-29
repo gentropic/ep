@@ -222,6 +222,17 @@ q:d.menu-ptbr_ +T3FOG7P-LJ6IFKM2X4VK9PD              ; deflate-dict.menu-ptbr, b
 
 (Spaces shown for readability; actual pointers concatenate without spaces.)
 
+##### 6.4.1 Carrying a `q:` pointer in a URL fragment
+
+The base45 alphabet (`0-9 A-Z space $ % * + - . / :`) contains **two** characters that are not legal in a URL fragment: the **space** and the **percent sign** (`%`). The space is not in the RFC 3986 fragment production at all; the `%` is legal *only* as the leader of a `%HH` percent-encoded triplet, so a literal `%` in a payload is ambiguous with percent-encoding. Every other base45 character (`$ * + - . / :` and alphanumerics) is fragment-legal and MUST NOT be altered. (Earlier drafts addressed only the space; the `%` case is normative as of this revision.)
+
+When a `q:` pointer is placed in a URL fragment, an encoder MUST escape exactly these two characters, and a decoder MUST reverse exactly this escaping:
+
+- escape `%` → `%25` **first**, then space → `%20` (the order matters: escaping space first would re-escape the `%` it introduces);
+- decode with a **single left-to-right pass** that recognizes the two triplets `%25` → `%` and `%20` → space and copies every other character verbatim. A decoder MUST NOT use repeated global string replacement, and MUST NOT apply a general `decodeURIComponent`-style decode — either would corrupt a literal `%20` already present in the raw payload (which encodes to `%2520` and must round-trip back to `%20`, not to a space), and the latter would also mangle the fragment-legal `+`, `$`, `*`, `/` characters.
+
+This escaping applies only to the URL-fragment transport. The pointer body itself (what a `resolve` implementation receives, and the bytes a QR encodes in alphanumeric mode) is the raw base45 with no escaping. A QR encoder MAY emit the raw base45 (including the literal space) directly in an alphanumeric segment; the escaping is required only where the pointer travels as URL text. `i:` and `inline:` (base64url) payloads contain neither character, so this transform is a no-op for them and MAY be applied uniformly to any pointer.
+
 `q:` is semantically related to `i:` and the long-form `inline:` but is NOT byte-equivalent: the base encoding differs. The same content produces three valid pointers — `inline:deflate:<base64url>`, `i:d<base64url>`, `q:d<base45>` — that all decode to the same bytes. Encoders SHOULD prefer:
 
 - `inline:` (long form) for human-readable share URLs, READMEs, documentation
@@ -960,7 +971,7 @@ i:raGVsbG8gd29ybGQK
 q:r+8D VD82EK4F.KE5TC
 ```
 
-The `q:r` form contains a literal space character. When carried in a URL fragment the space MUST be percent-encoded as `%20` per §6 (the long-form discussion of fragment-safe characters).
+The `q:r` form contains a literal space character. When carried in a URL fragment, both space and `%` MUST be escaped per §6.4.1 (`%`→`%25` first, then space→`%20`, reversed by a single left-to-right pass). The raw base45 — what `resolve` receives and what a QR alphanumeric segment carries — is unescaped.
 
 #### D.2 Inline deflate — `the quick brown fox`
 
@@ -1020,7 +1031,7 @@ Content (the canonical Café da Esquina menu body from `SPEC-menu.md` Appendix A
 q:d.menu-ptbr_H%DZIPSKGEP2LFVM06WQ9TPKO C$EM0ON05WWMDP9IJ%0FECF381:8$S2VPN0BUF5D+0R4GH$WQIZQM9O$7LYCRSC9694*J5G9JLEU5O97WN4RBFCU/WEB4R$ O%336X4*LGN%O0AM1+1LXM*TP44HMC20YCWR9+H0THJ* 5J3W+%F /C:VCP30Q106LT8C0 IJ+62QT0HJGYM9F/NO+AMDUSU53LF4/HJ0B+A23X1- O2NSKJN7:CXDL6VV96N2NRQ94I18XDA8HOAJQ
 ```
 
-This is a 287-byte pointer. Concatenated with `https://gentropic.org/v#` produces a 311-character URL that fits in a QR v15 with ECC M margin to spare. Spaces in the base45 alphabet MUST be percent-encoded (`%20`) when placed in a URL fragment; the QR encoder MAY use alphanumeric mode directly to preserve the space char unencoded.
+This is a 287-byte pointer. Concatenated with `https://gentropic.org/v#` produces a 311-character URL that fits in a QR v15 with ECC M margin to spare. When placed in a URL fragment, the base45 payload's space and `%` characters MUST be escaped per §6.4.1; a QR encoder MAY instead carry the raw base45 in an alphanumeric segment, preserving both characters unescaped.
 
 Compression performance for this vector: 332 bytes plaintext → 182 bytes deflate-dict → 273 bytes base45. Without dictionary deflate, plain `deflate` would yield ~265 bytes on this short corpus (the dictionary buys ~45% on menu-shaped content); with no compression, base45-encoded raw bytes would be ~498 chars.
 

@@ -102,6 +102,34 @@ async function inflateRaw(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+// ── URL-fragment safety for base45 (`q:`) payloads ─────────────────
+// The base45 alphabet (RFC 9285) contains two characters that a URL
+// fragment cannot carry literally: space and `%`. Every other base45
+// char ($ * + - . / : and alnum) is fragment-legal. base64url payloads
+// (`i:` / `inline:`) contain neither, so these helpers are a no-op for
+// them — safe to apply uniformly to any pointer.
+//
+// The spec (SPEC-pointer §6.4) only addresses the space case; the `%`
+// case is an ep correctness fix pending a spec clarification. We escape
+// exactly {`%`→`%25`, space→`%20`} — `%` FIRST so the `%` we introduce
+// for the space isn't re-escaped — and reverse with a single
+// left-to-right pass (NOT sequential global replaces) so a literal
+// `%20` in the raw payload, which encodes to `%2520`, round-trips back
+// to `%20` rather than collapsing to a space.
+export function fragmentEncode(pointer) {
+  return pointer.replace(/%/g, '%25').replace(/ /g, '%20');
+}
+
+export function fragmentDecode(s) {
+  let out = '';
+  for (let i = 0; i < s.length; ) {
+    if (s[i] === '%' && s[i + 1] === '2' && s[i + 2] === '5') { out += '%'; i += 3; }
+    else if (s[i] === '%' && s[i + 1] === '2' && s[i + 2] === '0') { out += ' '; i += 3; }
+    else { out += s[i]; i++; }
+  }
+  return out;
+}
+
 // ── Public API ────────────────────────────────────────────────────
 
 // Encode UTF-8 text as a compact-form inline pointer: `i:d<base64url>`.
@@ -204,10 +232,13 @@ export function hasPointerFragment(loc = location) {
 export async function consumePointer() {
   let pointer = null;
   if (location.hash && location.hash.length > 1) {
-    pointer = location.hash.slice(1);
+    // location.hash returns the fragment with our percent-escapes intact
+    // (browsers don't decode %XX in .hash). Reverse the {%25,%20} escape
+    // before resolving — a no-op for base64url (`i:`/`inline:`) forms.
+    pointer = fragmentDecode(location.hash.slice(1));
   } else if (location.search) {
     const enc = new URLSearchParams(location.search).get('p');
-    if (enc) pointer = 'i:d' + enc;   // legacy ?p= shim
+    if (enc) pointer = 'i:d' + enc;   // legacy ?p= shim (base64url, no fragment-escaping)
   }
   if (!pointer) return null;
   let text = null;
