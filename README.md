@@ -270,8 +270,8 @@ When you export a program:
 
 - **`.ep` file** — plain text of your source. Reopens cleanly in any ep instance.
 - **Viewer HTML** — a slimmer purpose-built single-file form (~340 KB, no editor, no drawer) with your program baked in. Open it in any browser, fill in different inputs, read the outputs. Has its own copy of the evaluator + a "modify this calculation" link back to the full editor (optional — opt out at export time).
-- **Share link** — `@gcu/pointer` fragment-based pointer (`#i:d<base64url>`). Long but copyable; resolution is client-side so the URL is never sent to a server.
-- **QR code** — generated client-side. Uses the QR-optimised `q:d<base45>` pointer form (~22% denser in QR alphanumeric mode than the link form).
+- **Share link** — `@gcu/morsel` fragment-based morsel (`#i:d<base64url>`). Long but copyable; resolution is client-side so the URL is never sent to a server.
+- **QR code** — generated client-side. Uses the QR-optimised `q:d<base45>` morsel form (~22% denser in QR alphanumeric mode than the link form).
 
 The exported viewer is meant to be the recipient's whole interaction: no install, no install instructions, no "this requires…" — just a URL or an attached file.
 
@@ -281,7 +281,7 @@ ep ships as a PWA. On Chrome/Edge/Android, the address bar offers "install ep" o
 
 The PWA isn't doing anything magical beyond installability — the single-file artifact already runs offline by virtue of having no network dependencies. The manifest + minimal service worker are there to let the OS recognize ep as installable and surface the right icon, theme color, and app name.
 
-Your saved programs (including snapshot history) live in your browser's local storage and IndexedDB; they're not synced anywhere. Export to a file or share via the pointer URL to move them between devices.
+Your saved programs (including snapshot history) live in your browser's local storage and IndexedDB; they're not synced anywhere. Export to a file or share via the morsel URL to move them between devices.
 
 ---
 
@@ -328,13 +328,13 @@ Honest take, written 2026-05-23:
 - **Shape-distinct gutter markers** — orange `▲` for inputs, teal `▼` for outputs, amber `▪` for blamed bindings, red `✕` for errors. Accessibility-friendly without relying solely on color.
 - Three-layer formatter: whitespace normalization, decorator stacking, line-width-aware breaking (function calls, `@options(...)` lists, and long arithmetic expressions wrapped in parens). Idempotent. `Shift+Alt+F` or the drawer "format document" entry.
 - DCDMA + Tyler/ASTM helpers, drill / sieve fns, ~25 derived unit names beyond the SI base.
-- Single-file export in four shapes (file, viewer, link, QR). Share URLs use the `@gcu/pointer` Phase-1 grammar (fragment-based, `#i:d…` for links / `#q:d…` for QR).
+- Single-file export in four shapes (file, viewer, link, QR). Share URLs use the `@gcu/morsel` Phase-1 grammar (fragment-based, `#i:d…` for links / `#q:d…` for QR).
 - IndexedDB-backed program storage with per-program snapshot history (§7.4): manual or auto-on-session-first-load, retention pruning, pin / restore / delete from a slide-in history panel.
 - Installable PWA — manifest, icons, minimal service worker. Install from Chrome/Edge or "Add to Home Screen" on iOS.
 - Hamburger drawer with saved programs, search, sort, pinning, examples panel, settings panel.
 - Light/dark theme toggle, configurable sig digits + format width, configurable bottom palette + new-file template, auto-hide of empty input/output panels.
 - Mobile-friendly: floating result gutter (doesn't push body width), unit-picker bottom sheet, touch-friendly tap targets.
-- Viewer artifact polish: program subtitle from first comment, accent-highlighted outputs panel, single-column on narrow screens, "modify this calculation" footer link that round-trips back to the editor via pointer.
+- Viewer artifact polish: program subtitle from first comment, accent-highlighted outputs panel, single-column on narrow screens, "modify this calculation" footer link that round-trips back to the editor via morsel.
 - **Datasets — eager Phase 1 shipped.** `load_csv("name")` attaches a CSV asset and binds a `Dataset`. Drag a `.csv` onto ep → an **attach dialog** parses a live preview with file-level config (delimiter, decimal, comment, skip rows, header) and per-column rename + unit overrides. Embedded CSVs travel with `.html` exports. Assets are managed from the drawer's `data` mode (re-configure, rename, view, remove); a **virtualized viewer** scrolls the full table without flooding the DOM. The `@input` file-picker chip turns a `load_csv("x")` binding into a drop-zone — a recipient of an exported form drops *their* CSV and the outputs recompute.
 - **Real `DateTime` value type** with calendar-aware arithmetic (`calendar_add`, leap-year / DST aware), timezone conversion via `->` (`dt -> tz("Asia/Tokyo")`, `-> UTC`, `-> local`), bare `today` / `now` as values, friendly durations in date arithmetic.
 - **First-class uncertain quantities** with Monte Carlo propagation (SPEC-UNCERTAINTY.md). Distribution builders — `normal(mu, sigma)`, `uniform(lo, hi)`, `lognormal(mu, sigma)`, `triangular(lo, mode, hi)` — produce sample-bearing `Uncertain` values that propagate through every arithmetic path. Nonlinear ops get the right distribution shape because each sample is computed independently. Reductions (`mean`, `stdev`, `percentile`) collapse back to a regular `Quantity`. Visualization: `pdf` (Gaussian KDE), `cdf`, `hist` plus a chip-level `mean ± stdev unit` display with an inline histogram thumbnail. Sample count + seeding are tunable in Settings.
@@ -342,7 +342,7 @@ Honest take, written 2026-05-23:
 - **Stereonet plotting** via the vendored `bearing.js` (~56 KB, zero deps). Equal-area projections of planes (great circles), lineations, and poles, with the conjugate-fault example in the drawer.
 - **Layered plot fluent builder** (SPEC-LAYERED-PLOTS.md). A `Plot` value carries layers added by `with_*` adders combined with the `|>` pipe — `stereonet() |> with_planes(...) |> with_lines(...)` puts both feature kinds on one projection; `line_plot() |> with_scatter(measurements) |> with_line(fit)` is the engineering trend-with-data plot. Multi-line pipelines are recognized as one statement; auto-render anchors the inline widget at the end of the chain. Existing one-shot builders (`plot`, `scatter`, `bar_chart`, `hist`, `stereonet_planes`, `stereonet_lines`) are shortcuts for the fluent form.
 - **Plot hover inspection** — crosshair + value tooltip on every full-chrome plot canvas (inline + modal). Works for line / scatter / bar / hist; nearest-point on touch via pointer events.
-- **931 tests** across ep + numbat-js (pure layers — units / parser / evaluator / typechecker / formatter / pointer / snapshot retention / datasets / datetime / uncertainty / sweep / layered plots / conformance corpus); the DOM layers are exercised by manual browser testing only.
+- **931 tests** across ep + numbat-js (pure layers — units / parser / evaluator / typechecker / formatter / morsel / snapshot retention / datasets / datetime / uncertainty / sweep / layered plots / conformance corpus); the DOM layers are exercised by manual browser testing only.
 
 **What's not yet:**
 
@@ -350,7 +350,7 @@ Honest take, written 2026-05-23:
 - No incremental DAG evaluation. Every keystroke re-evaluates the whole program. Fast enough for typical programs (sub-millisecond on the demo).
 - No automated UI tests. JSDOM or Playwright would be nice when there's specific behavior worth pinning.
 - Datasets Phase 2 — lazy views, streaming sources, block-model semantics — is the planned next chapter. Tied to SPEC §10 (long-running jobs / chunked workers / IDB checkpoint), which is also still future. File-referenced assets (CSVs that don't embed into the program) are deferred to pair with streaming.
-- `@gcu/pointer` Phase 2 reference loaders (`gh:` / `gist:` / `rentry:` / `url:`) aren't implemented — pointers using those schemes fall through to `EUNKNOWN`, which is the conforming graceful-degradation path per the spec.
+- `@gcu/morsel` Phase 2 reference loaders (`gh:` / `gist:` / `rentry:` / `url:`) aren't implemented — morsels using those schemes fall through to `EUNKNOWN`, which is the conforming graceful-degradation path per the spec.
 - Multi-tab consistency — IDB writes from one tab don't propagate to another tab's in-memory cache. `BroadcastChannel` install is the natural fix when it bites.
 
 **Recent syntax change (v0.1 → v0.2):**

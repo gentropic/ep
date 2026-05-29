@@ -4,7 +4,7 @@
 
 The language ep-script is **Numbat-shaped** — syntax inspired by [Numbat](https://github.com/sharkdp/numbat) (David Peter, MIT) — with deliberate simplifications and three form-builder decorators (`@input`, `@output`, `@options`) original to ep.
 
-**Status:** 0.2 shipped. The full Phase 1–3 plan landed (source-split build, CM6 editor, numbat-js evaluator co-located under `ext/numbat/`, multi-program persistence, sharing, examples, scenarios, viewer-only export), plus the v0.2 syntax migration to decorator form (`@input`/`@output`/`@options`), a token-based parser, an idempotent formatter with width-aware breaking, `@gcu/pointer` adoption for the sharing layer, IndexedDB backend for programs and snapshots, snapshots/history (§7.4), PWA wiring (manifest + icons + service worker), a full HM-style dimension-aware typechecker under `ext/numbat/src/typecheck/`, inline-block error/info widgets with bidirectional blame walking, and shape-distinct gutter markers. Sections below are annotated with **Shipped** / **Future** where useful.
+**Status:** 0.2 shipped. The full Phase 1–3 plan landed (source-split build, CM6 editor, numbat-js evaluator co-located under `ext/numbat/`, multi-program persistence, sharing, examples, scenarios, viewer-only export), plus the v0.2 syntax migration to decorator form (`@input`/`@output`/`@options`), a token-based parser, an idempotent formatter with width-aware breaking, `@gcu/morsel` adoption for the sharing layer, IndexedDB backend for programs and snapshots, snapshots/history (§7.4), PWA wiring (manifest + icons + service worker), a full HM-style dimension-aware typechecker under `ext/numbat/src/typecheck/`, inline-block error/info widgets with bidirectional blame walking, and shape-distinct gutter markers. Sections below are annotated with **Shipped** / **Future** where useful.
 
 A separate forward-looking design doc — [`SPEC-DATASETS.md`](./SPEC-DATASETS.md) — covers the planned lazy-collections / block-model extension. That work is not implemented; the core SPEC (this document) covers what's in the artifact today.
 
@@ -36,7 +36,7 @@ The same program has three presentations:
 
 **Form view.** What a consumer of the program sees inside the designer. Same artifact, but the editor body is hidden behind a "show calculation" toggle. Big chips top and bottom. Accessory bar hidden. Toggled via the `form / editor` button in the header.
 
-**Viewer artifact.** The `.html` export is a separate, slimmer artifact (~340 KB vs ~1.45 MB for the designer) built from `src/viewer-template.html`. It includes only the chip rendering pipeline + numbat-js evaluator + the `@gcu/pointer` encoder — no CM6, no drawer, no share-link generation, no editor toggle. The viewer scopes its own polish under `.app.viewer`: program description as a header subtitle (drawn from the first comment line), prominent outputs panel (accent border + larger value font), single-column chip grid on narrow screens, and a footer with attribution + a "modify this calculation" link that round-trips the entire program back into the full editor as a `@gcu/pointer`. The source is locked behind a "show calculation" reveal that's read-only and fills the bottom of the viewport when shown. Exporters can opt out of the modify-link via a checkbox in the export dialog.
+**Viewer artifact.** The `.html` export is a separate, slimmer artifact (~340 KB vs ~1.45 MB for the designer) built from `src/viewer-template.html`. It includes only the chip rendering pipeline + numbat-js evaluator + the `@gcu/morsel` encoder — no CM6, no drawer, no share-link generation, no editor toggle. The viewer scopes its own polish under `.app.viewer`: program description as a header subtitle (drawn from the first comment line), prominent outputs panel (accent border + larger value font), single-column chip grid on narrow screens, and a footer with attribution + a "modify this calculation" link that round-trips the entire program back into the full editor as a `@gcu/morsel`. The source is locked behind a "show calculation" reveal that's read-only and fills the bottom of the viewport when shown. Exporters can opt out of the modify-link via a checkbox in the export dialog.
 
 ---
 
@@ -642,7 +642,7 @@ Falls back to the same `document.execCommand('copy')` path as the output-chip co
 
 ## 3. URL sharing + QR generation — **Shipped**
 
-The killer feature beyond the drawer. Implementation now uses the `@gcu/pointer` Phase-1 grammar (see `SPEC-pointer.md`) — share URLs are fragment-based pointers (`#i:d<base64url>`) rather than the original `?p=…` query parameter, and QR codes use the QR-optimised form (`#q:d<base45>`) which is ~22% denser in QR alphanumeric mode. Both formats decode to the same bytes; ep's pointer module also accepts the long-form `inline:deflate:` for interop.
+The killer feature beyond the drawer. Implementation now uses the `@gcu/morsel` Phase-1 grammar (see `SPEC-morsel.md`) — share URLs are fragment-based morsels (`#i:d<base64url>`) rather than the original `?p=…` query parameter, and QR codes use the QR-optimised form (`#q:d<base45>`) which is ~22% denser in QR alphanumeric mode. Both formats decode to the same bytes; ep's morsel module also accepts the long-form `inline:deflate:` for interop.
 
 A small divergence from the spec: ep uses the browser-native `CompressionStream` (deflate-raw) rather than vendoring lz-string. Saves ~3 KB of bundle and works in every browser ep targets.
 
@@ -657,12 +657,12 @@ https://gentropic.org/ep/#i:d<base64url(deflate-raw(source))>
 ```
 
 On boot, after the normal restore-from-storage path:
-1. Read `location.hash` (and `location.search` for legacy `?p=`) — if a pointer is present, resolve via the dispatcher in `src/js/pointer.js`
+1. Read `location.hash` (and `location.search` for legacy `?p=`) — if a morsel is present, resolve via the dispatcher in `src/js/morsel.js`
 2. Load the decoded source as a fresh untitled program (don't clobber the current program)
 3. Replace the URL with the clean path via `history.replaceState` so a refresh doesn't re-trigger
 4. If the user keeps editing the loaded program, it autosaves into storage like any other program
 
-**Note about installation:** This works whether or not the PWA is installed. If installed, Android Chrome routes the URL to the standalone PWA window. If not, it opens in a regular browser tab — same code path either way. The pointer being in the fragment (not the query) means resolution is purely client-side: the bytes never travel to the server.
+**Note about installation:** This works whether or not the PWA is installed. If installed, Android Chrome routes the URL to the standalone PWA window. If not, it opens in a regular browser tab — same code path either way. The morsel being in the fragment (not the query) means resolution is purely client-side: the bytes never travel to the server.
 
 ### 3.2 Why NOT custom protocol handlers (`web+ep://`)
 
@@ -720,11 +720,11 @@ Boot sequence with `?p=` present:
 
 The user can then save-as a more permanent name if desired (the loaded program already autosaves as "shared-N" but renaming is one tap).
 
-### 3.7 Pointer-based addressing — **Adopted via `@gcu/pointer` Phase 1**
+### 3.7 Morsel-based addressing — **Adopted via `@gcu/morsel` Phase 1**
 
-ep ships a minimal `@gcu/pointer` implementation inline (`src/js/pointer.js`, ~200 lines). It supports the three inline schemes (`inline:`, `i:`, `q:`) with `raw` and `deflate` codecs. Reference schemes (`gh:` / `gist:` / `rentry:` / `url:` / `doi:` / `zenodo:`) intentionally fall through to `EUNKNOWN`; per the spec (§17) that's the conforming graceful-degradation path. Phase 2 lands those loaders when there's a real use case for "load this ep program from a GitHub repo".
+ep ships a minimal `@gcu/morsel` implementation inline (`src/js/morsel.js`, ~200 lines). It supports the three inline schemes (`inline:`, `i:`, `q:`) with `raw` and `deflate` codecs. Reference schemes (`gh:` / `gist:` / `rentry:` / `url:` / `doi:` / `zenodo:`) intentionally fall through to `EUNKNOWN`; per the spec (§17) that's the conforming graceful-degradation path. Phase 2 lands those loaders when there's a real use case for "load this ep program from a GitHub repo".
 
-When the implementation graduates to its own package (`@gcu/pointer`), `src/js/pointer.js` becomes the seed — same surface, same behavior. Other GCU shells (auditable, etc.) adopting the same spec will read ep's share URLs natively, and vice versa.
+When the implementation graduates to its own package (`@gcu/morsel`), `src/js/morsel.js` becomes the seed — same surface, same behavior. Other GCU shells (auditable, etc.) adopting the same spec will read ep's share URLs natively, and vice versa.
 
 ---
 
@@ -1302,7 +1302,7 @@ on 2026-05-23:
 
 **Shipped:** §1 (drawer / autosave / persistence), §2 (keyboard
 shortcuts, drawer search, per-program descriptions, copy-source), §3 (URL
-sharing + QR, via the `@gcu/pointer` grammar), §4.1–§4.5 (syntax
+sharing + QR, via the `@gcu/morsel` grammar), §4.1–§4.5 (syntax
 highlighting, error pinpoint + blame, bracket auto-pair, in-editor docs,
 docs viewer), §5.1/§5.2/§5.5/§5.6/§5.7 (copy-as, sig-digits, live-preview
 smoothing, format-document, gutter unit override; §5.4 superseded by

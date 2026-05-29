@@ -6,7 +6,7 @@
 
 import { evaluateAll } from './state.js';
 import { renderChips, renderResults } from './render.js';
-import { encodeInlineI } from './pointer.js';
+import { encodeInlineI } from './morsel.js';
 import { attachCsv } from './csv-assets.js';   // also registers the load_csv resolver
 
 import { state } from './state.js';
@@ -59,8 +59,8 @@ function firstCommentLine(bodyLines) {
   return null;
 }
 
-// "Modify this calculation" link — encode the current program as an
-// @gcu/pointer and point at gentropic.org/ep with it. One click takes a
+// "Modify this calculation" link — encode the current program as a
+// @gcu/morsel and point at gentropic.org/ep with it. One click takes a
 // recipient from "I'm reading this calculation" to "I'm editing it in
 // the full ep editor". Suppressed entirely when the exporter unchecked
 // "include modify link" — the link element AND its separator hide so
@@ -69,8 +69,8 @@ const editLink = document.getElementById('viewerEditLink');
 const includeEdit = INITIAL_STATE && INITIAL_STATE.ui && INITIAL_STATE.ui.includeEditLink !== false;
 if (editLink && includeEdit) {
   const text = state.body.map(r => r.src).join('\n');
-  encodeInlineI(text).then(pointer => {
-    editLink.href = 'https://gentropic.org/ep#' + pointer;
+  encodeInlineI(text).then(morsel => {
+    editLink.href = 'https://gentropic.org/ep#' + morsel;
   }).catch(() => { /* leave default href in place */ });
 } else if (editLink) {
   editLink.style.display = 'none';

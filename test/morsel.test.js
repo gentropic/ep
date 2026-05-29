@@ -1,75 +1,75 @@
-// Pointer module tests. CompressionStream is available in Node 18+, so
+// Morsel module tests. CompressionStream is available in Node 18+, so
 // the full encode/decode round-trip is testable in the same runtime as
 // the rest of the suite.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  encodeInlineI, encodeInlineQ, resolvePointer,
+  encodeInlineI, encodeInlineQ, resolveMorsel,
   fragmentEncode, fragmentDecode,
-} from '../src/js/pointer.js';
+} from '../src/js/morsel.js';
 
-test('pointer: encodeInlineI → resolvePointer round-trips', async () => {
+test('morsel: encodeInlineI → resolveMorsel round-trips', async () => {
   const text = 'hello world\n@input\nx = 5\n';
   const ptr = await encodeInlineI(text);
   assert.ok(ptr.startsWith('i:d'), 'i: compact-form prefix');
-  const decoded = await resolvePointer(ptr);
+  const decoded = await resolveMorsel(ptr);
   assert.equal(decoded, text);
 });
 
-test('pointer: encodeInlineQ → resolvePointer round-trips', async () => {
+test('morsel: encodeInlineQ → resolveMorsel round-trips', async () => {
   const text = 'hello world\n@input\nx = 5\n';
   const ptr = await encodeInlineQ(text);
   assert.ok(ptr.startsWith('q:d'), 'q: QR-form prefix');
-  const decoded = await resolvePointer(ptr);
+  const decoded = await resolveMorsel(ptr);
   assert.equal(decoded, text);
 });
 
-test('pointer: long-form inline:deflate accepted', async () => {
+test('morsel: long-form inline:deflate accepted', async () => {
   // Round-trip via i: form, then rewrite to long form and decode.
   const text = 'small thing';
   const compact = await encodeInlineI(text);
   const payload = compact.slice('i:d'.length);
   const longForm = 'inline:deflate:' + payload;
-  const decoded = await resolvePointer(longForm);
+  const decoded = await resolveMorsel(longForm);
   assert.equal(decoded, text);
 });
 
-test('pointer: leading # is stripped', async () => {
+test('morsel: leading # is stripped', async () => {
   const text = 'x = 1';
   const ptr = await encodeInlineI(text);
-  const decoded = await resolvePointer('#' + ptr);
+  const decoded = await resolveMorsel('#' + ptr);
   assert.equal(decoded, text);
 });
 
-test('pointer: unknown scheme returns EUNKNOWN', async () => {
+test('morsel: unknown scheme returns EUNKNOWN', async () => {
   await assert.rejects(
-    () => resolvePointer('gh:user/repo:file.ep'),
+    () => resolveMorsel('gh:user/repo:file.ep'),
     /EUNKNOWN/,
   );
 });
 
-test('pointer: pointer with no colon returns ENOSCHEME', async () => {
+test('morsel: morsel with no colon returns ENOSCHEME', async () => {
   await assert.rejects(
-    () => resolvePointer('garbage-no-colon'),
+    () => resolveMorsel('garbage-no-colon'),
     /ENOSCHEME/,
   );
 });
 
-test('pointer: same content yields equivalent decoded text across i/q forms', async () => {
+test('morsel: same content yields equivalent decoded text across i/q forms', async () => {
   const text = '@input\ncore = NQ_core\n@output(kg)\nmass = sample_mass(core, 5 m, 2.7 g/cm3)\n';
   const i = await encodeInlineI(text);
   const q = await encodeInlineQ(text);
-  const di = await resolvePointer(i);
-  const dq = await resolvePointer(q);
+  const di = await resolveMorsel(i);
+  const dq = await resolveMorsel(q);
   assert.equal(di, text);
   assert.equal(dq, text);
   assert.equal(di, dq);
 });
 
-test('pointer: brotli codec returns EUNSUPPORTEDCODEC', async () => {
+test('morsel: brotli codec returns EUNSUPPORTEDCODEC', async () => {
   await assert.rejects(
-    () => resolvePointer('i:bAAAA'),
+    () => resolveMorsel('i:bAAAA'),
     /EUNSUPPORTEDCODEC/,
   );
 });
@@ -89,7 +89,7 @@ test('fragmentEncode: leaves base64url untouched (no space or %)', () => {
   assert.equal(fragmentEncode(s), s);
 });
 
-test('pointer: q: round-trips through a fragment-encoded URL hash', async () => {
+test('morsel: q: round-trips through a fragment-encoded URL hash', async () => {
   // Find a program whose q: encoding contains a space or %, then simulate
   // the full QR → URL → location.hash → boot path via fragmentEncode/Decode.
   let hit = null;
@@ -101,8 +101,8 @@ test('pointer: q: round-trips through a fragment-encoded URL hash', async () => 
   assert.ok(hit, 'expected at least one space/%-bearing q: payload in the sample set');
   const inUrlHash = fragmentEncode(hit.q);          // what share.js puts after '#'
   assert.ok(!inUrlHash.includes(' '), 'no raw space survives into the fragment');
-  const backToPointer = fragmentDecode(inUrlHash);  // what consumePointer reverses
-  assert.equal(backToPointer, hit.q);
-  const decoded = await resolvePointer(backToPointer);
+  const backToMorsel = fragmentDecode(inUrlHash);  // what consumeMorsel reverses
+  assert.equal(backToMorsel, hit.q);
+  const decoded = await resolveMorsel(backToMorsel);
   assert.equal(decoded, hit.text);
 });
