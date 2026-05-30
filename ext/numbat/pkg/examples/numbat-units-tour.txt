@@ -1,0 +1,73 @@
+/// auditable
+/// title: numbat — units & dimensional checking
+
+/// md
+# @gcu/numbat — a guided tour
+
+`from numbat import Q, u` gives you **dimension-checked quantities** in adder
+cells. The engine carries the units through every operation and refuses ones
+that don't make sense. No preamble — the import line loads everything.
+
+/// md
+## Building quantities
+
+`Q(value, "unit")` — and the unit you ask for is the unit you see.
+
+/// adder
+from numbat import Q, u
+
+length = Q(2.4, "m")
+width  = Q(5.0, "m")
+length
+
+/// md
+## Arithmetic carries the dimensions
+
+Multiply two lengths and you get an area; the result knows it's m².
+
+/// adder
+area = length * width
+area
+
+/// md
+A force is mass × acceleration — and it comes back named in newtons.
+
+/// adder
+Q(2, "kg") * Q(3, "m/s^2")
+
+/// md
+## Conversion with `.to(...)`
+
+/// adder
+Q(60, "km/h").to("m/s")
+
+/// adder
+power = (Q(230, "V") * Q(10, "A")).to("kW")
+power
+
+/// md
+## Dimensional safety
+
+This is the point of the whole thing. An expression like
+
+```python
+area + Q(60, "km/h")
+```
+
+doesn't return a wrong number — it **raises**:
+
+> `can't add [length²] + [length·time⁻¹]`
+
+A length and a speed are different dimensions, so the engine won't add them. The
+same guard catches unit typos, mixed-up formulas, and forgotten conversions
+before they reach a result.
+
+/// md
+## A worked calculation
+
+How much paint for the wall, in litres?
+
+/// adder
+coverage = Q(0.18, "L/m^2")
+needed   = (area * coverage).to("L")
+needed

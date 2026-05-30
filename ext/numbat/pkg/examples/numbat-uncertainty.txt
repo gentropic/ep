@@ -1,0 +1,56 @@
+/// auditable
+/// title: numbat — uncertainty (Monte-Carlo with units)
+
+/// md
+# Monte-Carlo, with units attached
+
+`@gcu/numbat` carries uncertainty the same way it carries dimensions. Build a
+distribution, do ordinary arithmetic, and the spread propagates through —
+**keeping its unit the whole way**. Collapse to a number when you want one.
+
+/// adder
+from numbat import Q, normal, mean, stdev, percentile
+
+# an uncertain ore grade and rock density
+grade   = normal(Q(1.2, "g/t"),    Q(0.15, "g/t"))
+density = normal(Q(2.7, "g/cm^3"), Q(0.1,  "g/cm^3"))
+grade
+
+/// md
+An uncertain quantity renders as `mean ± stdev unit`. Now flow it through a real
+calculation — tonnage of a block, then contained metal:
+
+/// adder
+volume = Q(50000, "m^3")
+tonnes = (volume * density).to("t")
+metal  = (tonnes * grade).to("kg")
+metal
+
+/// md
+## Collapse to the numbers you report
+
+The mean, the spread, and a conservative lower percentile (P10) — all still in
+kilograms of metal:
+
+/// adder
+mean(metal)
+
+/// adder
+percentile(metal, 10)
+
+/// md
+Because the uncertainty rode through `volume × density × grade`, the P10 already
+reflects the combined effect of both uncertain inputs — no separate error
+budget, no unit bookkeeping.
+
+/// md
+## Other distributions
+
+`uniform(lo, hi)`, `lognormal(mu, sigma)`, and `triangular(lo, mode, hi)` are all
+available and compose the same way.
+
+/// adder
+from numbat import uniform
+recovery  = uniform(Q(0.88), Q(0.94))    # mill recovery, 88–94%, as a fraction
+recovered = (metal * recovery).to("kg")
+percentile(recovered, 10)

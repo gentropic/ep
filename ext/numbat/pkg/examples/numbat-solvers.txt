@@ -1,0 +1,63 @@
+/// auditable
+/// title: numbat — sweeps & dimensional solvers
+
+/// md
+# Sweeps and solvers
+
+Two more powers the engine brings: a one-axis **sweep** for sensitivity, and
+**solvers** that invert a dimensioned relation. Both keep units honest.
+
+/// md
+## Sweep — hydrostatic pressure vs depth
+
+`sweep(start, end, n)` makes an axis; arithmetic broadcasts over it.
+
+/// adder
+from numbat import Q, sweep
+
+depth    = sweep(Q(0, "m"), Q(100, "m"), 11)
+rho      = Q(1000, "kg/m^3")
+g        = Q(9.81, "m/s^2")
+pressure = (rho * g * depth).to("kPa")
+pressure
+
+/// md
+A swept quantity renders as `min … max unit` — here, 0 at the surface up to
+~981 kPa at 100 m.
+
+/// md
+## solve_for — invert a relation
+
+The callback takes and returns `Quantity` values; the bounds give the search
+interval (and pin the answer's dimension). What radius gives a sphere of volume
+1 m³?
+
+/// adder
+from numbat import solve_for
+from math import pi
+
+sphere_volume = lambda r: Q(4/3 * pi, "") * r ** 3
+radius = solve_for(sphere_volume, Q(1, "m^3"), Q(0, "m"), Q(2, "m"))
+radius
+
+/// md
+## maximize — projectile range
+
+Range of a projectile launched at speed `v`, angle `theta`:
+`R = v² · sin(2θ) / g`. Maximize over the launch angle.
+
+/// adder
+from numbat import maximize
+from math import sin
+
+v = Q(30, "m/s")
+g = Q(9.81, "m/s^2")
+# theta.magnitude is the canonical value of an angle — already radians
+launch_range = lambda theta: (v ** 2 * sin(2 * theta.magnitude) / g).to("m")
+best_angle = maximize(launch_range, Q(0, "deg"), Q(90, "deg"))
+best_angle
+
+/// md
+The optimum lands at 45° (`best_angle ≈ 45 deg`), as it should for level
+ground — recovered here numerically, with the range computed in real metres at
+every step.

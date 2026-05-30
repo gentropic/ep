@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "examples": [
+    {
+      "file": "numbat-units-tour.txt",
+      "title": "numbat — units & dimensional checking",
+      "description": "Build quantities, let arithmetic carry the dimensions, convert with .to(), and see the engine refuse a length + a speed. The core pint-shaped experience."
+    },
+    {
+      "file": "numbat-uncertainty.txt",
+      "title": "numbat — uncertainty (Monte-Carlo with units)",
+      "description": "Propagate uncertainty through a real ore-block calculation (volume × density × grade), units intact, then collapse to mean / P10 contained metal."
+    },
+    {
+      "file": "numbat-solvers.txt",
+      "title": "numbat — sweeps & dimensional solvers",
+      "description": "A one-axis sweep (pressure vs depth) and solvers that invert a dimensioned relation: sphere radius from volume, and a projectile range maximized over launch angle."
+    }
+  ]
+}

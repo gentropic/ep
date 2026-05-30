@@ -1,0 +1,18 @@
+{
+  "name": "@gcu/numbat",
+  "version": "0.1.1",
+  "description": "Unit-aware, dimension-checked quantities for auditable adder cells — pint-shaped, plus uncertainty, sensitivity sweeps, and dimensional solvers, powered by the numbat engine.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./adder": "./adder.js"
+  },
+  "license": "MIT",
+  "homepage": "https://gentropic.org/ep",
+  "keywords": ["auditable-extension", "units", "dimensional-analysis", "numbat", "gcu", "pint"],
+  "auditable": {
+    "kind": "extension",
+    "contributes": ["exports"]
+  }
+}
