@@ -32,7 +32,7 @@ The spec is deliberately narrow. It is not a transport, not a storage system, no
 - Not an authenticity or integrity system. A layer above may verify content; this spec does not.
 - Not a versioning system for the content itself. Reference schemes may carry version hints (`@ref`, `:version`) but this is host-specific, not part of the capsule semantics.
 - Not a privacy layer. Fragments avoid server round-trips *for resolution*, but fragments routinely leak via clipboard, browser history, screenshots, and copy-paste. Treat fragment contents as public-adjacent.
-- Not a type system or renderer dispatcher. Resolved bytes are opaque to `@gcu/capsule`. Consumers needing to multiplex multiple payload kinds over a single bootloader (e.g., menu, doorbell, lost-and-found tag, and notebook payloads through one `/c#…` endpoint) layer a type-tag convention on top of the bytes returned by `resolve`. See `SPEC-cradle.md` for the canonical such layer.
+- Not a type system or renderer dispatcher. Resolved bytes are opaque to `@gcu/capsule`. Consumers needing to multiplex multiple payload kinds over a single bootloader (e.g., menu, doorbell, lost-and-found tag, and notebook payloads through one `/cradle#…` endpoint) layer a type-tag convention on top of the bytes returned by `resolve`. See `SPEC-cradle.md` for the canonical such layer.
 
 ### 2. Terminology
 
@@ -1031,7 +1031,7 @@ Content (the canonical Café da Esquina menu body from `SPEC-menu.md` Appendix A
 q:d.menu-ptbr_H%DZIPSKGEP2LFVM06WQ9TPKO C$EM0ON05WWMDP9IJ%0FECF381:8$S2VPN0BUF5D+0R4GH$WQIZQM9O$7LYCRSC9694*J5G9JLEU5O97WN4RBFCU/WEB4R$ O%336X4*LGN%O0AM1+1LXM*TP44HMC20YCWR9+H0THJ* 5J3W+%F /C:VCP30Q106LT8C0 IJ+62QT0HJGYM9F/NO+AMDUSU53LF4/HJ0B+A23X1- O2NSKJN7:CXDL6VV96N2NRQ94I18XDA8HOAJQ
 ```
 
-This is a 287-byte capsule. Concatenated with `https://gentropic.org/c#` produces a 311-character URL that fits in a QR v15 with ECC M margin to spare. When placed in a URL fragment, the base45 payload's space and `%` characters MUST be escaped per §6.4.1; a QR encoder MAY instead carry the raw base45 in an alphanumeric segment, preserving both characters unescaped.
+This is a 287-byte capsule. Concatenated with `https://gentropic.org/cradle#` produces a 311-character URL that fits in a QR v15 with ECC M margin to spare. When placed in a URL fragment, the base45 payload's space and `%` characters MUST be escaped per §6.4.1; a QR encoder MAY instead carry the raw base45 in an alphanumeric segment, preserving both characters unescaped.
 
 Compression performance for this vector: 332 bytes plaintext → 182 bytes deflate-dict → 273 bytes base45. Without dictionary deflate, plain `deflate` would yield ~265 bytes on this short corpus (the dictionary buys ~45% on menu-shaped content); with no compression, base45-encoded raw bytes would be ~498 chars.
 
