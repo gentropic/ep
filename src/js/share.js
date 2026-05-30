@@ -1,4 +1,4 @@
-// URL-based program sharing — adopts the @gcu/morsel Phase-1 grammar.
+// URL-based program sharing — adopts the @gcu/capsule Phase-1 grammar.
 //
 // Share URL:  <origin>/<path>#i:d<base64url(deflate-raw(text))>
 // QR-bound:   <origin>/<path>#q:d<base45(deflate-raw(text))>
@@ -7,32 +7,32 @@
 // bits in QR alphanumeric mode than the `i:` form in byte mode, which
 // is meaningfully better for printable / scan-from-distance QRs.
 //
-// Legacy `?p=<base64url>` (ep's pre-morsel format) is still recognized
-// on the load side so any old links keep working — see consumeMorsel
-// in morsel.js for the shim.
+// Legacy `?p=<base64url>` (ep's pre-capsule format) is still recognized
+// on the load side so any old links keep working — see consumeCapsule
+// in capsule.js for the shim.
 
 import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { uniqueProgramName, setCurrentProgramName, saveCurrentProgram } from './storage.js';
 import { encodeQR, qrToSvg } from '../../ext/qrcode/dist/qrcode.js';
-import { encodeInlineI, encodeInlineQ, hasMorselFragment, consumeMorsel, fragmentEncode } from './morsel.js';
+import { encodeInlineI, encodeInlineQ, hasCapsuleFragment, consumeCapsule, fragmentEncode } from './capsule.js';
 
 export async function generateShareUrl(text) {
-  const morsel = await encodeInlineI(text);
+  const capsule = await encodeInlineI(text);
   // fragmentEncode is a no-op for base64url (`i:`) but uniform + safe.
-  return location.origin + location.pathname + '#' + fragmentEncode(morsel);
+  return location.origin + location.pathname + '#' + fragmentEncode(capsule);
 }
 
 export async function generateShareUrlForQR(text) {
-  const morsel = await encodeInlineQ(text);
+  const capsule = await encodeInlineQ(text);
   // base45 (`q:`) can contain space and `%` — escape them so the
   // fragment round-trips through QR-scan → browser-navigation → boot.
-  return location.origin + location.pathname + '#' + fragmentEncode(morsel);
+  return location.origin + location.pathname + '#' + fragmentEncode(capsule);
 }
 
 // Boot-side compatibility re-exports — main.js still imports these names.
-export function hasShareParam() { return hasMorselFragment(); }
-export async function consumeShareParam() { return consumeMorsel(); }
+export function hasShareParam() { return hasCapsuleFragment(); }
+export async function consumeShareParam() { return consumeCapsule(); }
 
 // Render a URL (or any text) as an inline SVG QR code. Picks ECC level M
 // for a balance of density and error tolerance. Returns an SVG string.

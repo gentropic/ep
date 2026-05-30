@@ -1,5 +1,5 @@
-// @gcu/morsel Phase 1 — inline implementation. Provides the fragment-
-// based content addressing layer described in SPEC-morsel.md, restricted
+// @gcu/capsule Phase 1 — inline implementation. Provides the fragment-
+// based content addressing layer described in SPEC-capsule.md, restricted
 // to the inline schemes (inline / i / q) needed for ep's share-and-QR
 // flow today. Reference schemes (gh / gist / rentry / url) are not
 // implemented yet — they'd take one fetch each but ep doesn't have a use
@@ -107,17 +107,17 @@ async function inflateRaw(bytes) {
 // fragment cannot carry literally: space and `%`. Every other base45
 // char ($ * + - . / : and alnum) is fragment-legal. base64url payloads
 // (`i:` / `inline:`) contain neither, so these helpers are a no-op for
-// them — safe to apply uniformly to any morsel.
+// them — safe to apply uniformly to any capsule.
 //
-// The spec (SPEC-morsel §6.4) only addresses the space case; the `%`
+// The spec (SPEC-capsule §6.4) only addresses the space case; the `%`
 // case is an ep correctness fix pending a spec clarification. We escape
 // exactly {`%`→`%25`, space→`%20`} — `%` FIRST so the `%` we introduce
 // for the space isn't re-escaped — and reverse with a single
 // left-to-right pass (NOT sequential global replaces) so a literal
 // `%20` in the raw payload, which encodes to `%2520`, round-trips back
 // to `%20` rather than collapsing to a space.
-export function fragmentEncode(morsel) {
-  return morsel.replace(/%/g, '%25').replace(/ /g, '%20');
+export function fragmentEncode(capsule) {
+  return capsule.replace(/%/g, '%25').replace(/ /g, '%20');
 }
 
 export function fragmentDecode(s) {
@@ -132,7 +132,7 @@ export function fragmentDecode(s) {
 
 // ── Public API ────────────────────────────────────────────────────
 
-// Encode UTF-8 text as a compact-form inline morsel: `i:d<base64url>`.
+// Encode UTF-8 text as a compact-form inline capsule: `i:d<base64url>`.
 // Used for share links shown in the address bar / copy buffer.
 export async function encodeInlineI(text) {
   const bytes = new TextEncoder().encode(text);
@@ -140,7 +140,7 @@ export async function encodeInlineI(text) {
   return 'i:d' + bytesToB64Url(compressed);
 }
 
-// Encode UTF-8 text as a QR-optimized inline morsel: `q:d<base45>`.
+// Encode UTF-8 text as a QR-optimized inline capsule: `q:d<base45>`.
 // Used for QR codes — base45 is ~22% denser in QR alphanumeric mode
 // than base64url in byte mode, even though the character count is
 // longer (§6.4).
@@ -150,15 +150,15 @@ export async function encodeInlineQ(text) {
   return 'q:d' + bytesToBase45(compressed);
 }
 
-// Resolve any inline-scheme morsel (long form `inline:...`, compact
+// Resolve any inline-scheme capsule (long form `inline:...`, compact
 // `i:...`, QR form `q:...`) back to its original text. Reference schemes
 // (`gh:` / `gist:` / `url:` / `rentry:` / `doi:` / `zenodo:`) are not
 // implemented in this Phase-1 build and fall through to EUNKNOWN; that's
 // the conforming graceful-degradation per §17.
-export async function resolveMorsel(morsel) {
-  if (!morsel) throw new Error('ENOSCHEME');
+export async function resolveCapsule(capsule) {
+  if (!capsule) throw new Error('ENOSCHEME');
   // Strip a leading `#` if present (caller may pass location.hash directly).
-  let p = morsel.startsWith('#') ? morsel.slice(1) : morsel;
+  let p = capsule.startsWith('#') ? capsule.slice(1) : capsule;
   const colon = p.indexOf(':');
   if (colon < 0) throw new Error('ENOSCHEME');
   const scheme = p.slice(0, colon);
@@ -217,7 +217,7 @@ async function decodePayload(codec, payload, baseKind) {
 // Detection helper for ep's boot path: did the user arrive via a share?
 // Accepts the location object (or anything with .hash / .search) so the
 // boot can decide its branch synchronously before awaiting resolve.
-export function hasMorselFragment(loc = location) {
+export function hasCapsuleFragment(loc = location) {
   if (loc.hash && loc.hash.length > 1) return true;
   // v0 backward-compat shim: ep originally used `?p=…`. Treat that as a
   // legacy form synonymous with `#inline:deflate:…` so old shares (if any
@@ -226,24 +226,24 @@ export function hasMorselFragment(loc = location) {
   return false;
 }
 
-// Read whatever share-morsel is in the URL and return its decoded text.
+// Read whatever share-capsule is in the URL and return its decoded text.
 // Clears the URL on the way out so a reload doesn't re-trigger import.
 // Returns null if there's nothing to read or decoding failed.
-export async function consumeMorsel() {
-  let morsel = null;
+export async function consumeCapsule() {
+  let capsule = null;
   if (location.hash && location.hash.length > 1) {
     // location.hash returns the fragment with our percent-escapes intact
     // (browsers don't decode %XX in .hash). Reverse the {%25,%20} escape
     // before resolving — a no-op for base64url (`i:`/`inline:`) forms.
-    morsel = fragmentDecode(location.hash.slice(1));
+    capsule = fragmentDecode(location.hash.slice(1));
   } else if (location.search) {
     const enc = new URLSearchParams(location.search).get('p');
-    if (enc) morsel = 'i:d' + enc;   // legacy ?p= shim (base64url, no fragment-escaping)
+    if (enc) capsule = 'i:d' + enc;   // legacy ?p= shim (base64url, no fragment-escaping)
   }
-  if (!morsel) return null;
+  if (!capsule) return null;
   let text = null;
-  try { text = await resolveMorsel(morsel); }
-  catch (e) { console.warn('morsel resolve failed:', e.message); }
+  try { text = await resolveCapsule(capsule); }
+  catch (e) { console.warn('capsule resolve failed:', e.message); }
   history.replaceState(null, '', location.pathname);
   return text;
 }

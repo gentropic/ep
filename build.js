@@ -98,7 +98,7 @@ const VIEWER_JS_FILES = [
   'csv-assets.js',
   'menu.js',
   'render.js',
-  'morsel.js',
+  'capsule.js',
   'viewer-main.js',
 ];
 
@@ -124,7 +124,7 @@ const JS_FILES = [
   'attach-dialog.js',
   'dataset-viewer.js',
   'format-cmd.js',
-  'morsel.js',
+  'capsule.js',
   'update-check.js',
   'share.js',
   'dialogs.js',
