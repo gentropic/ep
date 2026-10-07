@@ -57,10 +57,31 @@ export function setFmtSigDigits(n) {
   _sigDigits = v;
 }
 
+// Display-tag resolver for unit names N doesn't know. The evaluator's
+// host() registry is a superset of N: it layers upstream modules with
+// `@metric_prefixes` on top of the v0.1 prelude, so `100 W -> kW` tags
+// the result `kW` — a name N can't resolve, which made fmt() silently
+// fall back to auto-scaling and print `100 W`. evaluator.js installs
+// its host's resolver here at boot; fmt() consults it only for string
+// tags N rejects, so auto-scaling still runs over N's curated unit set
+// (the full BIPM prefix set would otherwise produce `3 hm`).
+let _dispResolver = null;
+export function setDispResolver(fn) { _dispResolver = fn; }
+
 // Formatter — ep's fmt() returns [numString, unitString|null]; adapt from
 // numbat-js's formatParts() which returns {num, unit}.
 export const fmt = q => {
-  const p = N.formatParts(q, { sig: _sigDigits });
+  let target = q;
+  if (q && typeof q.disp === 'string' && _dispResolver && !N.resolve(q.disp)) {
+    const u = _dispResolver(q.disp);
+    if (u && dimEq(u.dim, q.dim)) {
+      // Clone with a pre-resolved object tag; formatParts honors those
+      // directly without a registry lookup. Keep the prototype so
+      // Uncertain / Swept / DateTime subclasses format as themselves.
+      target = Object.assign(Object.create(Object.getPrototypeOf(q)), q, { disp: { mul: u.mul, name: u.displayName } });
+    }
+  }
+  const p = N.formatParts(target, { sig: _sigDigits });
   return [p.num, p.unit];
 };
 

@@ -138,15 +138,19 @@ test('evalValueExpr: -> unknown target unit throws', () => {
   assert.throws(() => valueExpr('3 meter -> furlong', env), /unknown unit/);
 });
 
-test('evalValueExpr: -> compound target (v0.4): verifies dim, drops disp', () => {
+test('evalValueExpr: -> compound target verifies dim and tags the display unit', () => {
   const env = buildEnv();
   env.units.define('meter',  { dim: {length: 1}, shortAliases: ['m'], prefixSet: 'metric' });
   env.units.define('second', { dim: {time: 1},   shortAliases: ['s'], prefixSet: 'metric' });
   const q = valueExpr('3 km / s -> m / s', env);
-  // Canonical: 3 km/s = 3000 m/s; dim verified as same; disp tag dropped.
+  // Canonical: 3 km/s = 3000 m/s; dim verified as same. The target is
+  // carried as a pre-resolved { mul, name } tag (a compound unit has no
+  // registry name), so the formatter can show it as written.
   assert.equal(q.value, 3000);
   assert.deepEqual(q.dim, { length: 1, time: -1 });
-  assert.equal(q.disp, null);
+  assert.deepEqual(q.disp, { mul: 1, name: 'm/s' });
+  const k = valueExpr('3 km / s -> km / s', env);
+  assert.deepEqual(k.disp, { mul: 1000, name: 'km/s' });
 });
 
 test('evalValueExpr: -> compound target dim mismatch throws', () => {

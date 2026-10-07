@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { Numbat } from '../src/api.js';
 import assert from 'node:assert/strict';
 import { UnitRegistry } from '../src/units.js';
 
@@ -93,4 +94,41 @@ test('first-come-first-served on alias conflicts', () => {
   r.define('bbb', { dim: {length: 1}, mul: 200, displayName: 'bbb', aliases: ['aaa'] });
   // 'aaa' resolves to the first definition (mass), not the alias-clobber attempt
   assert.deepEqual(r.resolve('aaa').dim, {mass: 1});
+});
+
+test('bare identifier: a unit name shadowed by a builtin proc resolves as the unit', () => {
+  // `min` is both the minute (unit) and ep's minimum (host proc). In bare
+  // position it must be the unit — that's the only meaning upstream Numbat
+  // has for it. Call syntax still reaches the proc.
+  const nb = new Numbat();
+  nb.loadSource('let t = 4 min');
+  const t = nb.values.get('t');
+  assert.deepEqual(t.dim, { time: 1 });
+  assert.equal(t.value, 240);
+  nb.loadSource('let m = min(3 m, 2 m)');
+  assert.equal(nb.values.get('m').value, 2);
+  nb.loadSource('let v = 3 km / 4 min');
+  assert.deepEqual(nb.values.get('v').dim, { length: 1, time: -1 });
+  assert.equal(nb.values.get('v').value, 12.5);
+});
+
+test('arithmetic on a function reference gives a named error, not a TypeError', () => {
+  const nb = new Numbat();
+  assert.throws(() => nb.loadSource('let x = 4 sqrt'), (e) => {
+    assert.ok(!(e instanceof TypeError));
+    assert.match(e.message, /'sqrt' is a function, not a value/);
+    return true;
+  });
+});
+
+test('-> compound unit target keeps a display tag the formatter honors', () => {
+  const nb = new Numbat();
+  nb.loadSource('let v = 3 km / 4 min -> km/h');
+  const v = nb.values.get('v');
+  assert.equal(v.value, 12.5);                              // canonical m/s untouched
+  assert.deepEqual(nb.formatParts(v), { num: '45', unit: 'km/h' });
+  nb.loadSource('let a = 9.81 m/s^2 -> ft/s^2');
+  assert.equal(nb.formatParts(nb.values.get('a')).unit, 'ft/s²');
+  nb.loadSource('let w = 2 kg * 9.81 m/s^2 -> kg*m/s^2');
+  assert.equal(nb.formatParts(nb.values.get('w')).unit, 'kg·m/s²');
 });

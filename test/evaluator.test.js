@@ -423,3 +423,29 @@ test('evaluate: @input followed by fn decl — decorator is consumed but fn stil
   assert.equal(r.params.length, 0);
   assert.equal(r.scope.y.v, 10);
 });
+
+test('evaluate: minute unit works in bare position (regression: `min` proc shadowed the unit)', () => {
+  const r = evaluate(bodyOf([
+    'speed = 3 km / 4 min -> km/h',
+    'pause = 2 min + 30 s',
+    'lo = min(3 m, 2 m)',
+  ]));
+  for (const row of r.rows) assert.equal(row.error, null, row.error);
+  assert.ok(approx(r.rows[0].result.value, 12.5));       // 45 km/h in m/s
+  assert.ok(approx(r.rows[1].result.value, 150));
+  assert.ok(approx(r.rows[2].result.value, 2));
+});
+
+test('evaluate: a function in arithmetic is a named error, never a raw TypeError', () => {
+  // The typechecker usually catches this first ("expected dimension type,
+  // got (D²) -> D"); when it doesn't, the runtime guard in numbat-js names
+  // the operand. Either way the gutter must never show the engine's
+  // "Cannot convert undefined or null to object".
+  const r = evaluate(bodyOf([
+    'a = 4 sqrt',
+    'b = 3 m + 2 s',
+  ]));
+  assert.ok(r.rows[0].error, 'expected an error on `4 sqrt`');
+  assert.doesNotMatch(r.rows[0].error, /internal error|Cannot convert/);
+  assert.match(r.rows[1].error, /dimension mismatch|can't add/);
+});

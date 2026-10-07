@@ -24,7 +24,7 @@
 // calls. Values are per-evaluation (fresh Map every time) so chip edits
 // don't accumulate stale bindings in the host.
 
-import { dEq, dMul, dDiv, fmtDim } from './units.js';
+import { dEq, dMul, dDiv, fmtDim, setDispResolver } from './units.js';
 import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
 import { traceBlame } from './blame.js';
 
@@ -40,6 +40,10 @@ let _host = null;
 function host() {
   if (_host) return _host;
   _host = new Numbat({ prelude: 'v0.1' });
+  // Let units.js's fmt() resolve display tags (`-> kW`) against THIS
+  // registry — the vendored modules below add prefixed units that the
+  // bare formatting instance in units.js doesn't have. See setDispResolver.
+  setDispResolver((name) => _host.registry.resolve(name));
 
   // Layer the vendored Numbat function modules on top of v0.1's curated
   // unit table. registerAllVendoredModules() only makes the .nbt sources
@@ -798,6 +802,19 @@ function freshEnv() {
 // Returns {rows, params, outputs, scope, blockComplete, blocks}.
 // Row shape: {kind, name, result, error, outputs, inParams}.
 
+// Message for a per-row error. Domain errors (plain Error from numbat-js)
+// pass through verbatim. A TypeError / ReferenceError means a bug in the
+// engine, not in the user's program — label it so, and log the stack so
+// it's debuggable, instead of surfacing "Cannot convert undefined or null
+// to object" in the gutter as if the user wrote something wrong.
+function rowErrorMessage(e) {
+  if (e instanceof TypeError || e instanceof ReferenceError) {
+    console.error('ep: internal error while evaluating:', e);
+    return `internal error: ${e.message} (this is a bug in ep, not in your program)`;
+  }
+  return (e && e.message) || String(e);
+}
+
 export function evaluate(body) {
   const source = body.map(r => r.src).join('\n');
   let statements;
@@ -807,7 +824,7 @@ export function evaluate(body) {
     // Tokenizer error — surface on row 0 and bail. (Rare; the tokenizer
     // is permissive, but malformed strings or stray `@` could trip it.)
     const rows = body.map(() => ({kind: null, name: null, result: null, error: null, outputs: null, inParams: false}));
-    if (rows.length) { rows[0].error = e.message; rows[0].kind = 'expr'; }
+    if (rows.length) { rows[0].error = rowErrorMessage(e); rows[0].kind = 'expr'; }
     return { rows, params: [], outputs: [], scope: {}, blockComplete: false, blocks: [] };
   }
 
@@ -971,7 +988,7 @@ export function evaluate(body) {
         env.values.set(name, q);
         env.values.set('_',   q);
         env.values.set('ans', q);
-      } catch (e) { q = null; err = e.message; }
+      } catch (e) { q = null; err = rowErrorMessage(e); }
       // @output(unit) unit-dim check — surfaces the same mismatch the
       // outputs panel detects, but as an inline error on the binding
       // so the user sees it WHERE the binding is, not just in the
@@ -1104,14 +1121,14 @@ export function evaluate(body) {
         .join('\n');
       const src = passthrough ? passthrough + '\n' + c.src : c.src;
       try { loadStatement(src, env); }
-      catch (e) { row.error = e.message; }
+      catch (e) { row.error = rowErrorMessage(e); }
       // Decl statements pass through unchanged — col matches original.
       typecheckStatementSrc(src, tcEnv, ownerIdx, 0, tcErrorsByLine);
       continue;
     }
     if (c.kind === 'use-decl') {
       try { loadStatement(c.src, env); }
-      catch (e) { row.error = e.message; }
+      catch (e) { row.error = rowErrorMessage(e); }
       // `use` directives don't need typechecking themselves — they
       // load modules into env. Lifting those modules into tcEnv is
       // tracked separately (#98).
@@ -1137,7 +1154,7 @@ export function evaluate(body) {
         env.values.set('_',   q);
         env.values.set('ans', q);
         noteLineResult(ownerIdx, q);
-      } catch (e) { row.error = e.message; }
+      } catch (e) { row.error = rowErrorMessage(e); }
       // Typecheck via the same `let __ep__ = expr` wrap used at eval.
       // Bare expr wrapped with `let __ep__ = `. Prefix length is 13.
       typecheckStatementSrc(`let __ep__ = ${c.expr}`, tcEnv, ownerIdx, 13, tcErrorsByLine);

@@ -175,3 +175,15 @@ test('fmt: density displays as g/cm³', () => {
   assert.equal(u, 'g/cm³');
   assert.equal(n, '2.7');
 });
+
+test('fmt: honors a display tag only the evaluator host registry knows (-> kW)', async () => {
+  // units.js formats with a bare v0.1 instance; the evaluator's host layers
+  // upstream SI modules with metric prefixes on top, so `-> kW` tags a name
+  // the formatter alone can't resolve. Importing the evaluator installs the
+  // resolver hook; before the fix this printed "100 W".
+  const { evaluate } = await import('../src/js/evaluator.js');
+  const r = evaluate([{ src: 'p = 100 W -> kW' }, { src: 'v = 3 km / 4 min -> km/h' }]);
+  assert.equal(r.rows[0].error, null);
+  assert.deepEqual(fmt(r.rows[0].result), ['0.1', 'kW']);
+  assert.deepEqual(fmt(r.rows[1].result), ['45', 'km/h']);
+});
