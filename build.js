@@ -90,6 +90,7 @@ const VENDORS = [
 // embedded user guides are dead weight in a shared calculator that
 // only exposes the form view. They live in the main editor bundle only.
 const VIEWER_JS_FILES = [
+  'viewport.js',      // sets data-pocket so the phone form layout applies to exported forms
   'docs.js',
   'units.js',
   'blame.js',

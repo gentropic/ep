@@ -3410,3 +3410,144 @@ html[data-pocket] .dialog-actions .btn.primary { flex: 1 1 100%; order: 1; }
 html[data-pocket] .dialog-actions #shareFileBtn { order: 0; }
 html[data-pocket] .dialog-actions #cancelBtn,
 html[data-pocket] .dialog-actions #modalCancelBtn { order: 3; flex: 1 1 100%; background: transparent; border-color: transparent; color: var(--sw-text-mid); }
+
+/* Pocket slice 4 — the form on a phone (SPEC-pocket §3.6). Applies to
+ * form view in the editor and to the exported viewer (`.app.form.viewer`),
+ * which shares this stylesheet: inputs as full-width tappable cards,
+ * results large and teal, the calculation one tap away. */
+.pocket-hint-empty { display: none; }
+html[data-pocket] .pocket-hint-text { flex: 1; min-width: 0; }
+html[data-pocket] .pocket-hint-empty {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--sw-border);
+  background: var(--sw-bg-raised);
+  color: var(--sw-text);
+  font: 600 13px var(--sw-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html[data-pocket] .pocket-hint-x { margin-left: 0; }
+
+html[data-pocket] .app.form #formBtn {
+  display: inline-flex !important;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  font-family: var(--sw-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sw-text);
+  border-color: var(--sw-border);
+}
+html[data-pocket] .app.form .panel { border: 0; background: transparent; }
+html[data-pocket] .app.form .panel-hdr {
+  padding: 14px 16px 6px;
+  font-family: var(--sw-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--sw-text-soft);
+}
+html[data-pocket] .app.form .panel-hdr .meta,
+html[data-pocket] .app.form .panel-hdr .chevron,
+html[data-pocket] .app.form .panel-hdr .at { display: none; }
+html[data-pocket] .app.form .chip-grid {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 0 14px 6px;
+}
+html[data-pocket] .app.form .chip {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--sw-bg-raised);
+  border: 1px solid var(--sw-border-soft);
+}
+html[data-pocket] .app.form .chip-lbl {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--sw-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--sw-text-mid);
+}
+html[data-pocket] .app.form .chip-val {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 7ch;
+  max-width: 60%;
+  text-align: right;
+  font-size: 20px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: var(--sw-bg-bright);
+  border: 1.5px solid var(--sw-orange);
+  color: var(--sw-text);
+}
+html[data-pocket] .app.form .chip-val.chip-val-select { padding-right: 28px; }
+html[data-pocket] .app.form .chip-res { flex: 1 0 100%; font-size: 12px; margin-top: 2px; }
+/* Sliders and file pickers keep a stacked layout — a row squeezes them. */
+html[data-pocket] .app.form .chip:has(.chip-val-slider),
+html[data-pocket] .app.form .chip:has(.chip-val-filepicker) { flex-direction: column; align-items: stretch; }
+html[data-pocket] .app.form .chip:has(.chip-val-slider) .chip-val,
+html[data-pocket] .app.form .chip:has(.chip-val-filepicker) .chip-val { max-width: none; border: 0; background: transparent; padding: 0; text-align: left; }
+
+/* Results */
+html[data-pocket] .app.form #outputsPanel { position: static; background: transparent; border: 0; margin-top: 4px; }
+html[data-pocket] .app.form #outChips .chip { background: var(--sw-bg-raised); }
+html[data-pocket] .app.form #outChips .chip-lbl { font-size: 14px; }
+html[data-pocket] .app.form #outChips .chip-out-row { flex: 0 1 auto; margin-left: auto; }
+html[data-pocket] .app.form #outChips .chip-out-val {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--sw-teal);
+}
+html[data-pocket] .app.form #outChips .chip-out-val .u { font-weight: 400; font-size: 15px; }
+html[data-pocket] .app.form .chip-copy { min-width: 44px; min-height: 36px; font-size: 11px; }
+html[data-pocket] .app.form .show-source { margin: 6px 14px; }
+html[data-pocket] .app.form .show-source-btn { min-height: 44px; font-size: 12px; }
+
+/* Exported viewer footer: credit line + an optional Share (viewer-main.js). */
+html[data-pocket] .viewer-footer {
+  padding: 12px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 8px;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sw-sans);
+  font-size: 13px;
+}
+.viewer-share-btn { display: none; }
+html[data-pocket] .viewer-share-btn {
+  display: inline-flex;
+  flex: 1 1 100%;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  border-radius: 9px;
+  border: 0;
+  background: var(--sw-orange);
+  color: #fff;
+  font: 600 15px var(--sw-sans);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+/* A chip result that merely repeats the typed value adds nothing — hide
+ * it on every form factor (render.js tags it `.echo`). */
+.chip-res.echo { display: none; }

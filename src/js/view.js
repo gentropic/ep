@@ -4,6 +4,7 @@
 import { state } from './state.js';
 import { isPocket } from './viewport.js';
 import { isTutorialDone, markTutorialDone } from './tutorial.js';
+import { newProgram } from './storage.js';
 
 const app           = document.getElementById('app');
 const paramsPanel   = document.getElementById('paramsPanel');
@@ -38,7 +39,8 @@ export function applyFormView() {
   app.classList.toggle('form',       state.ui.formView);
   app.classList.toggle('body-shown', state.ui.formView && state.ui.showSource);
   formBtn.classList.toggle('on', state.ui.formView);
-  formBtn.textContent = state.ui.formView ? 'editor' : 'form';
+  // Pocket shows this button only in form view, as the way back.
+  formBtn.textContent = state.ui.formView ? (isPocket() ? 'edit' : 'editor') : 'form';
   showSourceBtn.textContent = state.ui.showSource
     ? 'hide calculation ▴'
     : 'show calculation ▾';
@@ -60,13 +62,13 @@ function ensurePocketHint() {
   el.className = 'pocket-hint';
   el.innerHTML =
     '<span class="pocket-hint-star" aria-hidden="true">✦</span>' +
-    '<span><b>A calculator you write.</b> Touch a number.</span>' +
+    '<span class="pocket-hint-text"><b>A calculator you write.</b> Touch a number.</span>' +
+    '<button class="pocket-hint-empty">Empty sheet</button>' +
     '<button class="pocket-hint-x" aria-label="dismiss hint">✕</button>';
-  el.querySelector('.pocket-hint-x').addEventListener('click', () => {
-    el.remove();
-    pocketHintEl = null;
-    markTutorialDone();
-  });
+  const done = () => { el.remove(); pocketHintEl = null; markTutorialDone(); };
+  el.querySelector('.pocket-hint-x').addEventListener('click', done);
+  // The other first-run exit: skip the worked example and start clean.
+  el.querySelector('.pocket-hint-empty').addEventListener('click', () => { done(); newProgram(); });
   bodyHost.parentElement.insertBefore(el, bodyHost);
   pocketHintEl = el;
   return el;

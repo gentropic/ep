@@ -2240,7 +2240,13 @@ function renderChipResults() {
       p._resEl.title = p.error;
     } else if (p.result) {
       const [n, u] = fmt(p.result);
-      p._resEl.className = 'chip-res';
+      // When the formatted result is just the input text read back
+      // (`200 m` under a chip that says `200 m`), it carries no
+      // information — tag it so CSS can drop the echo. A conversion or
+      // auto-scale (`150 lb` → `68.04 kg`) still shows.
+      const shown = (n + (u ? ' ' + u : '')).replace(/\s+/g, ' ').trim();
+      const typed = String(p.valueSrc || '').replace(/\s+/g, ' ').trim();
+      p._resEl.className = 'chip-res' + (shown === typed ? ' echo' : '');
       p._resEl.innerHTML = n + (u ? ` <span class="u">${u}</span>` : '');
       p._resEl.title = chipTooltip(p.result);
     } else {
@@ -2255,7 +2261,9 @@ export function renderResults() {
   renderChipResults();
   renderOutputs();
   applyErrorMarks();
-  renderVarChips();
+  // The viewer bundle has no accessory.js (no keyboard row to feed), so
+  // in the flat build this is a free identifier there — guard by type.
+  if (typeof renderVarChips === 'function') renderVarChips();
 }
 
 // Per-line gutter unit-override menu. Opens when the user clicks a result
@@ -2277,7 +2285,7 @@ function openGutterUnitMenu(lineIdx, x, y) {
     try { txt = fmt(q).filter(Boolean).join(' '); } catch { /* non-formattable */ }
     if (txt) items.push({ label: `copy  ${txt}`, action: () => { copyToClipboard(txt).catch(() => {}); } });
   }
-  if (row.name) items.push({ label: `insert  ${row.name}`, action: () => insertAtCursor(row.name) });
+  if (row.name && typeof insertAtCursor === 'function') items.push({ label: `insert  ${row.name}`, action: () => insertAtCursor(row.name) });
   const candidates = (row.name && q && q.dim) ? getCompatibleUnits(q.dim) : [];
   if (!candidates.length) {
     if (items.length) showMenu(items, x, y);
@@ -2878,13 +2886,16 @@ function ensureOutputsExportBtn(panel) {
   let btn = document.getElementById('outExportBtn');
   if (btn) return btn;
   const hdr = panel.querySelector('.panel-hdr');
+  // The viewer template's outputs header has no chevron (nothing to
+  // collapse there); appendChild(null) would throw and abort the whole
+  // first render of an exported form.
   const chevron = hdr.querySelector('.chevron');
   let right = hdr.querySelector('.panel-hdr-right');
   if (!right) {
     right = document.createElement('span');
     right.className = 'panel-hdr-right';
     hdr.insertBefore(right, chevron);
-    right.appendChild(chevron);
+    if (chevron) right.appendChild(chevron);
   }
   btn = document.createElement('button');
   btn.id = 'outExportBtn';

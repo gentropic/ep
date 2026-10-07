@@ -78,6 +78,32 @@ if (editLink && includeEdit) {
   if (sep && sep.classList.contains('viewer-footer-sep')) sep.style.display = 'none';
 }
 
+// Phone (SPEC-pocket §3.6): a Share button in the footer hands this very
+// file onward through the system share sheet — the recipient's natural
+// "send it to the next person" gesture. Only where the browser can share
+// files; CSS shows it only under html[data-pocket]. The document's own
+// outerHTML is the payload, so what they get is exactly this form with
+// its current source (the STATE block is the baked program, not live
+// chip edits — same contract as ep's own export).
+(function wireViewerShare() {
+  const footer = document.querySelector('.viewer-footer');
+  if (!footer || !navigator.canShare) return;
+  let ok = false;
+  try { ok = navigator.canShare({ files: [new File(['x'], 'p.html', { type: 'text/html' })] }); } catch { ok = false; }
+  if (!ok) return;
+  const btn = document.createElement('button');
+  btn.className = 'viewer-share-btn';
+  btn.textContent = 'Share this form';
+  btn.addEventListener('click', async () => {
+    const name = ((typeof INITIAL_STATE !== 'undefined' && INITIAL_STATE.name) || 'form') + '.html';
+    const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    try {
+      await navigator.share({ files: [new File([html], name, { type: 'text/html' })], title: name.replace(/\.html$/, '') });
+    } catch { /* dismissed */ }
+  });
+  footer.prepend(btn);
+})();
+
 // "Show calculation" toggle — read-only source reveal. The recipient can
 // inspect the program without an editor; chips remain the only interaction
 // surface. The source gets a small regex-based syntax highlight pass so it

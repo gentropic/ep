@@ -108,6 +108,24 @@ try {
   await page.waitForTimeout(150);
   check(!(await page.evaluate(() => document.getElementById('scrim').classList.contains('on'))), 'Escape did not close the export dialog');
 
+  // Form view on the phone (SPEC-pocket §3.6): one input card per row,
+  // outputs static (not the fixed strip), the way back labelled "edit".
+  await page.evaluate(() => document.getElementById('formBtn').click());
+  await page.waitForTimeout(250);
+  const fv = await page.evaluate(() => ({
+    cols: getComputedStyle(document.getElementById('chips')).gridTemplateColumns.trim().split(/\s+/).length,
+    outPos: getComputedStyle(document.getElementById('outputsPanel')).position,
+    formLabel: document.getElementById('formBtn').textContent.trim(),
+    formVisible: getComputedStyle(document.getElementById('formBtn')).display !== 'none',
+    chipCards: document.querySelectorAll('#chips .chip').length,
+  }));
+  check(fv.cols === 1, `form chips should be one column, got ${fv.cols}`);
+  check(fv.outPos === 'static', `form outputs panel should be static, got ${fv.outPos}`);
+  check(fv.formVisible && fv.formLabel === 'edit', `form-view back button is "${fv.formLabel}" (visible: ${fv.formVisible})`);
+  check(fv.chipCards === 3, `expected 3 input cards in form view, got ${fv.chipCards}`);
+  await page.evaluate(() => document.getElementById('formBtn').click());
+  await page.waitForTimeout(200);
+
   // Acceptance expression from SPEC-pocket §3.2.
   await page.evaluate(() => {
     const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));

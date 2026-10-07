@@ -10,8 +10,11 @@ export function loadPrelude(registry) {
   registry.define('tonne',      { dim: {mass: 1}, mul: 1e6,    shortAliases: ['t']   });
   registry.define('kilotonne',  { dim: {mass: 1}, mul: 1e9,    shortAliases: ['kt']  });
   registry.define('megatonne',  { dim: {mass: 1}, mul: 1e12,   shortAliases: ['Mt']  });
-  registry.define('ounce',      { dim: {mass: 1}, mul: 28.3495,shortAliases: ['oz']  });
-  registry.define('troy_ounce', { dim: {mass: 1}, mul: 31.1035,shortAliases: ['ozt'] });
+  // Customary / trade ounces are input-only like lb and st: auto-scale
+  // must not turn 750 g into "24.1 ozt" or "26.5 oz". Explicit `-> ozt`
+  // and the unit pickers still reach them.
+  registry.define('ounce',      { dim: {mass: 1}, mul: 28.3495,shortAliases: ['oz'],  inputOnly: true });
+  registry.define('troy_ounce', { dim: {mass: 1}, mul: 31.1035,shortAliases: ['ozt'], inputOnly: true });
 
   // SI base canonicals. Mass: gram is canonical (ep convention); SI base is
   // kilogram but gram is more convenient at calculator scale.

@@ -24,7 +24,7 @@
 // calls. Values are per-evaluation (fresh Map every time) so chip edits
 // don't accumulate stale bindings in the host.
 
-import { dEq, dMul, dDiv, fmtDim, setDispResolver } from './units.js';
+import { dEq, dMul, dDiv, dEmpty, fmtDim, setDispResolver } from './units.js';
 import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
 import { traceBlame } from './blame.js';
 
@@ -722,6 +722,31 @@ function evalExprText(text, env) {
   return evalValueExpr(ast.decls[0].expr, env);
 }
 
+// Echo the unit the user wrote. Numbat prints `150 lb` as `150 lb`; ep's
+// canonical-value model used to auto-scale it to `68.04 kg`, which on a
+// calculator whose first job is conversions reads as the tool second-
+// guessing you. When a statement is exactly `<number> <unit expression>`
+// and the unit resolves to the value's dimension, tag the result with it
+// (the same pre-resolved display tag `->` uses). Arithmetic drops the tag,
+// as in Numbat, so `2 * (150 lb)` still auto-scales.
+const WRITTEN_UNIT_RE = /^\s*[+-]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*([A-Za-zµμ°Ω%][^\s()+\-*,>]*(?:\s*\/\s*[A-Za-zµμ°Ω][^\s()+\-*,>]*)?)\s*$/;
+function tagWrittenUnit(q, exprText, env) {
+  if (!q || Object.getPrototypeOf(q) !== Quantity.prototype || q.disp) return q;
+  const m = WRITTEN_UNIT_RE.exec(exprText || '');
+  if (!m) return q;
+  const unitText = m[1].replace(/\s+/g, '');
+  // A user binding that happens to share a unit's name (`t = 5 kg; 3 t`)
+  // means the identifier was a variable, not a unit — leave it alone.
+  if (env && env.values && env.values.has(unitText)) return q;
+  let spec;
+  try { spec = resolveUnitExpression(unitText); } catch { return q; }
+  if (!spec || !dEq(spec.dim, q.dim)) return q;
+  // Dimensionless: only genuine registry units (%, ppm) tag; `2 pi`
+  // evaluates fine as a "unit expression" but pi is not a unit.
+  if (dEmpty(q.dim) && !host().registry.resolve(unitText)) return q;
+  return new Quantity(q.value, q.dim, { mul: spec.mul, name: spec.displayName });
+}
+
 // Typecheck the AST for one ep statement. Records any errors into
 // `outErrorsByLine` keyed by the originating body row. `srcLineOffset`
 // is the row index where the statement starts in the body, used to map
@@ -987,7 +1012,7 @@ export function evaluate(body) {
 
       let q = null, err = null;
       try {
-        q = evalExprText(c.expr, env);
+        q = tagWrittenUnit(evalExprText(c.expr, env), c.expr, env);
         if (c.anno) {
           const expected = parseAnno(c.anno);
           if (!dEq(expected, q.dim)) {
@@ -1146,7 +1171,7 @@ export function evaluate(body) {
 
     if (c.kind === 'expr') {
       try {
-        const q = evalExprText(c.expr, env);
+        const q = tagWrittenUnit(evalExprText(c.expr, env), c.expr, env);
         row.result = q;
         // Auto-render: a bare expression whose final value is a Plot
         // emits to plotsByRow so the inline block widget picks it up.

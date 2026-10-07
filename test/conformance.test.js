@@ -156,9 +156,10 @@ const CORPUS = [
   { name: 'interp: bare value',          source: 'let x = 42\n"answer is {x}"', text: 'answer is 42' },
   { name: 'interp: arith',               source: '"{2 + 3 * 4}"',     text: '14' },
   { name: 'interp: double-brace literal',source: '"{{not interp}}"',  text: '{not interp}' },
-  // 60 mph canonicalizes to ~26.8 m/s; the formatter auto-scales to
-  // the SI base when no disp tag is set. Single-unit `-> name` sets disp.
-  { name: 'interp: quantity auto-scaled', source: 'let v = 60 mph\n"v = {v}"',         text: /v = .*m\/s/ },
+  // A literal written with a unit echoes that unit (as upstream Numbat
+  // prints it); only derived values auto-scale. `-> name` sets disp.
+  { name: 'interp: written unit echoed',  source: 'let v = 60 mph\n"v = {v}"',         text: 'v = 60 mph' },
+  { name: 'interp: derived auto-scaled',  source: 'let v = 60 mph * 2\n"v = {v}"',     text: /v = .*m\/s/ },
   { name: 'interp: inline conversion',    source: 'let h = 500 m\n"h = {h -> ft}"',    text: /h = .* ft/ },
   { name: 'interp: format .3',           source: '"pi = {pi:.3}"',    text: 'pi = 3.14' },
   { name: 'interp: format n2',           source: '"x = {1/3:n2}"',    text: 'x = 0.33' },
