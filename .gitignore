@@ -47,3 +47,6 @@ CLAUDE.md
 # Commit-message tempfiles (see workflow note in CLAUDE.md)
 .commit-msg.tmp
 .commit-msg.*
+
+# design specs and proposals drafted externally — never committed
+spec_inbox/
