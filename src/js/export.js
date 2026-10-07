@@ -5,8 +5,11 @@
 import { state } from './state.js';
 import { currentProgramName } from './storage.js';
 import { generateShareUrl, generateShareUrlForQR, qrSvgFor } from './share.js';
+import { isPocket, dismissKeyboard } from './viewport.js';
 
 const scrim         = document.getElementById('scrim');
+const exportDlgTitle = document.getElementById('exportDlgTitle');
+const shareFileBtn  = document.getElementById('shareFileBtn');
 const exportBtn     = document.getElementById('exportBtn');
 const cancelBtn     = document.getElementById('cancelBtn');
 const dlEpBtn       = document.getElementById('dlEpBtn');
@@ -25,7 +28,20 @@ export function serializeProgram() {
   return state.body.map(r => r.src).join('\n');
 }
 
+// Can this browser hand a file to the system share sheet? (Android Chrome
+// yes; desktop mostly no; WebView never — the lead-acid shell door is the
+// R2 answer there.) Checked once; the Share button shows only when true.
+function canShareFiles() {
+  try {
+    if (!navigator.canShare) return false;
+    const probe = new File(['x'], 'probe.html', { type: 'text/html' });
+    return navigator.canShare({ files: [probe] });
+  } catch { return false; }
+}
+const _canShareFiles = canShareFiles();
+
 exportBtn.addEventListener('click', () => {
+  dismissKeyboard();
   exportSrcEl.textContent = serializeProgram();
   exportNameEl.value = currentProgramName || 'program';
   // Hide the share preview from any previous use — re-shows on link click
@@ -33,10 +49,17 @@ exportBtn.addEventListener('click', () => {
   shareUrlEl.value = '';
   shareLenEl.textContent = '';
   shareQrEl.innerHTML = '';
+  // On a phone the dialog is a bottom sheet and export IS "make this a
+  // form" (SPEC-pocket §3.6) — say so.
+  if (exportDlgTitle) exportDlgTitle.textContent = isPocket() ? 'Make this a form' : 'Export ep program';
+  if (shareFileBtn) shareFileBtn.style.display = _canShareFiles ? '' : 'none';
   scrim.classList.add('on');
 });
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
 scrim.addEventListener('click', e => { if (e.target === scrim) scrim.classList.remove('on'); });
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && scrim.classList.contains('on')) scrim.classList.remove('on');
+});
 
 dlEpBtn.addEventListener('click', () => {
   const text = serializeProgram();
@@ -45,13 +68,15 @@ dlEpBtn.addEventListener('click', () => {
   scrim.classList.remove('on');
 });
 
-dlHtmlBtn.addEventListener('click', () => {
-  // Use the prebuilt viewer artifact (~280 KB) instead of self-cloning the
-  // full editor (~1.3 MB). The viewer has no CM6, no drawer, no share — it
-  // just renders the chips and recomputes outputs. Source view is locked.
+// Build the exported form: the prebuilt viewer artifact (~280 KB) with
+// its INITIAL_STATE block swapped for this program, instead of self-cloning
+// the full editor (~1.3 MB). The viewer has no CM6, no drawer, no share —
+// it just renders the chips and recomputes outputs. Source view is locked.
+// Returns { html, name } or null when the viewer constant is unavailable.
+function buildExportHtml() {
   if (typeof VIEWER_HTML !== 'string' || !VIEWER_HTML.includes('MARKER:STATE_START')) {
     console.error('ep: VIEWER_HTML constant is missing or malformed; aborting .html export.');
-    return;
+    return null;
   }
   const newState = {
     name: exportNameEl.value || currentProgramName || 'program',
@@ -71,14 +96,39 @@ dlHtmlBtn.addEventListener('click', () => {
     assets: state.assets || {},
   };
   const stateJs = 'const INITIAL_STATE = ' + JSON.stringify(newState, null, 2) + ';';
-  const newHtml = VIEWER_HTML.replace(
+  const html = VIEWER_HTML.replace(
     /\/\* MARKER:STATE_START \*\/[\s\S]*?\/\* MARKER:STATE_END \*\//,
     `/* MARKER:STATE_START */\n${stateJs}\n/* MARKER:STATE_END */`
   );
   const name = (exportNameEl.value || 'program') + '.html';
-  downloadFile(newHtml, name, 'text/html');
+  return { html, name };
+}
+
+dlHtmlBtn.addEventListener('click', () => {
+  const out = buildExportHtml();
+  if (!out) return;
+  downloadFile(out.html, out.name, 'text/html');
   scrim.classList.remove('on');
 });
+
+// Share the form itself (not a link) through the system share sheet —
+// the phone's natural "send this to someone" gesture. Only wired where
+// navigator.canShare accepts files.
+if (shareFileBtn) {
+  shareFileBtn.addEventListener('click', async () => {
+    const out = buildExportHtml();
+    if (!out) return;
+    try {
+      const file = new File([out.html], out.name, { type: 'text/html' });
+      await navigator.share({ files: [file], title: out.name.replace(/\.html$/, '') });
+      scrim.classList.remove('on');
+    } catch (e) {
+      // AbortError = user dismissed the sheet; anything else, fall back
+      // to a plain download so the gesture still produces the file.
+      if (!e || e.name !== 'AbortError') downloadFile(out.html, out.name, 'text/html');
+    }
+  });
+}
 
 copySrcBtn.addEventListener('click', async () => {
   const text = serializeProgram();

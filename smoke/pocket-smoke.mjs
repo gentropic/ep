@@ -90,6 +90,24 @@ try {
   check(!s.pip && !s.form, 'PiP / form buttons visible in pocket mode');
   check(s.file === 'weekend_hike', `demo sheet is "${s.file}"`);
 
+  // Bottom sheets (SPEC-pocket §3.1): drawer and export dialog open from
+  // the bottom edge, full width; Escape closes the export dialog.
+  await page.click('#menuBtn');
+  await page.waitForTimeout(350);
+  const dr = await page.evaluate(() => { const r = document.getElementById('drawer').getBoundingClientRect(); return { top: r.top, w: r.width, bottom: r.bottom, vw: innerWidth, vh: innerHeight }; });
+  check(dr.w >= dr.vw - 1 && dr.top > dr.vh * 0.05 && Math.abs(dr.bottom - dr.vh) < 2, `drawer is not a bottom sheet: ${JSON.stringify(dr)}`);
+  await page.click('#drawerCloseBtn');
+  await page.waitForTimeout(300);
+  await page.click('#exportBtn');
+  await page.waitForTimeout(250);
+  const dl = await page.evaluate(() => { const r = document.querySelector('#scrim .dialog').getBoundingClientRect(); return { w: r.width, bottom: r.bottom, vw: innerWidth, vh: innerHeight, title: document.getElementById('exportDlgTitle').textContent, preview: getComputedStyle(document.getElementById('exportSrc')).display }; });
+  check(dl.w >= dl.vw - 1 && Math.abs(dl.bottom - dl.vh) < 2, `export dialog is not a bottom sheet: ${JSON.stringify(dl)}`);
+  check(dl.title === 'Make this a form', `export sheet title is "${dl.title}"`);
+  check(dl.preview === 'none', 'source preview still shown in the export sheet');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+  check(!(await page.evaluate(() => document.getElementById('scrim').classList.contains('on'))), 'Escape did not close the export dialog');
+
   // Acceptance expression from SPEC-pocket §3.2.
   await page.evaluate(() => {
     const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));

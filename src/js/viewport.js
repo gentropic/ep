@@ -71,6 +71,15 @@ export function isDesktop() {
   return currentBand() === 'desktop';
 }
 
+// One input surface at a time (SPEC-pocket §3.1): when a sheet opens on
+// the phone, drop focus so the system keyboard goes away. No-op outside
+// pocket mode and when nothing focusable is active.
+export function dismissKeyboard() {
+  if (!isPocket()) return;
+  const a = document.activeElement;
+  if (a && a !== document.body && typeof a.blur === 'function') a.blur();
+}
+
 // ── Keyboard inset tracking (mobile) ────────────────────────────────
 //
 // On iOS Safari (and some Android setups), the virtual keyboard

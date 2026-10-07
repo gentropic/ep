@@ -6,6 +6,7 @@
 // Tap an example → load it via examples.js and dismiss both panels.
 
 import { getExamples, loadExample } from './examples.js';
+import { dismissKeyboard } from './viewport.js';
 
 const epPanel    = document.getElementById('examplesPanel');
 const epOpenBtn  = document.getElementById('openExamplesBtn');
@@ -14,6 +15,7 @@ const epListEl   = document.getElementById('examplesList');
 
 export function openExamples() {
   if (!epPanel) return;
+  dismissKeyboard();
   renderExamplesList();
   epPanel.classList.add('on');
   epPanel.setAttribute('aria-hidden', 'false');

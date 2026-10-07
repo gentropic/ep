@@ -15,6 +15,7 @@ import { evaluateAll } from './state.js';
 import { epConfirm } from './dialogs.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
 import { formatCurrentProgram } from './format-cmd.js';
+import { dismissKeyboard } from './viewport.js';
 import { idbReplaceAllPrograms } from './idb.js';
 import { checkForUpdateNow, getLastUpdateCheck, syncAutoCheckSetting } from './update-check.js';
 
@@ -79,6 +80,7 @@ const samplesNControl           = document.getElementById('samplesNControl');
 
 export function openSettings() {
   if (!panel) return;
+  dismissKeyboard();
   renderControls();
   panel.classList.add('on');
   panel.setAttribute('aria-hidden', 'false');

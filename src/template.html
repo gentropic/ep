@@ -465,10 +465,10 @@
 
 <div class="scrim" id="scrim">
   <div class="dialog">
-    <div class="dialog-hdr">Export ep program</div>
+    <div class="dialog-hdr" id="exportDlgTitle">Export ep program</div>
     <div class="dialog-body">
-      <p>This program will be packaged as either plain ep-script source or a standalone HTML file — single file, no runtime dependencies, opens to form view by default.</p>
-      <p style="font-size:11px; color:var(--sw-text-soft);">ep-script syntax inspired by <strong>Numbat</strong> (David Peter, MIT). The exported source is largely Numbat-compatible.</p>
+      <p class="export-blurb">This program will be packaged as either plain ep-script source or a standalone HTML file — single file, no runtime dependencies, opens to form view by default.</p>
+      <p class="export-blurb" style="font-size:11px; color:var(--sw-text-soft);">ep-script syntax inspired by <strong>Numbat</strong> (David Peter, MIT). The exported source is largely Numbat-compatible.</p>
       <div class="dialog-row">
         <label>name</label>
         <input id="exportName" value="ore_body">
@@ -476,8 +476,8 @@
       <div class="dialog-row dialog-checkbox-row">
         <label><input type="checkbox" id="exportIncludeEditLink" checked> include "modify this calculation" link in viewer</label>
       </div>
-      <p style="margin-top:14px"><strong>Program source preview</strong></p>
-      <div class="dialog-src" id="exportSrc"></div>
+      <p class="export-preview" style="margin-top:14px"><strong>Program source preview</strong></p>
+      <div class="dialog-src export-preview" id="exportSrc"></div>
       <div class="share-row" id="shareRow" style="display:none;">
         <div class="share-meta"><strong>Share link</strong> <span class="share-len" id="shareLen"></span></div>
         <input class="share-url" id="shareUrl" readonly>
@@ -490,6 +490,7 @@
       <button class="btn" id="shareBtn">🔗 link</button>
       <button class="btn" id="dlEpBtn">↓ .ep</button>
       <button class="btn primary" id="dlHtmlBtn">↓ .html</button>
+      <button class="btn primary" id="shareFileBtn" style="display:none" title="Send the form through the system share sheet">Share</button>
     </div>
   </div>
 </div>

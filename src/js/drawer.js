@@ -5,7 +5,7 @@
 import { readStore, currentProgramName, loadProgramByName, newProgram, programDescription, formatAgo, getSetting, setSetting, listSnapshots, restoreSnapshot, pinSnapshot, deleteSnapshot, takeSnapshot } from './storage.js';
 import { openProgramMenu } from './ctxmenu.js';
 import { attachLongPress, closeMenu, showMenu } from './menu.js';
-import { isDesktop } from './viewport.js';
+import { isDesktop, isPocket, dismissKeyboard } from './viewport.js';
 import { epConfirm, epPrompt } from './dialogs.js';
 import { DOCS, DOC_GROUPS } from './docs.js';
 import { GUIDES, renderMarkdown } from './guides.js';
@@ -117,6 +117,7 @@ function updateDrawerInert() {
 }
 
 export function openDrawer({focusSearch = false} = {}) {
+  dismissKeyboard();
   drawer.classList.add('on');
   drawerScrim.classList.add('on');
   updateDrawerInert();
@@ -904,6 +905,9 @@ function clearInline() {
 drawer.addEventListener('touchstart', e => {
   if (!drawer.classList.contains('on')) return;
   if (e.touches.length !== 1) return;
+  // Pocket mode: the drawer is a bottom sheet, so the horizontal
+  // swipe-to-close gesture (and its translateX inline styles) don't apply.
+  if (isPocket()) return;
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea') return;
   dragActive = true;

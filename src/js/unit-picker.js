@@ -78,6 +78,11 @@ export function openUnitPicker() {
   render();
   upSheet.classList.add('on');
   if (upScrim) upScrim.classList.add('on');
+  // The view yields (SPEC-pocket §3.1): publish the sheet's height so the
+  // pocket layout can pad the editor and keep the cursor line visible
+  // above the sheet while units are being picked. The transform doesn't
+  // affect layout, so offsetHeight is right immediately.
+  document.documentElement.style.setProperty('--ep-sheet-inset', upSheet.offsetHeight + 'px');
   // Don't auto-focus the search input on mobile — opening the keyboard
   // immediately would push the sheet up and feel jumpy. Desktop users
   // can click in if they want to type-filter.
@@ -87,6 +92,7 @@ export function closeUnitPicker() {
   if (!upSheet) return;
   upSheet.classList.remove('on');
   if (upScrim) upScrim.classList.remove('on');
+  document.documentElement.style.setProperty('--ep-sheet-inset', '0px');
 }
 
 function makePill(u, extraClass = '') {

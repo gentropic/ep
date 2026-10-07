@@ -3290,3 +3290,123 @@ html[data-pocket] .body .cm-content .cm-ep-deco-line {
 html[data-pocket] .body .cm-content .cm-ep-deco-line .cm-ep-decorator,
 html[data-pocket] .body .cm-content .cm-ep-deco-line span { font-family: inherit; font-size: inherit; letter-spacing: inherit; }
 html[data-pocket] .body .ep-result-gutter .ep-gutter-result.deco { visibility: hidden; }
+
+/* Pocket slice 3 — everything else is a bottom sheet (SPEC-pocket §3.1).
+ * The drawer, the sub-page panels (settings / examples / snapshots) and
+ * the dialogs all re-home to the bottom edge with a rounded top and a
+ * drag handle; the editor yields to the unit sheet via --ep-sheet-inset. */
+html[data-pocket] .app {
+  padding-bottom: calc(var(--ep-acc-h, 96px) + var(--ep-outs-h, 0px) + var(--ep-sighelp-h, 0px) + var(--ep-sheet-inset, 0px));
+}
+html[data-pocket] .app.no-accessory {
+  padding-bottom: calc(var(--ep-outs-h, 0px) + var(--ep-sighelp-h, 0px) + var(--ep-sheet-inset, 0px));
+}
+
+/* Shared sheet handle */
+html[data-pocket] .drawer::before,
+html[data-pocket] .settings-panel::before,
+html[data-pocket] .scrim .dialog::before,
+html[data-pocket] .unit-sheet::before {
+  content: '';
+  display: block;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--sw-border);
+  margin: 8px auto 2px;
+}
+
+/* Drawer → bottom sheet */
+html[data-pocket] .drawer {
+  top: auto;
+  left: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 84vh;
+  max-height: 84vh;
+  border-right: 0;
+  border-top: 1px solid var(--sw-border);
+  border-radius: 18px 18px 0 0;
+  transform: translateY(100%);
+  transition: transform 220ms ease;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.3);
+}
+html[data-pocket] .drawer.on { transform: translateY(0); }
+html[data-pocket] .drawer-hdr { padding-top: 4px; }
+html[data-pocket] #drawerCloseBtn { width: 44px; height: 44px; padding: 0 !important; }
+html[data-pocket] .drawer-mode-btn { min-height: 44px; }
+html[data-pocket] .drawer-action { min-height: 48px; }
+
+/* Sub-page panels (settings / examples / snapshots) → tall bottom sheets */
+html[data-pocket] .settings-panel {
+  top: auto;
+  left: 0; right: 0; bottom: 0;
+  height: 90vh;
+  border-top: 1px solid var(--sw-border);
+  border-radius: 18px 18px 0 0;
+  transform: translateY(100%);
+  transition: transform 220ms ease;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.3);
+}
+html[data-pocket] .settings-panel.on { transform: translateY(0); }
+html[data-pocket] .settings-hdr { padding-top: 4px; }
+html[data-pocket] .settings-back { width: 44px; height: 44px; font-size: 18px; }
+html[data-pocket] .settings-title { font-size: 12px; }
+html[data-pocket] .settings-row { padding: 14px 12px; }
+/* The pill rows (sig digits, samples…) wrap under their label on a phone
+ * instead of crushing the label into a one-word column. */
+html[data-pocket] .settings-row { flex-wrap: wrap; }
+html[data-pocket] .settings-row-control { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+html[data-pocket] .settings-row-control .pill,
+html[data-pocket] .settings-row-control button { min-height: 40px; }
+
+/* Dialogs (export, confirm, prompt) → bottom sheets */
+html[data-pocket] .scrim { align-items: flex-end; padding: 0; }
+html[data-pocket] .scrim .dialog {
+  max-width: none !important;
+  max-height: 88vh;
+  border: 0;
+  border-top: 1px solid var(--sw-border);
+  border-radius: 18px 18px 0 0;
+  background: var(--sw-bg-raised);
+}
+html[data-pocket] .dialog-hdr {
+  background: transparent;
+  border-bottom: 0;
+  padding: 6px 16px 4px;
+  font-family: var(--sw-sans);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--sw-text);
+}
+html[data-pocket] .dialog-body { font-size: 14px; padding: 8px 16px 12px; }
+html[data-pocket] .export-blurb,
+html[data-pocket] .export-preview { display: none; }
+html[data-pocket] .dialog-row label { font-family: var(--sw-sans); font-size: 12px; letter-spacing: 0.08em; }
+html[data-pocket] .dialog-row input { font-size: 16px; padding: 10px 12px; border-radius: 8px; }
+html[data-pocket] .dialog-row.dialog-checkbox-row label { font-size: 14px; }
+html[data-pocket] .dialog-row.dialog-checkbox-row input[type="checkbox"] { width: 20px; height: 20px; }
+html[data-pocket] .dialog-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: transparent;
+}
+html[data-pocket] .dialog-actions .btn {
+  flex: 1 1 28%;
+  min-height: 48px;
+  order: 2;
+  font-family: var(--sw-sans);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  border-radius: 9px;
+}
+/* Primary actions take a full row at the top; Share leads when present. */
+html[data-pocket] .dialog-actions .btn.primary { flex: 1 1 100%; order: 1; }
+html[data-pocket] .dialog-actions #shareFileBtn { order: 0; }
+html[data-pocket] .dialog-actions #cancelBtn,
+html[data-pocket] .dialog-actions #modalCancelBtn { order: 3; flex: 1 1 100%; background: transparent; border-color: transparent; color: var(--sw-text-mid); }
