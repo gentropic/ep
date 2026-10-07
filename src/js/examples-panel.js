@@ -5,7 +5,7 @@
 //
 // Tap an example → load it via examples.js and dismiss both panels.
 
-import { getExamples, loadExample } from './examples.js';
+import { getExampleGroups, loadExample } from './examples.js';
 import { dismissKeyboard } from './viewport.js';
 
 const epPanel    = document.getElementById('examplesPanel');
@@ -30,28 +30,44 @@ export function closeExamples() {
 function renderExamplesList() {
   if (!epListEl) return;
   epListEl.innerHTML = '';
-  for (const ex of getExamples()) {
-    const row = document.createElement('div');
-    row.className = 'settings-row examples-row';
-    row.style.cursor = 'pointer';
-    const info = document.createElement('div');
-    info.className = 'settings-row-label';
-    const nameEl = document.createElement('div');
-    nameEl.textContent = ex.name;
-    info.appendChild(nameEl);
-    if (ex.desc) {
-      const descEl = document.createElement('div');
-      descEl.className = 'settings-row-hint';
-      descEl.textContent = ex.desc;
-      info.appendChild(descEl);
+  // Grouped (everyday / science / field): the first section header
+  // replaces the panel's own "load an example" header text, the rest
+  // separate the groups.
+  let first = true;
+  for (const group of getExampleGroups()) {
+    if (!first) {
+      const hdr = document.createElement('div');
+      hdr.className = 'settings-section-hdr examples-group-hdr';
+      hdr.textContent = group.title;
+      epListEl.appendChild(hdr);
+    } else {
+      const panelHdr = epListEl.parentElement && epListEl.parentElement.querySelector('.settings-section-hdr');
+      if (panelHdr) panelHdr.textContent = group.title;
     }
-    row.appendChild(info);
-    row.addEventListener('click', () => {
-      loadExample(ex);
-      closeExamples();
-      window.dispatchEvent(new CustomEvent('ep:close-drawer'));
-    });
-    epListEl.appendChild(row);
+    first = false;
+    for (const ex of group.examples) {
+      const row = document.createElement('div');
+      row.className = 'settings-row examples-row';
+      row.style.cursor = 'pointer';
+      const info = document.createElement('div');
+      info.className = 'settings-row-label';
+      const nameEl = document.createElement('div');
+      nameEl.textContent = ex.name;
+      info.appendChild(nameEl);
+      if (ex.desc) {
+        const descEl = document.createElement('div');
+        descEl.className = 'settings-row-hint';
+        descEl.textContent = ex.desc;
+        info.appendChild(descEl);
+      }
+      row.appendChild(info);
+      row.addEventListener('click', () => {
+        loadExample(ex);
+        closeExamples();
+        window.dispatchEvent(new CustomEvent('ep:close-drawer'));
+      });
+      epListEl.appendChild(row);
+    }
   }
 }
 

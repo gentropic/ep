@@ -171,7 +171,7 @@ function rerender() {
   if (ds.length > PREVIEW_ROWS) {
     const more = document.createElement('div');
     more.className = 'attach-err';
-    more.style.color = 'var(--sw-text-soft)';
+    more.style.color = 'var(--au-fg-soft)';
     more.textContent = `… ${ds.length - PREVIEW_ROWS} more rows`;
     previewEl.appendChild(more);
   }

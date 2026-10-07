@@ -1,4 +1,23 @@
-/* Switchboard tokens */
+/* ── Switchboard tokens — the three-layer cascade ─────────────────────
+ *
+ * Layer 1, swatches (`--sw-*`): the raw palette. The ONLY thing a theme
+ * re-skins — light in :root (equipment gray), dark under
+ * [data-theme="dark"] (basalt). Nothing below the token block reads
+ * these directly.
+ * Layer 2, semantic (`--au-*`): the roles components read — surface,
+ * fg, action, info, warn, error, selected, success, fonts, radius, tap
+ * target, motion, z ladder. Mapped from swatches once; because both
+ * layers live on <html>, flipping data-theme re-themes everything.
+ * Layer 3, components: everything else in this file. Reads `--au-*`,
+ * never `--sw-*`, never literal hex for a themed colour.
+ *
+ * Canon: auditable/ext/switchboard/SPEC.md §6.0 / §11. ep keeps the
+ * pre-1.3.0 swatch names (teal / amber / indigo) — the semantic names are
+ * the contract, the swatch names are implementation.
+ *
+ * First paint: template.html sets data-theme before the stylesheet
+ * parses (localStorage preference, else prefers-color-scheme), so there
+ * is no light→dark flash and no @media duplicate of the dark block. */
 :root {
   --sw-bg-deep:     #C2C1BE;
   --sw-bg:          #D2D1CE;
@@ -14,14 +33,60 @@
   --sw-amber:       #8E6518;
   --sw-red:         #A8312A;
   --sw-indigo:      #4E5580;
+  --sw-green:       #00602B;
   --sw-mono:        'Space Mono', 'JetBrains Mono', 'Consolas', monospace;
   --sw-sans:        'Barlow', system-ui, sans-serif;
   --sw-radius:      3px;
+  --sw-radius-lg:   8px;
+  --sw-tap:         44px;
+  --sw-dur-fast:    0.12s;
+  --sw-dur:         0.2s;
+  --sw-ease:        cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layer 2 — semantic roles. */
+  --au-surface-deep:   var(--sw-bg-deep);
+  --au-surface:        var(--sw-bg);
+  --au-surface-raised: var(--sw-bg-raised);
+  --au-surface-bright: var(--sw-bg-bright);
+  --au-fg:             var(--sw-text);
+  --au-fg-muted:       var(--sw-text-mid);
+  --au-fg-soft:        var(--sw-text-soft);
+  --au-border:         var(--sw-border);
+  --au-border-soft:    var(--sw-border-soft);
+  --au-rule:           var(--sw-border-soft);
+  --au-action:         var(--sw-orange);
+  --au-action-soft:    color-mix(in srgb, var(--sw-orange) 18%, transparent);
+  --au-info:           var(--sw-teal);
+  --au-info-soft:      color-mix(in srgb, var(--sw-teal) 14%, transparent);
+  --au-warn:           var(--sw-amber);
+  --au-warn-soft:      color-mix(in srgb, var(--sw-amber) 14%, transparent);
+  --au-error:          var(--sw-red);
+  --au-error-soft:     color-mix(in srgb, var(--sw-red) 10%, transparent);
+  --au-selected:       var(--sw-indigo);
+  --au-selected-soft:  color-mix(in srgb, var(--sw-indigo) 14%, transparent);
+  --au-success:        var(--sw-green);
+  --au-success-soft:   color-mix(in srgb, var(--sw-green) 14%, transparent);
+  --au-font-mono:      var(--sw-mono);
+  --au-font-sans:      var(--sw-sans);
+  --au-radius:         var(--sw-radius);
+  --au-radius-lg:      var(--sw-radius-lg);
+  --au-tap:            var(--sw-tap);
+  --au-dur-fast:       var(--sw-dur-fast);
+  --au-dur:            var(--sw-dur);
+  --au-ease:           var(--sw-ease);
+  /* z ladder — ep's existing literals map onto these bands:
+   * raised 30 (header) · dropdown 50 (accessory, menus) · overlay 55–70
+   * (drawer scrim, drawer, sheets) · modal 80 (dialogs, panels) · shield 90
+   * (update toast). Adopt per component when touched. */
+  --au-z-raised:       30;
+  --au-z-dropdown:     50;
+  --au-z-overlay:      60;
+  --au-z-modal:        80;
+  --au-z-shield:       90;
 }
-/* Dark theme overrides. Selected via [data-theme="dark"] on <html>, set
- * either by the user via Settings or by the boot-time matchMedia probe
- * (settings.js) when the stored preference is "auto". Mirrors the same
- * pattern used by auditable. */
+/* Dark theme — swatches only. Selected via [data-theme="dark"] on <html>,
+ * set by the first-paint script in template.html from the stored
+ * preference or prefers-color-scheme, and at runtime by settings.js. */
 [data-theme="dark"] {
   --sw-bg-deep:     #0E1012;
   --sw-bg:          #15171A;
@@ -37,14 +102,15 @@
   --sw-amber:       #C49540;
   --sw-red:         #D05048;
   --sw-indigo:      #7E86B8;
+  --sw-green:       #5CCB80;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overscroll-behavior: none; }
 body {
-  font-family: var(--sw-sans);
-  background: var(--sw-bg-deep);
-  color: var(--sw-text);
+  font-family: var(--au-font-sans);
+  background: var(--au-surface-deep);
+  color: var(--au-fg);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
@@ -56,9 +122,9 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--sw-bg);
-  border-left: 1px solid var(--sw-border);
-  border-right: 1px solid var(--sw-border);
+  background: var(--au-surface);
+  border-left: 1px solid var(--au-border);
+  border-right: 1px solid var(--au-border);
   /* When content (many chips, long source view, …) exceeds 100vh, scroll
    * the whole app rather than clipping. CM6's body keeps its own internal
    * scroll for its content; this kicks in only at the outer boundary. */
@@ -72,17 +138,17 @@ body {
   height: 8px !important;
 }
 *::-webkit-scrollbar-track {
-  background: var(--sw-bg-deep) !important;
+  background: var(--au-surface-deep) !important;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--sw-text-soft) !important;
+  background: var(--au-fg-soft) !important;
   border-radius: 4px !important;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--sw-text-mid) !important;
+  background: var(--au-fg-muted) !important;
 }
 *::-webkit-scrollbar-corner {
-  background: var(--sw-bg-deep) !important;
+  background: var(--au-surface-deep) !important;
 }
 *::-webkit-scrollbar-button {
   display: none !important;
@@ -96,8 +162,8 @@ body {
  * and scenarios strip but below the drawer (60) and panel sheets. */
 .hdr {
   padding: 9px 12px;
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -111,7 +177,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -119,12 +185,12 @@ body {
   flex: 1 1 auto;
 }
 .hdr-left .name {
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-weight: 700;
   flex: 0 0 auto;
 }
 .hdr-left .file {
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
   letter-spacing: 0;
   text-transform: none;
   font-size: 12px;
@@ -136,42 +202,42 @@ body {
 }
 .hdr-left .file::before {
   content: '· ';
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-right: 2px;
 }
-.hdr-left .file.ephemeral { color: var(--sw-text); }
+.hdr-left .file.ephemeral { color: var(--au-fg); }
 .hdr-left .file.ephemeral::before {
   content: '• ';
-  color: var(--sw-amber);
+  color: var(--au-warn);
   font-weight: 700;
 }
 .hdr-right { display: flex; gap: 4px; flex: 0 0 auto; }
 .hbtn {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  color: var(--sw-text-mid);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  color: var(--au-fg-muted);
   padding: 6px 9px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
 }
-.hbtn:active { background: var(--sw-bg-deep); }
-.hbtn.on { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
+.hbtn:active { background: var(--au-surface-deep); }
+.hbtn.on { background: var(--au-action); color: var(--au-surface-bright); border-color: var(--au-warn); }
 .hbtn.save-ephemeral-btn {
-  background: var(--sw-amber);
-  color: var(--sw-bg-bright);
-  border-color: var(--sw-amber);
+  background: var(--au-warn);
+  color: var(--au-surface-bright);
+  border-color: var(--au-warn);
 }
-.hbtn.save-ephemeral-btn:hover { background: var(--sw-orange); border-color: var(--sw-orange); }
+.hbtn.save-ephemeral-btn:hover { background: var(--au-action); border-color: var(--au-action); }
 
 /* Scenarios strip — horizontal chip scroller above the @params panel.
    Empty (display:none) unless the program has @params or saved scenarios. */
 .scenarios-strip {
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
   padding: 6px 8px;
   display: flex;
   gap: 5px;
@@ -181,57 +247,57 @@ body {
 }
 .scenarios-strip::-webkit-scrollbar { display: none !important; height: 0 !important; }
 .scenario-chip {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  color: var(--sw-text-mid);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  color: var(--au-fg-muted);
   padding: 5px 10px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
   white-space: nowrap;
   flex: 0 0 auto;
 }
 .scenario-chip:hover {
-  border-color: var(--sw-orange);
-  color: var(--sw-text);
+  border-color: var(--au-action);
+  color: var(--au-fg);
 }
 .scenario-chip.active {
-  background: var(--sw-orange);
-  color: var(--sw-bg-bright);
-  border-color: var(--sw-amber);
+  background: var(--au-action);
+  color: var(--au-surface-bright);
+  border-color: var(--au-warn);
 }
 .scenario-chip.add {
   border-style: dashed;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
 .scenario-chip.add:hover {
-  color: var(--sw-orange);
+  color: var(--au-action);
 }
 .scenario-chip.save {
   background: transparent;
-  border-color: var(--sw-amber);
-  color: var(--sw-amber);
+  border-color: var(--au-warn);
+  color: var(--au-warn);
 }
 .scenario-chip.save:hover {
-  background: var(--sw-amber);
-  color: var(--sw-bg-bright);
+  background: var(--au-warn);
+  color: var(--au-surface-bright);
 }
 
 /* Panel (params + outputs share this) */
 .panel {
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
   flex: 0 0 auto;
 }
 .panel.outputs {
   border-bottom: none;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
 }
 .panel-hdr {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 3px;
   text-transform: uppercase;
@@ -241,9 +307,9 @@ body {
   align-items: center;
   cursor: pointer;
   user-select: none;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
-.panel-hdr .at      { color: var(--sw-orange); }
+.panel-hdr .at      { color: var(--au-action); }
 .panel-hdr .meta    { font-size: 9px; }
 .panel-hdr .chevron { transition: transform 120ms; display: inline-block; }
 .panel.collapsed .panel-hdr .chevron { transform: rotate(-90deg); }
@@ -254,19 +320,19 @@ body {
 .panel-act {
   background: transparent;
   border: none;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font: inherit;
   font-size: 13px;
   line-height: 1;
   letter-spacing: normal;          /* override the header's 3px tracking */
   text-transform: none;
   padding: 2px 6px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
   transition: color 120ms, background 120ms;
 }
 .panel-act:hover,
-.panel-act:focus { color: var(--sw-text); background: var(--sw-bg-raised); }
+.panel-act:focus { color: var(--au-fg); background: var(--au-surface-raised); }
 .panel.collapsed .chip-grid { display: none; }
 .chip-grid {
   display: grid;
@@ -275,32 +341,32 @@ body {
   padding: 0 8px 10px;
 }
 .chip {
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 9px 7px;
   display: flex;
   flex-direction: column;
   gap: 1px;
   transition: border-color 80ms, padding 120ms, transform 120ms;
 }
-.chip:focus-within { border-color: var(--sw-orange); }
-.chip.readonly     { background: var(--sw-bg); }
+.chip:focus-within { border-color: var(--au-action); }
+.chip.readonly     { background: var(--au-surface); }
 .chip-lbl {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 2px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   text-transform: uppercase;
 }
-.chip:focus-within .chip-lbl { color: var(--sw-orange); }
+.chip:focus-within .chip-lbl { color: var(--au-action); }
 .chip-val {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 14px;
   background: transparent;
   border: none;
   outline: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
   padding: 0;
   width: 100%;
   min-width: 0;
@@ -314,15 +380,15 @@ body {
   -moz-appearance: none;
   cursor: pointer;
   padding-right: 14px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--sw-text-soft) 50%),
-                    linear-gradient(135deg, var(--sw-text-soft) 50%, transparent 50%);
+  background-image: linear-gradient(45deg, transparent 50%, var(--au-fg-soft) 50%),
+                    linear-gradient(135deg, var(--au-fg-soft) 50%, transparent 50%);
   background-position: right 4px top 9px, right 1px top 9px;
   background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
 }
 .chip-val.chip-val-select option {
-  background: var(--sw-bg-raised);
-  color: var(--sw-text);
+  background: var(--au-surface-raised);
+  color: var(--au-fg);
 }
 
 /* File-picker-flavored chip — for an @input on a `load_csv("…")` binding.
@@ -335,24 +401,24 @@ body {
   text-align: center;
   font-size: 10px;
   min-height: 34px;            /* a comfortable thumb target on touch */
-  color: var(--sw-text-soft);
-  border: 1px dashed var(--sw-border);
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
+  color: var(--au-fg-soft);
+  border: 1px dashed var(--au-border);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
   padding: 5px 8px;
   cursor: pointer;
   transition: border-color 120ms, color 120ms, background 120ms;
 }
 .chip-val.chip-val-filepicker:hover,
 .chip-val.chip-val-filepicker:focus {
-  color: var(--sw-text);
-  border-color: var(--sw-indigo);
+  color: var(--au-fg);
+  border-color: var(--au-selected);
 }
 .chip-val.chip-val-filepicker.dragover {
-  color: var(--sw-text);
-  border-color: var(--sw-indigo);
+  color: var(--au-fg);
+  border-color: var(--au-selected);
   border-style: solid;
-  background: var(--sw-bg-bright);
+  background: var(--au-surface-bright);
 }
 /* Attached state — the asset is loaded. Solid (not dashed) border, the
  * dataset's shape as the label, and a ⚙ hint. The whole chip is the tap
@@ -361,7 +427,7 @@ body {
   border-style: solid;
   justify-content: space-between;
   gap: 6px;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .chip-fp-label {
   overflow: hidden;
@@ -372,11 +438,11 @@ body {
   flex: 0 0 auto;
   font-size: 11px;
   line-height: 1;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
 .chip-val.chip-val-filepicker.attached:hover .chip-fp-hint,
 .chip-val.chip-val-filepicker.attached:focus .chip-fp-hint {
-  color: var(--sw-indigo);
+  color: var(--au-selected);
 }
 
 /* Slider-flavored chip — for @input bindings with an @range(min, max [, step])
@@ -403,12 +469,12 @@ body {
 }
 .chip-val-slider .chip-slider::-webkit-slider-runnable-track {
   height: 4px;
-  background: var(--sw-border);
+  background: var(--au-border);
   border-radius: 2px;
 }
 .chip-val-slider .chip-slider::-moz-range-track {
   height: 4px;
-  background: var(--sw-border);
+  background: var(--au-border);
   border-radius: 2px;
 }
 .chip-val-slider .chip-slider::-webkit-slider-thumb {
@@ -417,7 +483,7 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--sw-orange);
+  background: var(--au-action);
   border: none;
   margin-top: -5px;
   cursor: pointer;
@@ -426,41 +492,41 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--sw-orange);
+  background: var(--au-action);
   border: none;
   cursor: pointer;
 }
 .chip-val-slider .chip-slider-val {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 14px;
   background: transparent;
   border: none;
   outline: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
   padding: 0;
   width: 100%;
   min-width: 0;
 }
 .chip-out-val {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 15px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.chip-out-val .u { color: var(--sw-teal); }
+.chip-out-val .u { color: var(--au-info); }
 .chip-out-val.error {
-  color: var(--sw-red);
+  color: var(--au-error);
   font-size: 15px;        /* same as a normal value — "--" reads as a placeholder */
   text-align: right;      /* keep alignment with the rest of the chip */
   cursor: help;           /* signals the title attr has more detail */
 }
 .chip-res {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   text-align: right;
   min-height: 13px;
   white-space: nowrap;
@@ -468,8 +534,8 @@ body {
   text-overflow: ellipsis;
   transition: color 80ms ease;     /* §5.5 — soften color flips during rapid edits */
 }
-.chip-res.error { color: var(--sw-red); font-size: 10px; }
-.chip-res .u    { color: var(--sw-teal); }
+.chip-res.error { color: var(--au-error); font-size: 10px; }
+.chip-res .u    { color: var(--au-info); }
 
 /* Output-chip row: value flexes, copy button on the right */
 .chip-out-row {
@@ -486,33 +552,33 @@ body {
   display: block;
   width: 100%;
   margin-top: 6px;
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
   cursor: pointer;
 }
 .chip-copy {
   flex: 0 0 auto;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   padding: 3px 6px;
   cursor: pointer;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   letter-spacing: 1px;
   text-transform: uppercase;
   transition: background 100ms, color 100ms, border-color 100ms;
 }
 .chip-copy:hover {
-  color: var(--sw-text);
-  border-color: var(--sw-border);
-  background: var(--sw-bg-raised);
+  color: var(--au-fg);
+  border-color: var(--au-border);
+  background: var(--au-surface-raised);
 }
-.chip-copy:active { background: var(--sw-bg-deep); }
+.chip-copy:active { background: var(--au-surface-deep); }
 .chip-copy.copied {
-  color: var(--sw-green);
-  border-color: var(--sw-green);
+  color: var(--au-success);
+  border-color: var(--au-success);
 }
 
 /* Form view: bigger chips, prominent outputs */
@@ -526,14 +592,14 @@ body {
   display: block;
   flex: 0 0 auto;
   max-height: 40vh;
-  border-top: 1px solid var(--sw-border-soft);
-  border-bottom: 1px solid var(--sw-border-soft);
+  border-top: 1px solid var(--au-border-soft);
+  border-bottom: 1px solid var(--au-border-soft);
 }
 .app.form .accessory     { display: none; }
 .app.form .show-source   { display: flex; }
-.app.form .panel.outputs { background: var(--sw-bg-bright); }
+.app.form .panel.outputs { background: var(--au-surface-bright); }
 .form-spacer             { display: none; }
-.app.form .form-spacer   { display: block; flex: 1 1 auto; background: var(--sw-bg); }
+.app.form .form-spacer   { display: block; flex: 1 1 auto; background: var(--au-surface); }
 
 /* ── Viewer-only polish ───────────────────────────────────────────
  * The exported viewer artifact (`.app.form.viewer`) gets a richer
@@ -543,12 +609,12 @@ body {
  * footer with an "open in editor" link constructed via @gcu/pointer. */
 
 .app.viewer .viewer-subtitle {
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 13px;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
   padding: 10px 14px 14px;
-  border-bottom: 1px solid var(--sw-border-soft);
-  background: var(--sw-bg);
+  border-bottom: 1px solid var(--au-border-soft);
+  background: var(--au-surface);
   line-height: 1.4;
   flex: 0 0 auto;
 }
@@ -556,15 +622,15 @@ body {
 /* Outputs panel — promote the answer. Bigger value font, accent border
  * along the top so the eye lands here first. */
 .app.viewer .panel.outputs {
-  background: var(--sw-bg-bright);
-  border-top: 2px solid var(--sw-orange);
+  background: var(--au-surface-bright);
+  border-top: 2px solid var(--au-action);
 }
 .app.viewer .panel.outputs .chip-out-val { font-size: 22px; }
 .app.viewer .panel.outputs .chip-out-val .u {
   font-size: 16px;
   margin-left: 3px;
 }
-.app.viewer .panel.outputs .chip { background: var(--sw-bg); }
+.app.viewer .panel.outputs .chip { background: var(--au-surface); }
 
 /* Footer: small attribution + "modify this" link. Sits below
  * form-spacer so it floats at the bottom of the viewport even when
@@ -572,16 +638,16 @@ body {
 .app.viewer .viewer-footer {
   flex: 0 0 auto;
   padding: 12px 14px;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   text-align: center;
   letter-spacing: 1px;
-  border-top: 1px solid var(--sw-border-soft);
-  background: var(--sw-bg);
+  border-top: 1px solid var(--au-border-soft);
+  background: var(--au-surface);
 }
 .app.viewer .viewer-footer a {
-  color: var(--sw-orange);
+  color: var(--au-action);
   text-decoration: none;
 }
 .app.viewer .viewer-footer a:hover { text-decoration: underline; }
@@ -606,8 +672,8 @@ body {
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
   flex: 0 0 auto;
   cursor: pointer;
   user-select: none;
@@ -617,15 +683,15 @@ body {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--sw-border);
+  background: var(--au-border);
   margin: 0 12px;
 }
 .show-source-btn {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   background: transparent;
   border: none;
   padding: 0;
@@ -633,19 +699,19 @@ body {
   white-space: nowrap;
 }
 .show-source:hover .show-source-btn,
-.show-source:active .show-source-btn { color: var(--sw-text); }
+.show-source:active .show-source-btn { color: var(--au-fg); }
 
 /* Read-only source display — used by the viewer artifact to let the
    recipient verify the calculation without giving them an editor. The
    .hl-* spans below mirror the editor's CM6 HighlightStyle colors so the
    two views look the same. */
 .source-view {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   line-height: 1.6;
-  background: var(--sw-bg-raised);
-  border-top: 1px solid var(--sw-border);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-top: 1px solid var(--au-border);
+  border-bottom: 1px solid var(--au-border);
   padding: 12px 16px;
   margin: 0;
   max-height: 40vh;
@@ -653,7 +719,7 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  color: var(--sw-text);
+  color: var(--au-fg);
   user-select: text;
   flex: 0 0 auto;
 }
@@ -665,15 +731,15 @@ body {
   max-height: none;
   overflow: auto;
 }
-.source-view .hl-comment    { color: var(--sw-text-soft); font-style: italic; }
-.source-view .hl-meta       { color: var(--sw-orange);    font-weight: 700; }
-.source-view .hl-keyword    { color: var(--sw-orange); }
-.source-view .hl-atom       { color: var(--sw-indigo); }
-.source-view .hl-number     { color: var(--sw-text-mid); }
-.source-view .hl-string     { color: var(--sw-teal); }
-.source-view .hl-typeName   { color: var(--sw-teal); }
-.source-view .hl-opKeyword  { color: var(--sw-orange); }
-.source-view .hl-operator   { color: var(--sw-text-mid); }
+.source-view .hl-comment    { color: var(--au-fg-soft); font-style: italic; }
+.source-view .hl-meta       { color: var(--au-action);    font-weight: 700; }
+.source-view .hl-keyword    { color: var(--au-action); }
+.source-view .hl-atom       { color: var(--au-selected); }
+.source-view .hl-number     { color: var(--au-fg-muted); }
+.source-view .hl-string     { color: var(--au-info); }
+.source-view .hl-typeName   { color: var(--au-info); }
+.source-view .hl-opKeyword  { color: var(--au-action); }
+.source-view .hl-operator   { color: var(--au-fg-muted); }
 /* .hl-ident inherits the default --sw-text color */
 
 /* Body — CodeMirror 6 editor with a right-side results gutter. CM6 handles
@@ -681,7 +747,7 @@ body {
    gutter row is aligned to its CM6 line by the gutter() extension. */
 .body {
   flex: 1 1 auto;
-  background: var(--sw-bg);
+  background: var(--au-surface);
   min-height: 80px;
   display: flex;
   flex-direction: column;
@@ -691,18 +757,18 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   outline: none;
-  background: var(--sw-bg);
-  color: var(--sw-text);
+  background: var(--au-surface);
+  color: var(--au-fg);
 }
 .body .cm-editor.cm-focused { outline: none; }
 .body .cm-scroller {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 14px;
   line-height: 21px;
 }
 .body .cm-content {
   padding: 8px 0;
-  caret-color: var(--sw-orange);
+  caret-color: var(--au-action);
 }
 .body .cm-line {
   /* Right padding reserves space for the floating result gutter so wrapped
@@ -715,11 +781,11 @@ body {
   background: rgba(181, 78, 26, 0.22);
 }
 .body .cm-cursor,
-.body .cm-dropCursor { border-left-color: var(--sw-orange); }
+.body .cm-dropCursor { border-left-color: var(--au-action); }
 .body .cm-gutters {
   background: transparent;
   border: none;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
 }
 .body .cm-foldGutter {
   font-size: 11px;
@@ -727,22 +793,22 @@ body {
 }
 .body .cm-foldGutter .cm-gutterElement {
   text-align: center;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   cursor: pointer;
 }
-.body .cm-foldGutter .cm-gutterElement:hover { color: var(--sw-orange); }
+.body .cm-foldGutter .cm-gutterElement:hover { color: var(--au-action); }
 .body .cm-foldPlaceholder {
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 1px 6px;
   margin: 0 4px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-size: 11px;
 }
 .body .cm-matchingBracket {
   background: rgba(181, 78, 26, 0.18);
-  outline: 1px solid var(--sw-orange);
+  outline: 1px solid var(--au-action);
   border-radius: 2px;
 }
 /* ── Result gutter as overlay ──────────────────────────────────────
@@ -777,7 +843,7 @@ body {
 .body .cm-gutters-after .cm-gutter,
 .body .cm-gutters-after .cm-gutterElement { pointer-events: auto; }
 .body .ep-result-gutter {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   text-align: right;
   width: var(--ep-gutter-w) !important;
@@ -815,7 +881,7 @@ body {
  * color. The full message lives in the cm-ep-error-block below. */
 .body .ep-result-gutter .ep-gutter-err-x {
   display: inline-block;
-  color: var(--sw-red);
+  color: var(--au-error);
   font-weight: 700;
   font-size: 13px;
   line-height: 1;
@@ -836,7 +902,7 @@ body {
   display: inline-block;
   width: 6px;
   height: 6px;
-  background: var(--sw-amber);
+  background: var(--au-warn);
   vertical-align: middle;
   margin-left: 6px;
   opacity: 0.85;
@@ -864,8 +930,8 @@ body {
   max-width: 100%;
   transition: color 80ms ease;     /* §5.5 — match chip-res smoothing */
 }
-.ep-gutter-result .u    { color: var(--sw-teal); }
-.ep-gutter-result.error { color: var(--sw-red); font-size: 11px; }
+.ep-gutter-result .u    { color: var(--au-info); }
+.ep-gutter-result.error { color: var(--au-error); font-size: 11px; }
 /* Shape vocabulary in the gutter:
  *   ▲ input  (data flowing INTO the computation)
  *   ▼ output (result coming OUT)
@@ -884,7 +950,7 @@ body {
   height: 0;
   border-left:   4.5px solid transparent;
   border-right:  4.5px solid transparent;
-  border-bottom: 8px   solid var(--sw-orange);
+  border-bottom: 8px   solid var(--au-action);
   margin-right: 6px;
   vertical-align: middle;
   position: relative;
@@ -898,7 +964,7 @@ body {
   height: 0;
   border-left:  4.5px solid transparent;
   border-right: 4.5px solid transparent;
-  border-top:   8px   solid var(--sw-teal);
+  border-top:   8px   solid var(--au-info);
   margin-right: 6px;
   vertical-align: middle;
   position: relative;
@@ -909,7 +975,7 @@ body {
  * editor body. The title attribute on the mark span surfaces the full
  * message on hover. */
 .body .cm-content .cm-ep-error {
-  text-decoration: underline wavy var(--sw-red);
+  text-decoration: underline wavy var(--au-error);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
 }
@@ -926,9 +992,9 @@ body {
   padding: 2px 8px 3px;
   font-size: 11px;
   line-height: 1.35;
-  color: var(--sw-red);
+  color: var(--au-error);
   background: rgba(168, 49, 42, 0.06);     /* sw-red @ 6% */
-  border-left: 2px solid var(--sw-red);
+  border-left: 2px solid var(--au-error);
   white-space: normal;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -953,9 +1019,9 @@ body {
 /* Warn-style variant for blame-trace SUSPECT rows. Amber instead of
  * red — the binding isn't broken, it's just implicated. */
 .body .cm-content .cm-ep-warn-block {
-  color: var(--sw-amber);
+  color: var(--au-warn);
   background: rgba(142, 101, 24, 0.08);
-  border-left-color: var(--sw-amber);
+  border-left-color: var(--au-warn);
 }
 [data-theme="dark"] .body .cm-content .cm-ep-warn-block {
   color: #d8b261;
@@ -968,17 +1034,17 @@ body {
  * not as an error or warning. White-space pre-wrap so multi-line
  * print output renders with intentional line breaks preserved. */
 .body .cm-content .cm-ep-info-block {
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
   background: rgba(125, 125, 125, 0.06);
-  border-left-color: var(--sw-text-soft);
+  border-left-color: var(--au-fg-soft);
 }
 .body .cm-content .cm-ep-info-block .cm-ep-error-block-msg {
   white-space: pre-wrap;
 }
 [data-theme="dark"] .body .cm-content .cm-ep-info-block {
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
   background: rgba(200, 200, 200, 0.05);
-  border-left-color: var(--sw-text-soft);
+  border-left-color: var(--au-fg-soft);
 }
 
 /* Plot block — wraps a canvas-rendered chart below a plot()/scatter()/
@@ -993,7 +1059,7 @@ body {
    * Fold the breathing room into padding, which CM6 does measure. */
   padding: 10px 10px 12px;
   background: rgba(78, 85, 128, 0.05);
-  border-left: 2px solid var(--sw-indigo);
+  border-left: 2px solid var(--au-selected);
 }
 [data-theme="dark"] .body .cm-content .cm-ep-plot-block {
   background: rgba(120, 130, 200, 0.06);
@@ -1004,24 +1070,24 @@ body {
  * to fit. */
 .cm-ep-stereonet-block { display: flex; flex-direction: column; align-items: flex-start; }
 .cm-ep-stereonet-title {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-bottom: 4px;
 }
 .cm-ep-stereonet {
   width: 320px;
   max-width: 100%;
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
   padding: 8px;
 }
 .cm-ep-stereonet svg { display: block; width: 100%; height: auto; }
 
 .cm-ep-plot-canvas {
   display: block;
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
   /* Shrink on narrow viewports — mobile editor + PiP window can be
    * under 400px wide. The intrinsic ratio (canvas width/height attrs)
    * keeps the aspect 2:1 when CSS width shrinks. Slight pixel blur is
@@ -1038,12 +1104,12 @@ body {
 .plot-hover-tip {
   position: absolute;
   pointer-events: none;
-  background: var(--sw-text);
-  color: var(--sw-bg-bright);
-  font-family: var(--sw-mono);
+  background: var(--au-fg);
+  color: var(--au-surface-bright);
+  font-family: var(--au-font-mono);
   font-size: 11px;
   padding: 4px 8px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   white-space: nowrap;
   z-index: 5;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
@@ -1052,7 +1118,7 @@ body {
   position: absolute;
   pointer-events: none;
   width: 1px;
-  background: var(--sw-text-soft);
+  background: var(--au-fg-soft);
   opacity: 0.55;
   z-index: 4;
 }
@@ -1061,10 +1127,10 @@ body {
  * by drawPlot's compact mode), and clearly tappable. */
 .chip-out-plot {
   cursor: pointer;
-  border: 1px solid var(--sw-border);
+  border: 1px solid var(--au-border);
   transition: box-shadow 120ms ease, transform 120ms ease;
 }
-.chip-out-plot:hover { box-shadow: 0 0 0 1px var(--sw-orange); }
+.chip-out-plot:hover { box-shadow: 0 0 0 1px var(--au-action); }
 .chip-out-plot:active { transform: scale(0.98); }
 
 /* Plot popup modal — tap a chip thumbnail to enlarge. Self-contained
@@ -1086,9 +1152,9 @@ body {
   to   { opacity: 1; }
 }
 .plot-modal-card {
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   padding: 14px 16px;
   position: relative;
@@ -1096,9 +1162,9 @@ body {
   max-height: 100%;
 }
 .plot-modal-title {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-bottom: 8px;
   padding-right: 28px; /* leave room for the × button */
 }
@@ -1108,17 +1174,17 @@ body {
   right: 8px;
   background: transparent;
   border: none;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-size: 22px;
   line-height: 1;
   cursor: pointer;
   padding: 4px 8px;
 }
-.plot-modal-close:hover { color: var(--sw-text); }
+.plot-modal-close:hover { color: var(--au-fg); }
 .plot-modal-canvas {
   display: block;
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
 }
 
 /* Brief highlight flash applied to a CM6 line element when long-press
@@ -1142,38 +1208,38 @@ body {
 }
 .cm-ep-suggest-btn {
   background: transparent;
-  border: 1px dashed var(--sw-border-soft);
-  color: var(--sw-text-soft);
-  font-family: var(--sw-mono);
+  border: 1px dashed var(--au-border-soft);
+  color: var(--au-fg-soft);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
   opacity: 0.55;
   transition: opacity 120ms, color 120ms, border-color 120ms, background 120ms;
 }
 .cm-ep-suggest-btn:hover {
   opacity: 1;
-  color: var(--sw-indigo);
-  border-color: var(--sw-indigo);
+  color: var(--au-selected);
+  border-color: var(--au-selected);
   border-style: solid;
-  background: var(--sw-bg-bright);
+  background: var(--au-surface-bright);
 }
 /* Loaded-state chip for the inline load_csv affordance — a quiet
  * `name · R × C` tag; the "attach…" (missing) state reuses suggest-btn. */
 .cm-ep-csv-chip {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   padding: 1px 6px;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
-  color: var(--sw-text-soft);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
+  color: var(--au-fg-soft);
   cursor: pointer;
 }
-.cm-ep-csv-chip:hover { color: var(--sw-text); border-color: var(--sw-indigo); }
+.cm-ep-csv-chip:hover { color: var(--au-fg); border-color: var(--au-selected); }
 .body .cm-content .cm-ep-warn {
-  text-decoration: underline wavy var(--sw-amber);
+  text-decoration: underline wavy var(--au-warn);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 3px;
 }
@@ -1201,8 +1267,8 @@ body {
   right: 0;
   bottom: 0;
   max-height: 70vh;
-  background: var(--sw-bg-raised);
-  border-top: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-top: 1px solid var(--au-border);
   border-radius: 8px 8px 0 0;
   box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
   transform: translateY(110%);
@@ -1218,31 +1284,31 @@ body {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid var(--sw-border-soft);
+  border-bottom: 1px solid var(--au-border-soft);
 }
 .unit-sheet-search {
   flex: 1;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 9px;
   outline: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
-.unit-sheet-search:focus { border-color: var(--sw-orange); }
+.unit-sheet-search:focus { border-color: var(--au-action); }
 .unit-sheet-close {
   background: transparent;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
-  color: var(--sw-text);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
+  color: var(--au-fg);
   width: 30px;
   height: 30px;
   font-size: 14px;
   cursor: pointer;
 }
-.unit-sheet-close:hover { color: var(--sw-orange); border-color: var(--sw-orange); }
+.unit-sheet-close:hover { color: var(--au-action); border-color: var(--au-action); }
 .unit-sheet-body {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -1250,11 +1316,11 @@ body {
 }
 .unit-picker-section { margin-bottom: 14px; }
 .unit-picker-section-hdr {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-bottom: 6px;
 }
 .unit-picker-grid {
@@ -1263,22 +1329,22 @@ body {
   gap: 4px;
 }
 .unit-picker-pill {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 9px;
   cursor: pointer;
-  color: var(--sw-text);
+  color: var(--au-fg);
   min-height: 32px;     /* thumb-friendly tap target on mobile */
   min-width: 32px;
 }
-.unit-picker-pill:hover  { border-color: var(--sw-orange); color: var(--sw-orange); }
-.unit-picker-pill:active { background: var(--sw-bg); }
+.unit-picker-pill:hover  { border-color: var(--au-action); color: var(--au-action); }
+.unit-picker-pill:active { background: var(--au-surface); }
 .unit-picker-empty {
-  color: var(--sw-text-soft);
-  font-family: var(--sw-mono);
+  color: var(--au-fg-soft);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   padding: 20px 8px;
   text-align: center;
@@ -1287,8 +1353,8 @@ body {
  * rather than just another short token. */
 .accessory .tok-more-units {
   margin-left: 6px;
-  border-color: var(--sw-orange);
-  color: var(--sw-orange);
+  border-color: var(--au-action);
+  color: var(--au-action);
 }
 
 /* Update toast — pinned at the bottom of the viewport, slides up when
@@ -1299,18 +1365,18 @@ body {
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%) translateY(120%);
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-orange);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-action);
+  border-radius: var(--au-radius);
   box-shadow: 0 4px 24px rgba(0,0,0,0.4);
   padding: 10px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
   z-index: 90;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   max-width: calc(100vw - 32px);
   opacity: 0;
   pointer-events: none;
@@ -1323,58 +1389,58 @@ body {
 }
 .update-toast-msg { white-space: nowrap; }
 .update-toast-btn {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 5px 9px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   cursor: pointer;
 }
-.update-toast-btn:hover { border-color: var(--sw-orange); }
+.update-toast-btn:hover { border-color: var(--au-action); }
 .update-toast-btn.primary {
-  background: var(--sw-orange);
-  border-color: var(--sw-orange);
-  color: var(--sw-bg);
+  background: var(--au-action);
+  border-color: var(--au-action);
+  color: var(--au-surface);
   font-weight: 700;
 }
-.update-toast-btn.primary:hover { background: var(--sw-text); border-color: var(--sw-text); }
+.update-toast-btn.primary:hover { background: var(--au-fg); border-color: var(--au-fg); }
 
 /* CM6 autocompletion popup — styled to match the switchboard palette.
  * The icon (cm-completionIcon) gets recolored per completion `type` so
  * variables / functions / keywords / units are visually distinct. */
 .cm-tooltip.cm-tooltip-autocomplete {
-  background: var(--sw-bg-raised) !important;
-  border: 1px solid var(--sw-border) !important;
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-raised) !important;
+  border: 1px solid var(--au-border) !important;
+  border-radius: var(--au-radius);
   box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .cm-tooltip-autocomplete ul li[aria-selected] {
-  background: var(--sw-bg-bright) !important;
-  color: var(--sw-orange) !important;
+  background: var(--au-surface-bright) !important;
+  color: var(--au-action) !important;
 }
-.cm-tooltip-autocomplete .cm-completionLabel { color: var(--sw-text); }
+.cm-tooltip-autocomplete .cm-completionLabel { color: var(--au-fg); }
 .cm-tooltip-autocomplete .cm-completionMatchedText {
-  color: var(--sw-orange);
+  color: var(--au-action);
   text-decoration: none;
   font-weight: 700;
 }
 .cm-tooltip-autocomplete .cm-completionDetail {
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-style: normal;
   font-size: 10px;
   margin-left: 8px;
 }
 .cm-completionIcon          { padding-right: 6px; opacity: 0.7; }
-.cm-completionIcon-variable::after { content: '◆'; color: var(--sw-teal); }
-.cm-completionIcon-function::after { content: 'ƒ'; color: var(--sw-orange); }
-.cm-completionIcon-keyword::after  { content: '◇'; color: var(--sw-orange); }
-.cm-completionIcon-type::after     { content: 'τ'; color: var(--sw-indigo); }
-.cm-completionIcon-unit::after     { content: 'u'; color: var(--sw-text-soft); }
+.cm-completionIcon-variable::after { content: '◆'; color: var(--au-info); }
+.cm-completionIcon-function::after { content: 'ƒ'; color: var(--au-action); }
+.cm-completionIcon-keyword::after  { content: '◇'; color: var(--au-action); }
+.cm-completionIcon-type::after     { content: 'τ'; color: var(--au-selected); }
+.cm-completionIcon-unit::after     { content: 'u'; color: var(--au-fg-soft); }
 
 /* Info panel — the side popup that shows when an option is focused.
  * docs.js populates this with multi-line signature + description +
@@ -1382,12 +1448,12 @@ body {
  * the rest of the autocomplete popup. white-space: pre-wrap so the
  * multi-line strings render with their line breaks. */
 .cm-tooltip.cm-completionInfo {
-  background: var(--sw-bg-bright) !important;
-  border: 1px solid var(--sw-border) !important;
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright) !important;
+  border: 1px solid var(--au-border) !important;
+  border-radius: var(--au-radius);
   box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-  color: var(--sw-text);
-  font-family: var(--sw-mono);
+  color: var(--au-fg);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   line-height: 1.5;
   padding: 10px 12px;
@@ -1405,12 +1471,12 @@ body {
  * default). Override with !important so the dark Switchboard surface
  * wins — same approach used for .cm-completionInfo above. */
 .cm-tooltip.cm-ep-sighelp {
-  background: var(--sw-bg-bright) !important;
-  border: 1px solid var(--sw-border) !important;
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright) !important;
+  border: 1px solid var(--au-border) !important;
+  border-radius: var(--au-radius);
   box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-  color: var(--sw-text);
-  font-family: var(--sw-mono);
+  color: var(--au-fg);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   line-height: 1.4;
   padding: 6px 10px;
@@ -1419,10 +1485,10 @@ body {
 }
 .cm-ep-sighelp-sig {
   white-space: pre-wrap;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .cm-ep-sighelp-active {
-  color: var(--sw-orange, var(--sw-text));
+  color: var(--au-action);
   background: rgba(255,255,255,0.08);
   border-radius: 3px;
   padding: 0 2px;
@@ -1430,8 +1496,8 @@ body {
 }
 .cm-ep-sighelp-desc {
   margin-top: 4px;
-  color: var(--sw-text-muted, var(--sw-text));
-  font-family: var(--sw-sans, system-ui, sans-serif);
+  color: var(--au-fg-muted);
+  font-family: var(--au-font-sans);
   font-size: 11px;
   white-space: normal;
   opacity: 0.85;
@@ -1442,33 +1508,33 @@ body {
  * .cm-tooltip (light default styling); override for the dark surface,
  * same approach as .cm-ep-sighelp above. */
 .cm-tooltip.cm-ep-hoverdoc {
-  background: var(--sw-bg-bright) !important;
-  border: 1px solid var(--sw-border) !important;
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright) !important;
+  border: 1px solid var(--au-border) !important;
+  border-radius: var(--au-radius);
   box-shadow: 0 4px 16px rgba(0,0,0,0.35);
   padding: 8px 10px;
   max-width: min(400px, 90vw);
 }
 .cm-ep-hoverdoc-sig {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .cm-ep-hoverdoc-desc {
-  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-family: var(--au-font-sans);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   line-height: 1.45;
   margin-top: 5px;
 }
 .cm-ep-hoverdoc-ex {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  color: var(--sw-text-mid, var(--sw-text-soft));
-  background: var(--sw-bg-deep, var(--sw-bg));
-  border-left: 2px solid var(--sw-border);
+  color: var(--au-fg-muted);
+  background: var(--au-surface-deep);
+  border-left: 2px solid var(--au-border);
   padding: 3px 6px;
   margin-top: 6px;
   white-space: pre-wrap;
@@ -1518,8 +1584,8 @@ body {
     /* Opaque background — covers the @outputs panel cleanly when the
      * strip overlaps it, instead of letting chip values bleed through
      * around the inner div's edges. */
-    background: var(--sw-bg-bright);
-    border-top: 1px solid var(--sw-border);
+    background: var(--au-surface-bright);
+    border-top: 1px solid var(--au-border);
     padding: 6px 10px;
     /* Subtle top shadow so the strip clearly reads as ABOVE the
      * outputs panel rather than mixed in. */
@@ -1537,8 +1603,8 @@ body {
 
 /* Accessory bar */
 .accessory {
-  background: var(--sw-bg-raised);
-  border-top: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-top: 1px solid var(--au-border);
   padding: 6px;
   display: flex;
   gap: 4px;
@@ -1587,22 +1653,22 @@ body {
 }
 .accessory::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
 .tok {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 13px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 7px 11px;
   flex: 0 0 auto;
   cursor: pointer;
-  color: var(--sw-text);
+  color: var(--au-fg);
   white-space: nowrap;
   user-select: none;
 }
-.tok:active { background: var(--sw-bg-deep); }
-.tok.op   { color: var(--sw-orange); font-weight: 700; }
-.tok.unit { color: var(--sw-teal); }
-.tok.fn   { color: var(--sw-indigo); }
+.tok:active { background: var(--au-surface-deep); }
+.tok.op   { color: var(--au-action); font-weight: 700; }
+.tok.unit { color: var(--au-info); }
+.tok.fn   { color: var(--au-selected); }
 
 /* Export dialog */
 /* Drag-and-drop overlay */
@@ -1610,7 +1676,7 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(181, 78, 26, 0.18);
-  border: 3px dashed var(--sw-orange);
+  border: 3px dashed var(--au-action);
   display: none;
   align-items: center;
   justify-content: center;
@@ -1619,26 +1685,26 @@ body {
 }
 .drop-overlay.on { display: flex; }
 .drop-msg {
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-orange);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-action);
+  border-radius: var(--au-radius);
   padding: 24px 36px;
   text-align: center;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
 .drop-msg-big {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 16px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-weight: 700;
   margin-bottom: 6px;
 }
 .drop-msg-small {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
 
 .scrim {
@@ -1653,9 +1719,9 @@ body {
 }
 .scrim.on { display: flex; }
 .dialog {
-  background: var(--sw-bg);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   width: 100%;
   max-width: 420px;
   display: flex;
@@ -1665,42 +1731,42 @@ body {
 }
 .dialog-hdr {
   padding: 12px 16px;
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
-  font-family: var(--sw-mono);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-weight: 700;
 }
 .dialog-body {
   padding: 12px 16px;
   overflow-y: auto;
   font-size: 12px;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
 }
 .dialog-body p { margin: 8px 0; }
 .dialog-body code {
-  font-family: var(--sw-mono);
-  background: var(--sw-bg-raised);
+  font-family: var(--au-font-mono);
+  background: var(--au-surface-raised);
   padding: 1px 4px;
   border-radius: 2px;
   font-size: 11px;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .dialog-src {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 10px;
   margin: 8px 0 12px;
   max-height: 200px;
   overflow-y: auto;
   white-space: pre;
-  color: var(--sw-text);
+  color: var(--au-fg);
   line-height: 1.5;
 }
 
@@ -1712,35 +1778,35 @@ body {
   gap: 4px;
 }
 .share-meta {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
-.share-meta strong { color: var(--sw-text-mid); }
-.share-len { margin-left: 6px; color: var(--sw-text-soft); }
+.share-meta strong { color: var(--au-fg-muted); }
+.share-len { margin-left: 6px; color: var(--au-fg-soft); }
 .share-url {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 8px;
   outline: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
   width: 100%;
 }
 .share-qr {
   margin: 8px auto 0;
   padding: 10px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   display: flex;
   justify-content: center;
   align-items: center;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .share-qr svg { display: block; max-width: 100%; height: auto; }
 
@@ -1760,13 +1826,13 @@ body {
 }
 .tut-tooltip {
   position: absolute;
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-orange);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-action);
+  border-radius: var(--au-radius);
   padding: 12px 14px;
   pointer-events: auto;
-  font-family: var(--sw-mono);
-  color: var(--sw-text);
+  font-family: var(--au-font-mono);
+  color: var(--au-fg);
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
   transition: top 220ms ease, left 220ms ease;
 }
@@ -1781,15 +1847,15 @@ body {
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--sw-orange);
+  color: var(--au-action);
 }
 .tut-tooltip-step {
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   letter-spacing: 1px;
 }
 .tut-tooltip-body {
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
   line-height: 1.5;
   margin-bottom: 10px;
   font-size: 12px;
@@ -1803,13 +1869,13 @@ body {
   text-transform: uppercase;
 }
 .tut-tooltip a {
-  color: var(--sw-orange);
+  color: var(--au-action);
   cursor: pointer;
   text-decoration: underline;
 }
-.tut-tooltip a:hover { color: var(--sw-amber); }
+.tut-tooltip a:hover { color: var(--au-warn); }
 .tut-hint {
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-style: italic;
   text-transform: none;
   letter-spacing: 0;
@@ -1822,23 +1888,23 @@ body {
   margin: 8px 0;
 }
 .dialog-row label {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   flex: 0 0 60px;
 }
 .dialog-row input {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 13px;
   flex: 1;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 8px;
   outline: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 /* Checkbox-style row in the export dialog — different shape from the
  * default name/value row (label + free-text input), so override the
@@ -1849,7 +1915,7 @@ body {
   text-transform: none;
   letter-spacing: 0.5px;
   font-size: 11px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1860,14 +1926,14 @@ body {
   width: 14px;
   height: 14px;
   padding: 0;
-  accent-color: var(--sw-orange);
+  accent-color: var(--au-action);
   cursor: pointer;
 }
 
 .dialog-actions {
   padding: 10px 12px;
-  background: var(--sw-bg-raised);
-  border-top: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-top: 1px solid var(--au-border);
   display: flex;
   gap: 6px;
   justify-content: flex-end;
@@ -1882,24 +1948,24 @@ body {
   gap: 6px 14px;
   align-items: center;
   margin: 10px 0;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 1px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
 .attach-config label { display: flex; align-items: center; gap: 5px; }
 .attach-config select,
 .attach-config input {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   text-transform: none;
   letter-spacing: 0;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 3px 5px;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .attach-config input[type="number"] { width: 48px; }
 .attach-config #attachComment { width: 30px; text-align: center; }
@@ -1907,34 +1973,34 @@ body {
   text-transform: none;
   letter-spacing: 0.5px;
   font-size: 11px;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
-.attach-config label.attach-check input { accent-color: var(--sw-orange); }
+.attach-config label.attach-check input { accent-color: var(--au-action); }
 
 .attach-preview {
   margin-top: 6px;
   max-height: 320px;
   overflow: auto;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
 }
 .attach-preview table {
   border-collapse: collapse;
   table-layout: fixed;   /* explicit per-column widths — drag-resizable */
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
 }
 .attach-preview th,
 .attach-preview td {
-  border: 1px solid var(--sw-border);
+  border: 1px solid var(--au-border);
   padding: 3px 6px;
   text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.attach-preview thead th { background: var(--sw-bg-raised); position: sticky; top: 0; }
-.attach-preview td { color: var(--sw-text-mid); }
+.attach-preview thead th { background: var(--au-surface-raised); position: sticky; top: 0; }
+.attach-preview td { color: var(--au-fg-muted); }
 /* Drag handle on each header cell's right edge — resizes the column. */
 .attach-col-resize {
   position: absolute;
@@ -1942,26 +2008,26 @@ body {
   width: 8px;
   cursor: col-resize;
 }
-.attach-col-resize:hover { background: var(--sw-orange); opacity: 0.45; }
+.attach-col-resize:hover { background: var(--au-action); opacity: 0.45; }
 .attach-col-name,
 .attach-col-unit {
   display: block;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
   border-radius: 2px;
   padding: 2px 4px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   width: 100%;
   box-sizing: border-box;
 }
 .attach-col-name { font-weight: 700; }
-.attach-col-unit { margin-top: 3px; color: var(--sw-text-soft); }
+.attach-col-unit { margin-top: 3px; color: var(--au-fg-soft); }
 .attach-err {
   padding: 12px;
-  color: var(--sw-red);
-  font-family: var(--sw-mono);
+  color: var(--au-error);
+  font-family: var(--au-font-mono);
   font-size: 11px;
 }
 
@@ -1971,18 +2037,18 @@ body {
 .dsv-scroll {
   height: 62vh;
   overflow: auto;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
 }
 .dsv-table {
   border-collapse: collapse;
   table-layout: fixed;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
 }
 .dsv-table th,
 .dsv-table td {
-  border: 1px solid var(--sw-border);
+  border: 1px solid var(--au-border);
   padding: 3px 6px;
   text-align: left;
   white-space: nowrap;
@@ -1992,36 +2058,36 @@ body {
   box-sizing: border-box;
 }
 .dsv-table thead th {
-  background: var(--sw-bg-raised);
+  background: var(--au-surface-raised);
   position: sticky;
   top: 0;
   z-index: 1;
   font-weight: 700;
 }
-.dsv-table td { color: var(--sw-text-mid); }
+.dsv-table td { color: var(--au-fg-muted); }
 .dsv-rownum {
-  background: var(--sw-bg-raised);
-  color: var(--sw-text-soft);
+  background: var(--au-surface-raised);
+  color: var(--au-fg-soft);
   text-align: right;
 }
 .dsv-spacer td { padding: 0; border: 0; }
 .btn {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  color: var(--sw-text);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  color: var(--au-fg);
   padding: 8px 12px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
 }
-.btn:active { background: var(--sw-bg-deep); }
-.btn.primary { background: var(--sw-orange); color: var(--sw-bg-bright); border-color: var(--sw-amber); }
-.btn.primary:active { background: var(--sw-amber); }
-.btn.danger { background: var(--sw-red); color: var(--sw-bg-bright); border-color: var(--sw-red); }
-.btn.danger:active { background: var(--sw-red); opacity: 0.85; }
+.btn:active { background: var(--au-surface-deep); }
+.btn.primary { background: var(--au-action); color: var(--au-surface-bright); border-color: var(--au-warn); }
+.btn.primary:active { background: var(--au-warn); }
+.btn.danger { background: var(--au-error); color: var(--au-surface-bright); border-color: var(--au-error); }
+.btn.danger:active { background: var(--au-error); opacity: 0.85; }
 
 /* Hamburger / close icon button — tighter padding & no letter-spacing */
 .icon-btn {
@@ -2030,23 +2096,23 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
 }
-.icon-btn:hover { color: var(--sw-text); }
+.icon-btn:hover { color: var(--au-fg); }
 
 /* Save indicator next to the filename in the header */
 .save-status {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-left: 6px;
   transition: color 200ms, opacity 200ms;
   opacity: 0.6;
 }
-.save-status.saving { color: var(--sw-amber); opacity: 1; }
-.save-status.saved  { color: var(--sw-teal);  opacity: 1; }
+.save-status.saving { color: var(--au-warn); opacity: 1; }
+.save-status.saved  { color: var(--au-info);  opacity: 1; }
 
 /* Drawer (slide-in left panel for programs / file / about) */
 .drawer-scrim {
@@ -2066,8 +2132,8 @@ body {
   position: fixed;
   top: 0; bottom: 0; left: 0;
   width: min(320px, 84vw);
-  background: var(--sw-bg);
-  border-right: 1px solid var(--sw-border);
+  background: var(--au-surface);
+  border-right: 1px solid var(--au-border);
   transform: translateX(-100%);
   transition: transform 180ms ease;
   z-index: 60;
@@ -2091,7 +2157,7 @@ body {
   /* No shadow when sitting inline next to the app (modal shadow is just
    * visual noise on a permanent sidebar). Border keeps the seam visible. */
   box-shadow: none;
-  border-right: 1px solid var(--sw-border);
+  border-right: 1px solid var(--au-border);
 }
 
 /* Pre-position the drawer at translateX(0) AND suppress the transition
@@ -2174,8 +2240,8 @@ body {
    * Background matches the editor (.sw-bg) so the empty area below the
    * chips reads as a continuous rail, not a darker void. The panel-hdr
    * keeps its distinct color to mark the section. */
-  background: var(--sw-bg);
-  border-left: 1px solid var(--sw-border);
+  background: var(--au-surface);
+  border-left: 1px solid var(--au-border);
   border-top: none;
   overflow-y: auto;
   min-height: 0;
@@ -2217,16 +2283,16 @@ body {
  * compete with the keyboard focus ring. */
 .drawer-modes {
   display: flex;
-  border-top: 1px solid var(--sw-border-soft);
-  border-bottom: 1px solid var(--sw-border-soft);
-  background: var(--sw-bg);
+  border-top: 1px solid var(--au-border-soft);
+  border-bottom: 1px solid var(--au-border-soft);
+  background: var(--au-surface);
 }
 .drawer-mode-btn {
   flex: 1;
   background: transparent;
   border: none;
-  color: var(--sw-text-soft);
-  font-family: var(--sw-mono);
+  color: var(--au-fg-soft);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -2235,40 +2301,40 @@ body {
   transition: color 120ms, background 120ms;
 }
 .drawer-mode-btn + .drawer-mode-btn {
-  border-left: 1px solid var(--sw-border-soft);
+  border-left: 1px solid var(--au-border-soft);
 }
-.drawer-mode-btn:hover:not(.active) { color: var(--sw-text); }
+.drawer-mode-btn:hover:not(.active) { color: var(--au-fg); }
 .drawer-mode-btn.active {
-  background: var(--sw-bg-bright);
-  color: var(--sw-orange);
+  background: var(--au-surface-bright);
+  color: var(--au-action);
   font-weight: 700;
 }
 /* Focus ring inset so it doesn't overflow the tab-bar's flush edges. */
 .drawer-mode-btn:focus-visible {
-  outline: 2px solid var(--sw-orange);
+  outline: 2px solid var(--au-action);
   outline-offset: -2px;
 }
 
 .drawer-hdr {
   padding: 10px 12px;
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex: 0 0 auto;
 }
 .drawer-title {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-weight: 700;
 }
 .drawer-section {
   padding: 10px 8px;
-  border-bottom: 1px solid var(--sw-border-soft);
+  border-bottom: 1px solid var(--au-border-soft);
   flex: 0 0 auto;
 }
 .drawer-section.drawer-list-wrap {
@@ -2280,7 +2346,7 @@ body {
 .drawer-section.drawer-foot {
   border-bottom: none;
   margin-top: auto;
-  background: var(--sw-bg-raised);
+  background: var(--au-surface-raised);
 }
 .drawer-section.drawer-search-wrap {
   padding: 6px 8px;
@@ -2291,43 +2357,43 @@ body {
 .drawer-search-wrap .drawer-search { flex: 1; min-width: 0; }
 .drawer-sort-btn {
   flex: 0 0 auto;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 1px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 8px;
   cursor: pointer;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
-.drawer-sort-btn:hover { color: var(--sw-text); border-color: var(--sw-orange); }
+.drawer-sort-btn:hover { color: var(--au-fg); border-color: var(--au-action); }
 .drawer-item-pin {
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-size: 9px;
   vertical-align: 1px;
   margin-right: 1px;
 }
 .drawer-section-hdr {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   padding: 0 6px 6px;
 }
 .drawer-search {
   width: 100%;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 9px;
   outline: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
-.drawer-search:focus { border-color: var(--sw-orange); }
+.drawer-search:focus { border-color: var(--au-action); }
 .drawer-action {
   display: flex;
   align-items: center;
@@ -2335,22 +2401,22 @@ body {
   width: 100%;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   padding: 9px 10px;
   cursor: pointer;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   text-align: left;
 }
 .drawer-action:hover {
-  background: var(--sw-bg-raised);
-  border-color: var(--sw-border);
+  background: var(--au-surface-raised);
+  border-color: var(--au-border);
 }
-.drawer-action:active { background: var(--sw-bg-deep); }
+.drawer-action:active { background: var(--au-surface-deep); }
 .drawer-action-icon {
   font-size: 14px;
-  color: var(--sw-orange);
+  color: var(--au-action);
   width: 16px;
   text-align: center;
   display: inline-block;
@@ -2361,33 +2427,33 @@ body {
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
   border: 1px solid transparent;
   position: relative;
 }
 .drawer-item:hover {
-  background: var(--sw-bg-raised);
-  border-color: var(--sw-border);
+  background: var(--au-surface-raised);
+  border-color: var(--au-border);
 }
 .drawer-item.active {
-  background: var(--sw-bg-raised);
-  border-color: var(--sw-orange);
+  background: var(--au-surface-raised);
+  border-color: var(--au-action);
 }
 .drawer-item-info { flex: 1; min-width: 0; }
 .drawer-item-name {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.drawer-item.active .drawer-item-name { color: var(--sw-orange); }
+.drawer-item.active .drawer-item-name { color: var(--au-action); }
 .drawer-item-desc {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -2395,9 +2461,9 @@ body {
   font-style: italic;
 }
 .drawer-item-meta {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   letter-spacing: 1px;
   margin-top: 2px;
 }
@@ -2409,9 +2475,9 @@ body {
 .drawer-item-menu-btn {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--sw-radius);
-  color: var(--sw-text-soft);
-  font-family: var(--sw-mono);
+  border-radius: var(--au-radius);
+  color: var(--au-fg-soft);
+  font-family: var(--au-font-mono);
   font-size: 16px;
   line-height: 1;
   padding: 2px 8px;
@@ -2419,15 +2485,15 @@ body {
   letter-spacing: 1px;
 }
 .drawer-item-menu-btn:hover {
-  color: var(--sw-text);
-  background: var(--sw-bg-deep);
-  border-color: var(--sw-border);
+  color: var(--au-fg);
+  background: var(--au-surface-deep);
+  border-color: var(--au-border);
 }
-.drawer-item.active .drawer-item-menu-btn { color: var(--sw-text); }
+.drawer-item.active .drawer-item-menu-btn { color: var(--au-fg); }
 .drawer-list-empty {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   padding: 16px 10px;
   text-align: center;
   font-style: italic;
@@ -2438,13 +2504,13 @@ body {
  * primary surface. */
 .drawer-docs-list { padding: 0 4px 16px; }
 .drawer-docs-grouphdr {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   padding: 12px 6px 4px;
-  border-bottom: 1px solid var(--sw-border);
+  border-bottom: 1px solid var(--au-border);
   margin-bottom: 4px;
 }
 /* Sub-header within the Modules section — one per top-level namespace
@@ -2467,25 +2533,25 @@ body {
 }
 .drawer-docs-mod-caret {
   font-size: 9px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   padding: 4px 4px 0;
   cursor: pointer;
   user-select: none;
   flex-shrink: 0;
 }
-.drawer-docs-mod-caret:hover { color: var(--sw-orange); }
+.drawer-docs-mod-caret:hover { color: var(--au-action); }
 .drawer-docs-mod-body-text { flex: 1; min-width: 0; }
 .drawer-docs-mod-symbols {
   margin: 6px 6px 2px 14px;
   padding-top: 6px;
-  border-top: 1px dashed var(--sw-border);
+  border-top: 1px dashed var(--au-border);
 }
 .drawer-docs-mod-kindhdr {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin: 6px 0 3px;
 }
 .drawer-docs-mod-symgrid {
@@ -2494,61 +2560,61 @@ body {
   gap: 4px;
 }
 .drawer-docs-mod-sym {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
   padding: 2px 6px;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
-  background: var(--sw-bg-raised);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
   cursor: pointer;
   user-select: none;
   transition: background 80ms ease;
 }
-.drawer-docs-mod-sym:hover { background: var(--sw-bg-raised-2, var(--sw-bg-raised)); border-color: var(--sw-orange); }
+.drawer-docs-mod-sym:hover { background: var(--au-surface-raised); border-color: var(--au-action); }
 .drawer-docs-row {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   padding: 6px 6px 7px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
   transition: background 80ms ease;
 }
-.drawer-docs-row:hover { background: var(--sw-bg-raised); }
+.drawer-docs-row:hover { background: var(--au-surface-raised); }
 .drawer-docs-row-flash {
   background: rgba(181, 78, 26, 0.20) !important;
 }
 .drawer-docs-name {
   font-size: 12px;
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-weight: 600;
 }
 .drawer-docs-sig {
   font-size: 11px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   margin-top: 2px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .drawer-docs-desc {
-  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-family: var(--au-font-sans);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-top: 3px;
   line-height: 1.4;
 }
 .drawer-docs-ex {
   font-size: 11px;
-  color: var(--sw-text-mid, var(--sw-text-soft));
-  background: var(--sw-bg-deep, var(--sw-bg));
-  border-left: 2px solid var(--sw-border);
+  color: var(--au-fg-muted);
+  background: var(--au-surface-deep);
+  border-left: 2px solid var(--au-border);
   padding: 3px 6px;
   margin-top: 4px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .drawer-docs-empty {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   padding: 16px 10px;
   text-align: center;
   font-style: italic;
@@ -2558,29 +2624,29 @@ body {
  * reference in the docs drawer mode. */
 .drawer-guide-row {
   padding: 8px 6px 9px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
   transition: background 80ms ease;
 }
-.drawer-guide-row:hover { background: var(--sw-bg-raised); }
+.drawer-guide-row:hover { background: var(--au-surface-raised); }
 .drawer-guide-title {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 13px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   font-weight: 600;
 }
 .drawer-guide-summary {
-  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-family: var(--au-font-sans);
   font-size: 11px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-top: 2px;
   line-height: 1.4;
 }
 .drawer-docs-back {
   display: inline-block;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  color: var(--sw-orange);
+  color: var(--au-action);
   text-decoration: none;
   padding: 6px 6px;
   margin-bottom: 4px;
@@ -2589,17 +2655,17 @@ body {
 
 /* Rendered guide body — prose typography, comfortable line-height. */
 .guide-body {
-  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-family: var(--au-font-sans);
   font-size: 13px;
   line-height: 1.55;
-  color: var(--sw-text);
+  color: var(--au-fg);
   padding: 6px 6px 18px;
 }
 .guide-body .guide-h1,
 .guide-body .guide-h2,
 .guide-body .guide-h3 {
-  font-family: var(--sw-mono);
-  color: var(--sw-orange);
+  font-family: var(--au-font-mono);
+  color: var(--au-action);
   font-weight: 600;
   margin: 18px 0 8px;
   line-height: 1.2;
@@ -2611,19 +2677,19 @@ body {
 .guide-body .guide-ul { margin: 0 0 10px; padding-left: 22px; }
 .guide-body .guide-ul li { margin-bottom: 3px; }
 .guide-body .guide-inline-code {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  background: var(--sw-bg-raised);
-  color: var(--sw-text);
+  background: var(--au-surface-raised);
+  color: var(--au-fg);
   padding: 1px 4px;
   border-radius: 3px;
 }
 .guide-body .guide-code {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  background: var(--sw-bg-deep, var(--sw-bg-raised));
-  color: var(--sw-text);
-  border-left: 2px solid var(--sw-orange);
+  background: var(--au-surface-deep);
+  color: var(--au-fg);
+  border-left: 2px solid var(--au-action);
   padding: 8px 10px;
   margin: 0;
   overflow-x: auto;
@@ -2641,13 +2707,13 @@ body {
   position: absolute;
   top: 4px;
   right: 4px;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-border);
+  color: var(--au-fg-soft);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-border);
   border-radius: 3px;
   padding: 2px 6px;
   cursor: pointer;
@@ -2662,9 +2728,9 @@ body {
 .guide-body .guide-code-copy:focus {
   opacity: 1;
 }
-.guide-body .guide-code-copy:hover { color: var(--sw-text); }
+.guide-body .guide-code-copy:hover { color: var(--au-fg); }
 .guide-body .guide-code-copy.copied {
-  color: var(--sw-orange);
+  color: var(--au-action);
   opacity: 1;
 }
 /* On touchscreens (hover unavailable), keep the button visible so users
@@ -2673,15 +2739,15 @@ body {
   .guide-body .guide-code-copy { opacity: 0.8; }
 }
 .guide-body a {
-  color: var(--sw-orange);
+  color: var(--au-action);
   text-decoration: none;
 }
 .guide-body a:hover { text-decoration: underline; }
-.guide-body em  { color: var(--sw-text-soft); font-style: italic; }
-.guide-body strong { color: var(--sw-text); }
+.guide-body em  { color: var(--au-fg-soft); font-style: italic; }
+.guide-body strong { color: var(--au-fg); }
 .guide-body hr {
   border: none;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
   margin: 16px 0 12px;
 }
 
@@ -2695,7 +2761,7 @@ body {
   gap: 8px;
   margin: 16px 6px 4px;
   padding-top: 12px;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
 }
 .drawer-guide-nav-link {
   flex: 1;
@@ -2703,22 +2769,22 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   text-decoration: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
   transition: background 80ms ease, border-color 80ms ease;
 }
 .drawer-guide-nav-link:hover {
-  background: var(--sw-bg-raised);
-  border-color: var(--sw-orange);
+  background: var(--au-surface-raised);
+  border-color: var(--au-action);
 }
 .drawer-guide-nav-prev { text-align: left; }
 .drawer-guide-nav-next { text-align: right; justify-content: flex-end; }
 .drawer-guide-nav-arrow {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 14px;
-  color: var(--sw-orange);
+  color: var(--au-action);
   flex: 0 0 auto;
 }
 .drawer-guide-nav-meta {
@@ -2727,17 +2793,17 @@ body {
   min-width: 0;
 }
 .drawer-guide-nav-label {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   line-height: 1.2;
 }
 .drawer-guide-nav-title {
-  font-family: var(--sw-sans, system-ui, sans-serif);
+  font-family: var(--au-font-sans);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   font-weight: 600;
   margin-top: 2px;
   /* Truncate long titles on narrow drawer widths so the row stays one
@@ -2747,13 +2813,13 @@ body {
   text-overflow: ellipsis;
 }
 .drawer-about {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   line-height: 1.6;
   padding: 4px 6px;
 }
-.drawer-about strong { color: var(--sw-text-mid); }
+.drawer-about strong { color: var(--au-fg-muted); }
 
 /* ─── Settings panel ─────────────────────────────────────────
  * Fullscreen slide-in sub-page. Lives at z-index 80 so it covers the drawer
@@ -2762,7 +2828,7 @@ body {
 .settings-panel {
   position: fixed;
   inset: 0;
-  background: var(--sw-bg);
+  background: var(--au-surface);
   z-index: 80;
   transform: translateX(100%);
   transition: transform 200ms ease;
@@ -2773,30 +2839,30 @@ body {
 .settings-hdr {
   flex: 0 0 auto;
   padding: 10px 12px;
-  background: var(--sw-bg-raised);
-  border-bottom: 1px solid var(--sw-border);
+  background: var(--au-surface-raised);
+  border-bottom: 1px solid var(--au-border);
   display: flex;
   align-items: center;
   gap: 10px;
 }
 .settings-back {
   background: transparent;
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
-  color: var(--sw-text);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
+  color: var(--au-fg);
   font-size: 16px;
   line-height: 1;
   width: 30px;
   height: 30px;
   cursor: pointer;
 }
-.settings-back:hover { border-color: var(--sw-orange); color: var(--sw-orange); }
+.settings-back:hover { border-color: var(--au-action); color: var(--au-action); }
 .settings-title {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-weight: 700;
 }
 .settings-body {
@@ -2808,19 +2874,19 @@ body {
   margin: 0 auto;
 }
 .settings-section {
-  border: 1px solid var(--sw-border-soft);
-  border-radius: var(--sw-radius);
+  border: 1px solid var(--au-border-soft);
+  border-radius: var(--au-radius);
   margin-bottom: 14px;
-  background: var(--sw-bg-raised);
+  background: var(--au-surface-raised);
 }
 .settings-section-hdr {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 9px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   padding: 8px 12px 6px;
-  border-bottom: 1px solid var(--sw-border-soft);
+  border-bottom: 1px solid var(--au-border-soft);
 }
 .settings-row {
   display: flex;
@@ -2828,32 +2894,32 @@ body {
   gap: 14px;
   padding: 12px;
 }
-.settings-row + .settings-row { border-top: 1px solid var(--sw-border-soft); }
+.settings-row + .settings-row { border-top: 1px solid var(--au-border-soft); }
 /* Examples-panel list rows reuse settings-row visually; add hover affordance
  * since they're load-actions, not config controls. */
 .settings-row.examples-row:hover {
-  background: var(--sw-bg-bright);
+  background: var(--au-surface-bright);
 }
 
 /* Snapshots-panel row: headline (label or "auto"), meta line, actions cluster. */
 .snapshot-row { align-items: center; gap: 12px; flex-wrap: wrap; }
 .snapshot-headline {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .snapshot-label {
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 .snapshot-auto {
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-style: italic;
 }
 .snapshot-pin-glyph {
-  color: var(--sw-orange);
+  color: var(--au-action);
   font-size: 10px;
 }
 .snapshot-actions {
@@ -2869,19 +2935,19 @@ body {
 }
 .settings-textarea {
   width: 100%;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 8px 10px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   resize: vertical;
   min-height: 120px;
   outline: none;
   line-height: 1.5;
 }
-.settings-textarea:focus { border-color: var(--sw-orange); }
+.settings-textarea:focus { border-color: var(--au-action); }
 .settings-row-actions {
   display: flex;
   justify-content: flex-end;
@@ -2893,14 +2959,14 @@ body {
 .settings-textarea:disabled { cursor: not-allowed; }
 .settings-row-label {
   flex: 1 1 auto;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
-  color: var(--sw-text);
+  color: var(--au-fg);
   min-width: 0;
 }
 .settings-row-hint {
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   margin-top: 3px;
   line-height: 1.4;
 }
@@ -2911,55 +2977,55 @@ body {
   gap: 4px;
 }
 .settings-pill {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 5px 9px;
   cursor: pointer;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   min-width: 28px;
 }
-.settings-pill:hover { color: var(--sw-text); }
+.settings-pill:hover { color: var(--au-fg); }
 .settings-pill.active {
-  background: var(--sw-bg);
-  border-color: var(--sw-orange);
-  color: var(--sw-orange);
+  background: var(--au-surface);
+  border-color: var(--au-action);
+  color: var(--au-action);
 }
 .settings-btn {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 11px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   padding: 6px 12px;
   cursor: pointer;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
-.settings-btn:hover { border-color: var(--sw-orange); }
-.settings-btn.danger { color: var(--sw-red); }
-.settings-btn.danger:hover { border-color: var(--sw-red); }
+.settings-btn:hover { border-color: var(--au-action); }
+.settings-btn.danger { color: var(--au-error); }
+.settings-btn.danger:hover { border-color: var(--au-error); }
 .settings-foot {
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 10px;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   line-height: 1.6;
   padding: 16px 4px 4px;
 }
-.settings-foot strong { color: var(--sw-text-mid); }
+.settings-foot strong { color: var(--au-fg-muted); }
 
 /* Popup context menu (used for drawer-item actions; positioned absolutely) */
 .ctx-menu {
   position: fixed;
   z-index: 70;
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-border);
-  border-radius: var(--sw-radius);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   padding: 4px;
   min-width: 140px;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
   /* Cap height so a long list (mesh sizes: 32, future builtins lists, etc.)
    * doesn't span the whole viewport. Past the cap the menu scrolls
@@ -2970,25 +3036,25 @@ body {
   /* Thin scrollbar that matches the surrounding chrome rather than the
    * OS default chunky bar. Falls back to the OS default outside Webkit. */
   scrollbar-width: thin;
-  scrollbar-color: var(--sw-border) transparent;
+  scrollbar-color: var(--au-border) transparent;
 }
 .ctx-menu::-webkit-scrollbar { width: 6px; }
 .ctx-menu::-webkit-scrollbar-track { background: transparent; }
-.ctx-menu::-webkit-scrollbar-thumb { background: var(--sw-border); border-radius: 3px; }
+.ctx-menu::-webkit-scrollbar-thumb { background: var(--au-border); border-radius: 3px; }
 .ctx-menu-item {
   display: block;
   width: 100%;
   text-align: left;
   background: transparent;
   border: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
   padding: 8px 10px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
   cursor: pointer;
-  font-family: var(--sw-mono);
+  font-family: var(--au-font-mono);
   font-size: 12px;
 }
-.ctx-menu-item:hover { background: var(--sw-bg-deep); color: var(--sw-orange); }
+.ctx-menu-item:hover { background: var(--au-surface-deep); color: var(--au-action); }
 
 /* ── Keyboard-focus indicators (§4.4) ───────────────────────────────
  *
@@ -3000,31 +3066,31 @@ body {
  * helps. */
 button:focus-visible,
 .drawer-item:focus-visible {
-  outline: 2px solid var(--sw-orange);
+  outline: 2px solid var(--au-action);
   outline-offset: 2px;
 }
 .drawer-item:focus-visible {
   /* Drawer items sit flush against the drawer edges; offset INside
    * so the ring doesn't extend past the drawer's border. */
   outline-offset: -2px;
-  border-radius: var(--sw-radius);
+  border-radius: var(--au-radius);
 }
 .ctx-menu-item:focus-visible {
   /* Inside the menu's own padding; no need to offset out. */
-  outline: 2px solid var(--sw-orange);
+  outline: 2px solid var(--au-action);
   outline-offset: -1px;
 }
-.ctx-menu-item.danger:hover { background: var(--sw-bg-deep); color: var(--sw-red); }
+.ctx-menu-item.danger:hover { background: var(--au-surface-deep); color: var(--au-error); }
 /* Submenu arrow — right-aligned, muted so it doesn't compete with the label. */
 .ctx-menu-item-arrow {
   float: right;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-size: 11px;
   margin-left: 12px;
 }
 .ctx-menu-sep {
   height: 1px;
-  background: var(--sw-border-soft);
+  background: var(--au-border-soft);
   margin: 4px 2px;
 }
 
@@ -3071,17 +3137,17 @@ html[data-pocket] #saveStatus,
 html[data-pocket] #pipBtn,
 html[data-pocket] #formBtn { display: none !important; }
 html[data-pocket] #exportBtn {
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: none;
   height: 36px;
   padding: 0 14px;
-  border: 1.5px solid var(--sw-orange);
+  border: 1.5px solid var(--au-action);
   border-radius: 6px;
   background: transparent;
-  color: var(--sw-orange);
+  color: var(--au-action);
 }
 
 /* Panels: the sheet is the screen. Scenarios return as a bottom sheet
@@ -3100,19 +3166,19 @@ html[data-pocket] .pocket-hint {
   margin: 8px 12px 2px;
   padding: 8px 6px 8px 12px;
   border-radius: 6px;
-  background: var(--sw-bg-bright);
-  border: 1px solid var(--sw-border-soft);
-  font-family: var(--sw-sans);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border-soft);
+  font-family: var(--au-font-sans);
   font-size: 14px;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
 }
-.pocket-hint b { color: var(--sw-text); font-weight: 600; }
-.pocket-hint-star { color: var(--sw-orange); }
+.pocket-hint b { color: var(--au-fg); font-weight: 600; }
+.pocket-hint-star { color: var(--au-action); }
 .pocket-hint-x {
   margin-left: auto;
   width: 36px; height: 36px;
   background: transparent; border: 0;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
   font-size: 16px;
   cursor: pointer;
 }
@@ -3124,7 +3190,7 @@ html[data-pocket] .body .cm-scroller { font-size: 15.5px; line-height: 27px; }
 html[data-pocket] .body .cm-line { padding-left: 16px; }
 html[data-pocket] .body .ep-result-gutter { font-size: 15px; }
 html[data-pocket] .body .ep-result-gutter .cm-gutterElement { line-height: 27px; height: 27px; padding: 0 14px 0 6px; }
-html[data-pocket] .body .ep-result-gutter .ep-gutter-result { line-height: 27px; font-weight: 700; color: var(--sw-teal); }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result { line-height: 27px; font-weight: 700; color: var(--au-info); }
 html[data-pocket] .body .ep-result-gutter .ep-gutter-result .u { font-weight: 400; font-size: 13px; }
 html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding { visibility: hidden; }
 html[data-pocket] .body .ep-result-gutter .ep-gutter-result.error { font-weight: 400; }
@@ -3139,9 +3205,9 @@ html[data-pocket] .app:not(.form) #outputsPanel {
   bottom: calc(var(--ep-kbd-inset, 0px) + var(--ep-acc-h, 96px) + var(--ep-sighelp-h, 0px));
   z-index: 48;
   margin: 0;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
   border-bottom: 0;
-  background: var(--sw-bg-raised);
+  background: var(--au-surface-raised);
   transition: bottom 180ms ease;
 }
 html[data-pocket] .app.no-accessory:not(.form) #outputsPanel {
@@ -3161,7 +3227,7 @@ html[data-pocket] .app:not(.form) #outChips .chip {
   flex: 1 0 46%;
   min-width: 46%;
   border: 0;
-  border-left: 1px solid var(--sw-border-soft);
+  border-left: 1px solid var(--au-border-soft);
   border-radius: 0;
   background: transparent;
   padding: 7px 14px 8px;
@@ -3169,7 +3235,7 @@ html[data-pocket] .app:not(.form) #outChips .chip {
 }
 html[data-pocket] .app:not(.form) #outChips .chip:first-child { border-left: 0; }
 html[data-pocket] .app:not(.form) #outChips .chip-lbl {
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-weight: 600;
   font-size: 10.5px;
   letter-spacing: 0.12em;
@@ -3177,7 +3243,7 @@ html[data-pocket] .app:not(.form) #outChips .chip-lbl {
 html[data-pocket] .app:not(.form) #outChips .chip-out-val {
   font-size: 20px;
   font-weight: 700;
-  color: var(--sw-teal);
+  color: var(--au-info);
 }
 
 /* Sig-help strip sits directly above the (taller) keyboard row. */
@@ -3190,7 +3256,7 @@ html[data-pocket] .app .accessory {
   gap: 6px;
   padding: 8px 8px 6px;
   overflow: hidden;
-  background: var(--sw-bg-deep);
+  background: var(--au-surface-deep);
 }
 html[data-pocket] .accessory .tok { display: none; }
 html[data-pocket] .accessory .tok.pk,
@@ -3205,19 +3271,19 @@ html[data-pocket] .accessory .tok-more-units {
   margin: 0;
   font-size: 19px;
   font-weight: 400;
-  color: var(--sw-text);
+  color: var(--au-fg);
   border-radius: 7px;
-  border: 1px solid var(--sw-border-soft);
-  box-shadow: 0 1px 0 var(--sw-border);
+  border: 1px solid var(--au-border-soft);
+  box-shadow: 0 1px 0 var(--au-border);
 }
 html[data-pocket] .accessory .tok-more-units {
   flex: 1.7 1 0;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: var(--sw-orange);
-  border-color: var(--sw-orange);
+  color: var(--au-action);
+  border-color: var(--au-action);
 }
 
 /* Variable chips — second line of the keyboard row. Hidden on desktop. */
@@ -3237,16 +3303,16 @@ html[data-pocket] .accessory .pocket-vars::-webkit-scrollbar { display: none !im
   height: 34px;
   padding: 0 12px;
   border-radius: 17px;
-  background: var(--sw-bg);
-  border: 1px solid var(--sw-border-soft);
-  font-family: var(--sw-mono);
+  background: var(--au-surface);
+  border: 1px solid var(--au-border-soft);
+  font-family: var(--au-font-mono);
   font-size: 14px;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
   white-space: nowrap;
   cursor: pointer;
 }
-.vchip.in { color: var(--sw-text); border-color: var(--sw-border); }
-.vchip:active { background: var(--sw-bg-deep); }
+.vchip.in { color: var(--au-fg); border-color: var(--au-border); }
+.vchip:active { background: var(--au-surface-deep); }
 
 /* Unit sheet at thumb scale. */
 html[data-pocket] .unit-sheet { max-height: 72vh; border-radius: 18px 18px 0 0; }
@@ -3254,8 +3320,8 @@ html[data-pocket] .unit-sheet-search { font-size: 15px; padding: 10px 14px; bord
 html[data-pocket] .unit-sheet-close { width: 44px; height: 44px; font-size: 18px; }
 html[data-pocket] .unit-picker-pill { min-height: 40px; min-width: 44px; font-size: 15px; padding: 0 13px; border-radius: 7px; }
 html[data-pocket] .unit-picker-grid { gap: 6px; }
-.unit-picker-pill.recent { border-color: var(--sw-orange); color: var(--sw-orange); font-weight: 700; }
-.unit-picker-more { color: var(--sw-text-mid); font-family: var(--sw-sans); font-size: 12px; }
+.unit-picker-pill.recent { border-color: var(--au-action); color: var(--au-action); font-weight: 700; }
+.unit-picker-more { color: var(--au-fg-muted); font-family: var(--au-font-sans); font-size: 12px; }
 .unit-picker-tail { margin-top: 6px; }
 
 /* Pocket: no annotation-suggestion pills — a power-user affordance that
@@ -3272,20 +3338,20 @@ html[data-pocket] .body .cm-content .cm-ep-inchip {
   padding: 1px 8px 2px;
   margin: -2px 0;
   border-radius: 6px;
-  background: var(--sw-bg-bright);
-  border: 1.5px solid var(--sw-orange);
+  background: var(--au-surface-bright);
+  border: 1.5px solid var(--au-action);
   font-weight: 700;
   line-height: 22px;
 }
 html[data-pocket] .body .cm-content .cm-ep-deco-line {
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   line-height: 18px;
   padding-top: 8px;
-  color: var(--sw-orange);
+  color: var(--au-action);
 }
 html[data-pocket] .body .cm-content .cm-ep-deco-line .cm-ep-decorator,
 html[data-pocket] .body .cm-content .cm-ep-deco-line span { font-family: inherit; font-size: inherit; letter-spacing: inherit; }
@@ -3313,7 +3379,7 @@ html[data-pocket] .unit-sheet::before {
   width: 42px;
   height: 5px;
   border-radius: 3px;
-  background: var(--sw-border);
+  background: var(--au-border);
   margin: 8px auto 2px;
 }
 
@@ -3325,7 +3391,7 @@ html[data-pocket] .drawer {
   height: 84vh;
   max-height: 84vh;
   border-right: 0;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
   border-radius: 18px 18px 0 0;
   transform: translateY(100%);
   transition: transform 220ms ease;
@@ -3342,7 +3408,7 @@ html[data-pocket] .settings-panel {
   top: auto;
   left: 0; right: 0; bottom: 0;
   height: 90vh;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
   border-radius: 18px 18px 0 0;
   transform: translateY(100%);
   transition: transform 220ms ease;
@@ -3366,25 +3432,25 @@ html[data-pocket] .scrim .dialog {
   max-width: none !important;
   max-height: 88vh;
   border: 0;
-  border-top: 1px solid var(--sw-border);
+  border-top: 1px solid var(--au-border);
   border-radius: 18px 18px 0 0;
-  background: var(--sw-bg-raised);
+  background: var(--au-surface-raised);
 }
 html[data-pocket] .dialog-hdr {
   background: transparent;
   border-bottom: 0;
   padding: 6px 16px 4px;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--sw-text);
+  color: var(--au-fg);
 }
 html[data-pocket] .dialog-body { font-size: 14px; padding: 8px 16px 12px; }
 html[data-pocket] .export-blurb,
 html[data-pocket] .export-preview { display: none; }
-html[data-pocket] .dialog-row label { font-family: var(--sw-sans); font-size: 12px; letter-spacing: 0.08em; }
+html[data-pocket] .dialog-row label { font-family: var(--au-font-sans); font-size: 12px; letter-spacing: 0.08em; }
 html[data-pocket] .dialog-row input { font-size: 16px; padding: 10px 12px; border-radius: 8px; }
 html[data-pocket] .dialog-row.dialog-checkbox-row label { font-size: 14px; }
 html[data-pocket] .dialog-row.dialog-checkbox-row input[type="checkbox"] { width: 20px; height: 20px; }
@@ -3398,7 +3464,7 @@ html[data-pocket] .dialog-actions .btn {
   flex: 1 1 28%;
   min-height: 48px;
   order: 2;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -3409,7 +3475,7 @@ html[data-pocket] .dialog-actions .btn {
 html[data-pocket] .dialog-actions .btn.primary { flex: 1 1 100%; order: 1; }
 html[data-pocket] .dialog-actions #shareFileBtn { order: 0; }
 html[data-pocket] .dialog-actions #cancelBtn,
-html[data-pocket] .dialog-actions #modalCancelBtn { order: 3; flex: 1 1 100%; background: transparent; border-color: transparent; color: var(--sw-text-mid); }
+html[data-pocket] .dialog-actions #modalCancelBtn { order: 3; flex: 1 1 100%; background: transparent; border-color: transparent; color: var(--au-fg-muted); }
 
 /* Pocket slice 4 — the form on a phone (SPEC-pocket §3.6). Applies to
  * form view in the editor and to the exported viewer (`.app.form.viewer`),
@@ -3423,10 +3489,10 @@ html[data-pocket] .pocket-hint-empty {
   height: 36px;
   padding: 0 12px;
   border-radius: 6px;
-  border: 1px solid var(--sw-border);
-  background: var(--sw-bg-raised);
-  color: var(--sw-text);
-  font: 600 13px var(--sw-sans);
+  border: 1px solid var(--au-border);
+  background: var(--au-surface-raised);
+  color: var(--au-fg);
+  font: 600 13px var(--au-font-sans);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -3437,24 +3503,24 @@ html[data-pocket] .app.form #formBtn {
   align-items: center;
   height: 36px;
   padding: 0 14px;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--sw-text);
-  border-color: var(--sw-border);
+  color: var(--au-fg);
+  border-color: var(--au-border);
 }
 html[data-pocket] .app.form .panel { border: 0; background: transparent; }
 html[data-pocket] .app.form .panel-hdr {
   padding: 14px 16px 6px;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.14em;
-  color: var(--sw-text-soft);
+  color: var(--au-fg-soft);
 }
 html[data-pocket] .app.form .panel-hdr .meta,
 html[data-pocket] .app.form .panel-hdr .chevron,
@@ -3471,18 +3537,18 @@ html[data-pocket] .app.form .chip {
   gap: 4px 12px;
   padding: 12px 14px;
   border-radius: 10px;
-  background: var(--sw-bg-raised);
-  border: 1px solid var(--sw-border-soft);
+  background: var(--au-surface-raised);
+  border: 1px solid var(--au-border-soft);
 }
 html[data-pocket] .app.form .chip-lbl {
   flex: 1 1 auto;
   min-width: 0;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--sw-text-mid);
+  color: var(--au-fg-muted);
 }
 html[data-pocket] .app.form .chip-val {
   flex: 0 1 auto;
@@ -3494,9 +3560,9 @@ html[data-pocket] .app.form .chip-val {
   font-weight: 700;
   padding: 4px 10px;
   border-radius: 7px;
-  background: var(--sw-bg-bright);
-  border: 1.5px solid var(--sw-orange);
-  color: var(--sw-text);
+  background: var(--au-surface-bright);
+  border: 1.5px solid var(--au-action);
+  color: var(--au-fg);
 }
 html[data-pocket] .app.form .chip-val.chip-val-select { padding-right: 28px; }
 html[data-pocket] .app.form .chip-res { flex: 1 0 100%; font-size: 12px; margin-top: 2px; }
@@ -3508,13 +3574,13 @@ html[data-pocket] .app.form .chip:has(.chip-val-filepicker) .chip-val { max-widt
 
 /* Results */
 html[data-pocket] .app.form #outputsPanel { position: static; background: transparent; border: 0; margin-top: 4px; }
-html[data-pocket] .app.form #outChips .chip { background: var(--sw-bg-raised); }
+html[data-pocket] .app.form #outChips .chip { background: var(--au-surface-raised); }
 html[data-pocket] .app.form #outChips .chip-lbl { font-size: 14px; }
 html[data-pocket] .app.form #outChips .chip-out-row { flex: 0 1 auto; margin-left: auto; }
 html[data-pocket] .app.form #outChips .chip-out-val {
   font-size: 26px;
   font-weight: 700;
-  color: var(--sw-teal);
+  color: var(--au-info);
 }
 html[data-pocket] .app.form #outChips .chip-out-val .u { font-weight: 400; font-size: 15px; }
 html[data-pocket] .app.form .chip-copy { min-width: 44px; min-height: 36px; font-size: 11px; }
@@ -3529,7 +3595,7 @@ html[data-pocket] .viewer-footer {
   gap: 10px 8px;
   align-items: center;
   justify-content: center;
-  font-family: var(--sw-sans);
+  font-family: var(--au-font-sans);
   font-size: 13px;
 }
 .viewer-share-btn { display: none; }
@@ -3541,9 +3607,9 @@ html[data-pocket] .viewer-share-btn {
   height: 48px;
   border-radius: 9px;
   border: 0;
-  background: var(--sw-orange);
+  background: var(--au-action);
   color: #fff;
-  font: 600 15px var(--sw-sans);
+  font: 600 15px var(--au-font-sans);
   letter-spacing: 0.04em;
   cursor: pointer;
 }
@@ -3551,3 +3617,6 @@ html[data-pocket] .viewer-share-btn {
 /* A chip result that merely repeats the typed value adds nothing — hide
  * it on every form factor (render.js tags it `.echo`). */
 .chip-res.echo { display: none; }
+
+/* Examples list — group separators (everyday / science / field). */
+.examples-group-hdr { margin-top: 14px; border-top: 1px solid var(--au-border-soft); }

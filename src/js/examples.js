@@ -46,6 +46,88 @@ pace -> mph
   },
 
   {
+    slug: 'recipe_scaling',
+    name: 'Recipe scaling',
+    desc: 'Scale a recipe to the number of people at the table',
+    body: `# Recipe scaling — written for 4, cooked for however many
+
+@input
+servings = 6
+
+scale = servings / 4
+
+@output(g)
+flour = 250 g * scale
+
+@output(g)
+butter = 125 g * scale
+
+@output(mL)
+milk = 300 mL * scale
+
+@output
+eggs = round(2 * scale)
+`,
+  },
+
+  {
+    slug: 'road_trip',
+    name: 'Road trip',
+    desc: 'Distance, fuel economy, price per litre → litres, cost, time',
+    body: `# Road trip — fuel and time
+
+@input
+distance = 420 km
+
+@input
+economy = 14.5 km/L
+
+@input
+price = 1.89   # per litre
+
+@input
+speed = 95 km/h
+
+@output(L)
+fuel = distance / economy
+
+# Currency is just a number here — divide the litres back out.
+@output
+cost = fuel * price / L
+
+@output(h)
+driving = distance / speed
+`,
+  },
+
+  {
+    slug: 'commute',
+    name: 'Commute with uncertainty',
+    desc: 'Monte Carlo: when do I need to leave to make a 9:00 meeting?',
+    body: `# Commute — the drive is 25 min most days, sometimes much more.
+# Each uncertain input is a bag of samples; the arithmetic carries
+# the whole bag through, so \`leave_by\` is a distribution too.
+
+@input
+drive = lognormal(25 min, 8 min)
+
+@input
+parking = uniform(3 min, 12 min)
+
+@input
+walk = normal(6 min, 1 min)
+
+door_to_desk = drive + parking + walk
+
+# Leave this many minutes before 9:00 to be on time 95 days in 100.
+@output(min)
+leave_by = percentile(door_to_desk, 95)
+
+pdf(door_to_desk, "minutes", "", "Door to desk")
+`,
+  },
+
+  {
     slug: 'cylinder',
     name: 'Cylinder volume',
     desc: 'Simple geometry — π, exponent, units',
@@ -377,7 +459,30 @@ flight_time = 2 * v0 * sin(angle) / g
   },
 ];
 
+// Grouping for the examples list (SPEC-pocket §3.4): everyday sheets
+// first, then science, then the geology set under "field". Field stays —
+// structural geology is comfortable — it just isn't first any more.
+const EXAMPLE_GROUPS = [
+  { key: 'everyday', title: 'everyday',  slugs: ['weekend_hike', 'recipe_scaling', 'road_trip', 'unit_conversions', 'compound_interest'] },
+  { key: 'science',  title: 'science',   slugs: ['cylinder', 'projectile', 'commute', 'layered_xy'] },
+  { key: 'field',    title: 'field',     slugs: ['ore_body', 'drillhole_sample', 'sieve_mesh', 'stereonet', 'sensitivity_sweep', 'uncertain_resource'] },
+];
+
 export function getExamples() { return EXAMPLES; }
+
+// Examples in display order, grouped. Anything not named in a group
+// lands in a trailing "more" section so a new example is never hidden.
+export function getExampleGroups() {
+  const bySlug = new Map(EXAMPLES.map(e => [e.slug, e]));
+  const seen = new Set();
+  const groups = EXAMPLE_GROUPS.map(g => ({
+    key: g.key, title: g.title,
+    examples: g.slugs.map(s => { seen.add(s); return bySlug.get(s); }).filter(Boolean),
+  }));
+  const rest = EXAMPLES.filter(e => !seen.has(e.slug));
+  if (rest.length) groups.push({ key: 'more', title: 'more', examples: rest });
+  return groups.filter(g => g.examples.length);
+}
 
 // Load an example ephemerally: state.body is replaced and the header shows
 // the example's slug, but nothing is written to storage. The example only

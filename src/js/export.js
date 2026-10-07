@@ -173,7 +173,7 @@ shareBtn.addEventListener('click', async () => {
       shareQrEl.innerHTML = qrSvgFor(qrUrl, {moduleSize: 4, margin: 2});
     } catch (e) {
       // Payload too big for the largest QR version — show a note and continue with the link only.
-      shareQrEl.innerHTML = `<span style="font-size:10px;color:var(--sw-text-soft)">QR: ${e.message}</span>`;
+      shareQrEl.innerHTML = `<span style="font-size:10px;color:var(--au-fg-soft)">QR: ${e.message}</span>`;
     }
     if (navigator.share) {
       try {

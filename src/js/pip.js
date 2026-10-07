@@ -122,7 +122,7 @@ export async function openPip() {
 
   pip.document.title = 'ep · scratchpad';
   pip.document.body.classList.add('app');
-  pip.document.body.style.cssText = 'margin:0;padding:0;height:100vh;display:flex;flex-direction:column;background:var(--sw-bg);color:var(--sw-text);';
+  pip.document.body.style.cssText = 'margin:0;padding:0;height:100vh;display:flex;flex-direction:column;background:var(--au-surface);color:var(--au-fg);';
 
   // Use the same `.body` class the main editor mounts under — every
   // gutter / error-block / completion-popup CSS rule in style.css is
@@ -168,17 +168,17 @@ export async function openPip() {
     languageData: { commentTokens: { line: '#' } },
   });
   const epHighlight = HighlightStyle.define([
-    { tag: tags.comment,         color: 'var(--sw-text-soft)', fontStyle: 'italic' },
-    { tag: tags.lineComment,     color: 'var(--sw-text-soft)', fontStyle: 'italic' },
-    { tag: tags.meta,            color: 'var(--sw-orange)',    fontWeight: '700' },
-    { tag: tags.keyword,         color: 'var(--sw-orange)' },
-    { tag: tags.atom,            color: 'var(--sw-indigo)' },
-    { tag: tags.number,          color: 'var(--sw-text-mid)' },
-    { tag: tags.string,          color: 'var(--sw-teal)' },
-    { tag: tags.typeName,        color: 'var(--sw-teal)' },
-    { tag: tags.variableName,    color: 'var(--sw-text)' },
-    { tag: tags.operatorKeyword, color: 'var(--sw-orange)' },
-    { tag: tags.operator,        color: 'var(--sw-text-mid)' },
+    { tag: tags.comment,         color: 'var(--au-fg-soft)', fontStyle: 'italic' },
+    { tag: tags.lineComment,     color: 'var(--au-fg-soft)', fontStyle: 'italic' },
+    { tag: tags.meta,            color: 'var(--au-action)',    fontWeight: '700' },
+    { tag: tags.keyword,         color: 'var(--au-action)' },
+    { tag: tags.atom,            color: 'var(--au-selected)' },
+    { tag: tags.number,          color: 'var(--au-fg-muted)' },
+    { tag: tags.string,          color: 'var(--au-info)' },
+    { tag: tags.typeName,        color: 'var(--au-info)' },
+    { tag: tags.variableName,    color: 'var(--au-fg)' },
+    { tag: tags.operatorKeyword, color: 'var(--au-action)' },
+    { tag: tags.operator,        color: 'var(--au-fg-muted)' },
   ]);
 
   // Inline error/info block widget — kind: 'error' | 'warn' | 'info'.

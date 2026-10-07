@@ -360,7 +360,7 @@ function drawPlot(canvas, plot, dpr, opts) {
 
   if (hasTitle) {
     ctx.fillStyle = cssVar('--sw-text', '#232322');
-    ctx.font = '600 12px var(--sw-mono, monospace)';
+    ctx.font = '600 12px var(--au-font-mono, monospace)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(title, cssW / 2, 6);
@@ -368,7 +368,7 @@ function drawPlot(canvas, plot, dpr, opts) {
 
   if (!layers.length || !layers.some(l => l.xs.length)) {
     ctx.fillStyle = colText;
-    ctx.font = '11px var(--sw-mono, monospace)';
+    ctx.font = '11px var(--au-font-mono, monospace)';
     ctx.textBaseline = 'middle';
     ctx.fillText('(no data)', ML + 4, MT + PH / 2);
     canvas._plotState = null;
@@ -419,7 +419,7 @@ function drawPlot(canvas, plot, dpr, opts) {
 
     // Tick labels.
     ctx.fillStyle = colText;
-    ctx.font = '10px var(--sw-mono, monospace)';
+    ctx.font = '10px var(--au-font-mono, monospace)';
     ctx.textBaseline = 'middle';
     const fmtTick = v => {
       if (Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-2)) return v.toExponential(1);
@@ -443,7 +443,7 @@ function drawPlot(canvas, plot, dpr, opts) {
   // Axis labels.
   if (hasXLabel) {
     ctx.fillStyle = cssVar('--sw-text', '#232322');
-    ctx.font = '500 11px var(--sw-mono, monospace)';
+    ctx.font = '500 11px var(--au-font-mono, monospace)';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText(xLabel, ML + PW / 2, cssH - 4);
@@ -451,7 +451,7 @@ function drawPlot(canvas, plot, dpr, opts) {
   if (hasYLabel) {
     ctx.save();
     ctx.fillStyle = cssVar('--sw-text', '#232322');
-    ctx.font = '500 11px var(--sw-mono, monospace)';
+    ctx.font = '500 11px var(--au-font-mono, monospace)';
     ctx.translate(12, MT + PH / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.textAlign = 'center';
@@ -993,7 +993,7 @@ function hasEditorSelection(view) {
 function mountCm6() {
   const CM6 = globalThis.CM6;
   if (!CM6) {
-    bodyEl.innerHTML = '<div style="padding:20px;color:var(--sw-red);font-family:var(--sw-mono);font-size:12px">CodeMirror 6 bundle not loaded.</div>';
+    bodyEl.innerHTML = '<div style="padding:20px;color:var(--au-error);font-family:var(--au-font-mono);font-size:12px">CodeMirror 6 bundle notloaded.</div>';
     return;
   }
 
@@ -1233,17 +1233,17 @@ function mountCm6() {
   });
 
   const epHighlight = HighlightStyle.define([
-    { tag: tags.comment,         color: 'var(--sw-text-soft)', fontStyle: 'italic' },
-    { tag: tags.lineComment,     color: 'var(--sw-text-soft)', fontStyle: 'italic' },
-    { tag: tags.meta,            color: 'var(--sw-orange)',    fontWeight: '700' },
-    { tag: tags.keyword,         color: 'var(--sw-orange)' },
-    { tag: tags.atom,            color: 'var(--sw-indigo)' },
-    { tag: tags.number,          color: 'var(--sw-text-mid)' },
-    { tag: tags.string,          color: 'var(--sw-teal)' },
-    { tag: tags.typeName,        color: 'var(--sw-teal)' },
-    { tag: tags.variableName,    color: 'var(--sw-text)' },
-    { tag: tags.operatorKeyword, color: 'var(--sw-orange)' },
-    { tag: tags.operator,        color: 'var(--sw-text-mid)' },
+    { tag: tags.comment,         color: 'var(--au-fg-soft)', fontStyle: 'italic' },
+    { tag: tags.lineComment,     color: 'var(--au-fg-soft)', fontStyle: 'italic' },
+    { tag: tags.meta,            color: 'var(--au-action)',    fontWeight: '700' },
+    { tag: tags.keyword,         color: 'var(--au-action)' },
+    { tag: tags.atom,            color: 'var(--au-selected)' },
+    { tag: tags.number,          color: 'var(--au-fg-muted)' },
+    { tag: tags.string,          color: 'var(--au-info)' },
+    { tag: tags.typeName,        color: 'var(--au-info)' },
+    { tag: tags.variableName,    color: 'var(--au-fg)' },
+    { tag: tags.operatorKeyword, color: 'var(--au-action)' },
+    { tag: tags.operator,        color: 'var(--au-fg-muted)' },
   ]);
 
   // (No fold service yet — the old @params { } block fold doesn't apply to
