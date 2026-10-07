@@ -543,6 +543,6 @@ export function bootProgramFromStorage() {
     maybeAutoSnapshot(stored);
     return true;
   }
-  setCurrentProgramName('ore_body', false);
+  setCurrentProgramName('weekend_hike', false);
   return false;
 }

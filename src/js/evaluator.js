@@ -560,13 +560,22 @@ export function getUnitsByCategory() {
   // resolvable name as the "primary" so the picker doesn't show every
   // prefixed variant.
   const byCategory = new Map();
+  const seenInCat = new Map();
   for (const entry of entries) {
     const cat = dimToCategory.get(dimKey(entry.dim)) || 'Other';
-    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    if (!byCategory.has(cat)) { byCategory.set(cat, []); seenInCat.set(cat, new Set()); }
+    // The v0.1 prelude and the vendored upstream modules both define the
+    // SI core (g / kg / mg …); show each display name once per category.
+    // U+00B5 MICRO SIGN and U+03BC GREEK MU both appear as prefixes —
+    // treat them as the same name.
+    const key = entry.displayName.replace(/μ/g, 'µ');
+    if (seenInCat.get(cat).has(key)) continue;
+    seenInCat.get(cat).add(key);
     byCategory.get(cat).push({
       name: entry.displayName,
       displayName: entry.displayName,
       fullName: entry.fullName,
+      prefix: entry.prefix || null,
     });
   }
   // Stable category order: well-known dimensions first, then Other.

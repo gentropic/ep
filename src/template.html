@@ -71,7 +71,7 @@
     </button>
     <div class="hdr-left">
       <span class="name" title="ep — eval-print, notepad-flavor calculator. Syntax inspired by Numbat (David Peter, MIT).">ep</span>
-      <span class="file" id="hdrFile">ore_body</span>
+      <span class="file" id="hdrFile">weekend_hike</span>
       <span class="save-status" id="saveStatus"></span>
     </div>
     <div class="hdr-right">
@@ -568,40 +568,30 @@
 /* MARKER:STATE_START */
 const INITIAL_STATE = {
   body: [
-    {src: '# Ore body calculation — demonstrates ep'},
-    {src: '#   `#` comments (also `--`)'},
-    {src: '#   `_` digit separators (1_800)'},
-    {src: '#   `->` / `to` unit conversion'},
-    {src: '#   optional `: Dimension` type annotations'},
-    {src: '#   @input / @output decorators (form-builder)'},
+    {src: '# Weekend hike'},
+    {src: '# Touch a number to recompute.'},
     {src: ''},
     {src: '@input'},
-    {src: 'length = 200 m'},
+    {src: 'distance = 14 km'},
     {src: ''},
     {src: '@input'},
-    {src: 'width = 50 m'},
+    {src: 'pace = 5.5 km/h'},
     {src: ''},
     {src: '@input'},
-    {src: 'thickness = 8 m'},
+    {src: 'climb = 850 m'},
     {src: ''},
-    {src: '@input'},
-    {src: 'density : Density = 2.7 g/cm3'},
+    {src: 'walk = distance / pace'},
+    {src: 'ascent = climb / (400 m/h)'},
     {src: ''},
-    {src: '@input'},
-    {src: 'grade = 1_800 ppb'},
+    {src: '@output(min)'},
+    {src: 'total = walk + ascent'},
     {src: ''},
-    {src: '# Geometry and tonnage'},
-    {src: 'volume = length * width * thickness'},
-    {src: ''},
-    {src: '@output(kt)'},
-    {src: 'tonnage = volume * density'},
+    {src: 'water = total * 0.5 L/h'},
     {src: ''},
     {src: '@output(kg)'},
-    {src: 'metal = tonnage * grade'},
+    {src: 'snacks = 3 * 250 g'},
     {src: ''},
-    {src: '# Display the same value in troy ounces'},
-    {src: '@output(ozt)'},
-    {src: 'metal_oz = metal'},
+    {src: 'pace -> mph'},
   ],
   ui: {
     paramsCollapsed: false,

@@ -3027,3 +3027,239 @@ button:focus-visible,
   background: var(--sw-border-soft);
   margin: 4px 2px;
 }
+
+/* ── Pocket mode — the phone-first layout (SPEC-pocket §3) ─────────────
+ *
+ * html[data-pocket] is set by viewport.js at ≤ 720px, or when the page
+ * is opened with ?mobile=1 (smokes, screenshots). Everything here is an
+ * override of the desktop layout above; nothing changes outside pocket.
+ *
+ *   • The sheet is the screen: @params and the show-source divider are
+ *     gone; the editor fills the viewport.
+ *   • Results carry the typography: bigger, bold, teal. The echo on a
+ *     plain @input line (200 m = 200 m) is suppressed.
+ *   • @outputs become a fixed strip just above the keyboard row, only
+ *     when the sheet declares some (the .empty class hides it).
+ *   • The accessory bar becomes the keyboard row: eight operators and the
+ *     units button at 44 px, no scrolling, plus a second row of variable
+ *     chips. Heights are published as --ep-acc-h / --ep-outs-h so the
+ *     fixed stack (sig-help strip, outputs strip) and the .app padding
+ *     follow the real rendered sizes.
+ *   • Desktop-only chrome (PiP, save status, the form toggle) is hidden;
+ *     export is relabelled "Make form" by view.js.
+ */
+html[data-pocket] .app {
+  max-width: none;
+  border-left: 0;
+  border-right: 0;
+  padding-bottom: calc(var(--ep-acc-h, 96px) + var(--ep-outs-h, 0px) + var(--ep-sighelp-h, 0px));
+}
+html[data-pocket] .app.no-accessory {
+  padding-bottom: calc(var(--ep-outs-h, 0px) + var(--ep-sighelp-h, 0px));
+}
+
+/* Top bar */
+html[data-pocket] .hdr { padding: 4px 10px 4px 4px; gap: 6px; min-height: 52px; }
+html[data-pocket] .hdr #menuBtn {
+  width: 44px; height: 44px; padding: 0 !important;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+html[data-pocket] .hdr #menuBtn svg { width: 18px; height: 18px; }
+html[data-pocket] .hdr-left .name { font-size: 12px; }
+html[data-pocket] .hdr-left .file { font-size: 15px; }
+html[data-pocket] #saveStatus,
+html[data-pocket] #pipBtn,
+html[data-pocket] #formBtn { display: none !important; }
+html[data-pocket] #exportBtn {
+  font-family: var(--sw-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  height: 36px;
+  padding: 0 14px;
+  border: 1.5px solid var(--sw-orange);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sw-orange);
+}
+
+/* Panels: the sheet is the screen. Scenarios return as a bottom sheet
+ * in a later slice; hidden for now rather than squeezed. */
+html[data-pocket] .app:not(.form) #paramsPanel,
+html[data-pocket] .app:not(.form) .show-source,
+html[data-pocket] .scenarios-strip { display: none !important; }
+
+/* First-run hint — one line above the sheet (view.js builds it). */
+.pocket-hint { display: none; }
+html[data-pocket] .pocket-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  margin: 8px 12px 2px;
+  padding: 8px 6px 8px 12px;
+  border-radius: 6px;
+  background: var(--sw-bg-bright);
+  border: 1px solid var(--sw-border-soft);
+  font-family: var(--sw-sans);
+  font-size: 14px;
+  color: var(--sw-text-mid);
+}
+.pocket-hint b { color: var(--sw-text); font-weight: 600; }
+.pocket-hint-star { color: var(--sw-orange); }
+.pocket-hint-x {
+  margin-left: auto;
+  width: 36px; height: 36px;
+  background: transparent; border: 0;
+  color: var(--sw-text-soft);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* Editor typography: a little larger, results dominant. The gutter cell
+ * height is set inline by CM6 to the line's block height; line-height
+ * here must match the scroller's so single lines align. */
+html[data-pocket] .body .cm-scroller { font-size: 15.5px; line-height: 27px; }
+html[data-pocket] .body .cm-line { padding-left: 16px; }
+html[data-pocket] .body .ep-result-gutter { font-size: 15px; }
+html[data-pocket] .body .ep-result-gutter .cm-gutterElement { line-height: 27px; height: 27px; padding: 0 14px 0 6px; }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result { line-height: 27px; font-weight: 700; color: var(--sw-teal); }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result .u { font-weight: 400; font-size: 13px; }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding { visibility: hidden; }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result.error { font-weight: 400; }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-err-x { font-size: 16px; }
+html[data-pocket] .body .cm-content .cm-ep-error-block { font-size: 12.5px; padding: 3px 10px 4px; }
+
+/* Outputs strip — the @outputs panel re-homed as a fixed bar above the
+ * keyboard row. Two results side by side; more scroll horizontally. */
+html[data-pocket] .app:not(.form) #outputsPanel {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(var(--ep-kbd-inset, 0px) + var(--ep-acc-h, 96px) + var(--ep-sighelp-h, 0px));
+  z-index: 48;
+  margin: 0;
+  border-top: 1px solid var(--sw-border);
+  border-bottom: 0;
+  background: var(--sw-bg-raised);
+  transition: bottom 180ms ease;
+}
+html[data-pocket] .app.no-accessory:not(.form) #outputsPanel {
+  bottom: calc(var(--ep-kbd-inset, 0px) + var(--ep-sighelp-h, 0px));
+}
+html[data-pocket] .app:not(.form) #outputsPanel.empty { display: none !important; }
+html[data-pocket] .app:not(.form) #outputsPanel .panel-hdr { display: none; }
+html[data-pocket] .app:not(.form) #outChips {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+html[data-pocket] .app:not(.form) #outChips::-webkit-scrollbar { display: none !important; height: 0 !important; }
+html[data-pocket] .app:not(.form) #outChips .chip {
+  flex: 1 0 46%;
+  min-width: 46%;
+  border: 0;
+  border-left: 1px solid var(--sw-border-soft);
+  border-radius: 0;
+  background: transparent;
+  padding: 7px 14px 8px;
+  gap: 2px;
+}
+html[data-pocket] .app:not(.form) #outChips .chip:first-child { border-left: 0; }
+html[data-pocket] .app:not(.form) #outChips .chip-lbl {
+  font-family: var(--sw-sans);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+}
+html[data-pocket] .app:not(.form) #outChips .chip-out-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--sw-teal);
+}
+
+/* Sig-help strip sits directly above the (taller) keyboard row. */
+html[data-pocket] .sighelp-strip { bottom: calc(var(--ep-kbd-inset, 0px) + var(--ep-acc-h, 96px)); }
+html[data-pocket] .app.no-accessory .sighelp-strip { bottom: var(--ep-kbd-inset, 0px); }
+
+/* Keyboard row — the accessory bar, re-shaped. */
+html[data-pocket] .app .accessory {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 8px 6px;
+  overflow: hidden;
+  background: var(--sw-bg-deep);
+}
+html[data-pocket] .accessory .tok { display: none; }
+html[data-pocket] .accessory .tok.pk,
+html[data-pocket] .accessory .tok-more-units {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 400;
+  color: var(--sw-text);
+  border-radius: 7px;
+  border: 1px solid var(--sw-border-soft);
+  box-shadow: 0 1px 0 var(--sw-border);
+}
+html[data-pocket] .accessory .tok-more-units {
+  flex: 1.7 1 0;
+  font-family: var(--sw-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--sw-orange);
+  border-color: var(--sw-orange);
+}
+
+/* Variable chips — second line of the keyboard row. Hidden on desktop. */
+.pocket-vars { display: none; }
+html[data-pocket] .accessory .pocket-vars {
+  display: flex;
+  flex: 1 0 100%;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+html[data-pocket] .accessory .pocket-vars[hidden] { display: none; }
+html[data-pocket] .accessory .pocket-vars::-webkit-scrollbar { display: none !important; height: 0 !important; }
+.vchip {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 17px;
+  background: var(--sw-bg);
+  border: 1px solid var(--sw-border-soft);
+  font-family: var(--sw-mono);
+  font-size: 14px;
+  color: var(--sw-text-mid);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.vchip.in { color: var(--sw-text); border-color: var(--sw-border); }
+.vchip:active { background: var(--sw-bg-deep); }
+
+/* Unit sheet at thumb scale. */
+html[data-pocket] .unit-sheet { max-height: 72vh; border-radius: 18px 18px 0 0; }
+html[data-pocket] .unit-sheet-search { font-size: 15px; padding: 10px 14px; border-radius: 8px; }
+html[data-pocket] .unit-sheet-close { width: 44px; height: 44px; font-size: 18px; }
+html[data-pocket] .unit-picker-pill { min-height: 40px; min-width: 44px; font-size: 15px; padding: 0 13px; border-radius: 7px; }
+html[data-pocket] .unit-picker-grid { gap: 6px; }
+.unit-picker-pill.recent { border-color: var(--sw-orange); color: var(--sw-orange); font-weight: 700; }
+.unit-picker-more { color: var(--sw-text-mid); font-family: var(--sw-sans); font-size: 12px; }
+.unit-picker-tail { margin-top: 6px; }
+
+/* Pocket: no annotation-suggestion pills — a power-user affordance that
+ * reads as clutter next to every binding on a phone; the setting still
+ * governs desktop. Wider result gutter so "280.2 min" fits at 15px bold. */
+html[data-pocket] .body .cm-ep-suggest-inline { display: none !important; }
+html[data-pocket] .body { --ep-gutter-w: 118px; }

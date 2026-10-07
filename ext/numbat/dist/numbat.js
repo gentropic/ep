@@ -650,6 +650,9 @@ class UnitRegistry {
           dim,
           displayName: prefixedDisplay,
           fullName: prefixedFull,
+          // Which prefix produced this entry — lets pickers fold the rare
+          // ones (Qm, dam, zg…) without pattern-matching display names.
+          prefix: shortName,
         };
         // Generate all prefixed lookup names:
         //   long  prefix + canonical  (kilometre)
@@ -6979,7 +6982,15 @@ function evalValueExpr(node, env) {
       if (!dimEq(left.dim, targetQ.dim)) {
         throw new Error(`-> dim mismatch: [${JSON.stringify(left.dim)}] cannot convert to [${JSON.stringify(targetQ.dim)}]`);
       }
-      return new Quantity(left.value, left.dim);
+      // Carry the target as a pre-resolved { mul, name } display tag —
+      // the same object form unit-loaded CSV columns use — so the
+      // formatter shows `45 km/h`, not the auto-scaled `12.5 m/s`. A
+      // compound unit has no registry name to put in a string tag, and
+      // `targetQ.value` IS its canonical multiplier (it's `1 km/h`).
+      // Clone rather than construct so an Uncertain / Swept keeps its
+      // samples and class — only the display tag changes.
+      const disp = { mul: targetQ.value, name: unitExprText(target) };
+      return Object.assign(Object.create(Object.getPrototypeOf(left)), left, { disp });
     }
     if (node.op === '^') {
       const base = evalValueExpr(node.left, env);
@@ -6998,6 +7009,14 @@ function evalValueExpr(node, env) {
     }
     const l = evalValueExpr(node.left, env);
     const r = evalValueExpr(node.right, env);
+    // A function reference in arithmetic (`4 sqrt`, `x * min`) would
+    // otherwise reach Quantity.mul and die on `other.dim` with a raw
+    // TypeError. Name the operand so the message points at the fix.
+    if (typeof l === 'function' || typeof r === 'function') {
+      const side = typeof l === 'function' ? node.left : node.right;
+      const what = side.type === 'Ident' ? `'${side.name}'` : 'a function';
+      throw new Error(`${what} is a function, not a value — call it with parentheses, e.g. ${side.type === 'Ident' ? side.name : 'f'}(…)`);
+    }
     // Array broadcasting for arithmetic. Numpy-style rules:
     //   Array op Array → element-wise (length must match)
     //   Array op Scalar → broadcast scalar across the array
@@ -7350,6 +7369,32 @@ function substituteVars(symVec, subs) {
   return result;
 }
 
+// Print a unit expression AST back to display text: `km/h`, `ft/s²`,
+// `kg·m/s²`. Used for the display tag of a compound `->` target. Only
+// the node shapes a unit expression can contain are handled; anything
+// else falls back to a generic marker rather than throwing — the
+// conversion itself has already succeeded by the time this runs.
+function unitExprText(node) {
+  switch (node.type) {
+    case 'Ident':  return node.name;
+    case 'Num':    return node.raw ?? String(node.value);
+    case 'Paren':  return `(${unitExprText(node.expr)})`;
+    case 'Unary':  return `${node.op}${unitExprText(node.expr)}`;
+    case 'Binary': {
+      const l = unitExprText(node.left), r = unitExprText(node.right);
+      if (node.op === '^') {
+        if (r === '2') return `${l}²`;
+        if (r === '3') return `${l}³`;
+        return `${l}^${r}`;
+      }
+      if (node.op === '/') return `${l}/${r}`;
+      if (node.op === '*') return `${l}·${r}`;
+      return `${l} ${node.op} ${r}`;
+    }
+    default: return '[unit]';
+  }
+}
+
 // Invoke a user-defined fn with already-evaluated argument values. Shared by
 // evalCall (the AST path) and the `->` function-application form.
 function invokeUserFn(userFn, name, argVals, env) {
@@ -7376,10 +7421,11 @@ function invokeUserFn(userFn, name, argVals, env) {
         const f = env.fns.get(n);
         return (...a) => invokeUserFn(f, n, a, env);
       }
-      if (BUILTIN_FNS[n])   return (q) => BUILTIN_FNS[n](q);
-      if (BUILTIN_PROCS[n]) return (...a) => BUILTIN_PROCS[n](a);
+      // Units before builtins — see makeEnv's lookupValue for why.
       const u = env.units.resolve(n);
       if (u) return new Quantity(u.mul, u.dim);
+      if (BUILTIN_FNS[n])   return (q) => BUILTIN_FNS[n](q);
+      if (BUILTIN_PROCS[n]) return (...a) => BUILTIN_PROCS[n](a);
       return null;
     };
     return fnEnv;
@@ -7665,17 +7711,26 @@ function makeEnv({ dims, units, values, fns, structs, resolveUse }) {
     resolveUse: resolveUse ?? (() => {}),
   };
   // Identifier lookup with first-class fn support. Order: let bindings > user
-  // fns (wrapped as JS callables for higher-order use) > builtins > units.
+  // fns (wrapped as JS callables for higher-order use) > units > builtins.
+  //
+  // Units come BEFORE builtins on purpose. A bare identifier that names a
+  // unit is a value in Numbat; builtins are only reachable by call syntax
+  // there (`min(...)`), and upstream forbids a unit and a fn sharing a
+  // name. ep adds host procs (`min` / `max`) whose names collide with
+  // units (`min` = minute), and resolving the proc first turned `4 min`
+  // into Quantity × function → a raw TypeError. Call sites (evalCall,
+  // the `->` application form) look procs up directly, so `min(a, b)`
+  // still works; only the bare-identifier meaning changes.
   env.lookupValue = (name) => {
     if (values.has(name)) return values.get(name);
     if (env.fns.has(name)) {
       const userFn = env.fns.get(name);
       return (...args) => invokeUserFn(userFn, name, args, env);
     }
-    if (BUILTIN_FNS[name])   return (q) => BUILTIN_FNS[name](q);
-    if (BUILTIN_PROCS[name]) return (...args) => BUILTIN_PROCS[name](args);
     const u = units.resolve(name);
     if (u) return new Quantity(u.mul, u.dim);
+    if (BUILTIN_FNS[name])   return (q) => BUILTIN_FNS[name](q);
+    if (BUILTIN_PROCS[name]) return (...args) => BUILTIN_PROCS[name](args);
     return null;
   };
   return env;

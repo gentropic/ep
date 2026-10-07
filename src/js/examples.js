@@ -15,6 +15,37 @@ import { renderScenariosStrip } from './scenarios.js';
 // @outputs { } block syntax.
 const EXAMPLES = [
   {
+    slug: 'weekend_hike',
+    name: 'Weekend hike',
+    desc: 'Distance, pace, climb → time, water, snacks. The first-run sheet.',
+    body: `# Weekend hike
+# Touch a number to recompute.
+
+@input
+distance = 14 km
+
+@input
+pace = 5.5 km/h
+
+@input
+climb = 850 m
+
+walk = distance / pace
+ascent = climb / (400 m/h)
+
+@output(min)
+total = walk + ascent
+
+water = total * 0.5 L/h
+
+@output(kg)
+snacks = 3 * 250 g
+
+pace -> mph
+`,
+  },
+
+  {
     slug: 'cylinder',
     name: 'Cylinder volume',
     desc: 'Simple geometry — π, exponent, units',

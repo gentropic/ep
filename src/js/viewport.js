@@ -11,21 +11,48 @@
 // at 1280×800, iPads in landscape at 1024×768). It's the most-inclusive
 // "big screen" threshold; tools that want to be more conservative can
 // check innerWidth themselves.
+//
+// Pocket (SPEC-pocket §3): a second, tighter signal for the phone-first
+// layout. `data-pocket="1"` on <html> at ≤ 720px, or whenever the page
+// is opened with `?mobile=1` (so desktop smokes and screenshots can force
+// it). Forcing pocket also forces the "mobile" band — the persistent
+// desktop drawer makes no sense inside the phone layout.
 
 const DESKTOP_MIN_WIDTH = 1024;
+const POCKET_MAX_WIDTH  = 720;
+
+function forcedPocket() {
+  try { return new URLSearchParams(window.location.search).get('mobile') === '1'; }
+  catch { return false; }
+}
 
 function currentBand() {
+  if (forcedPocket()) return 'mobile';
   return (window.innerWidth >= DESKTOP_MIN_WIDTH) ? 'desktop' : 'mobile';
 }
 
+// Public helper: is the phone-first layout active?
+export function isPocket() {
+  return forcedPocket() || window.innerWidth <= POCKET_MAX_WIDTH;
+}
+
 let _lastBand = null;
+let _lastPocket = null;
 
 function applyViewport() {
   const band = currentBand();
-  if (band === _lastBand) return;
-  _lastBand = band;
-  document.documentElement.setAttribute('data-viewport', band);
-  window.dispatchEvent(new CustomEvent('ep:viewport-changed', { detail: { band } }));
+  if (band !== _lastBand) {
+    _lastBand = band;
+    document.documentElement.setAttribute('data-viewport', band);
+    window.dispatchEvent(new CustomEvent('ep:viewport-changed', { detail: { band } }));
+  }
+  const pocket = isPocket();
+  if (pocket !== _lastPocket) {
+    _lastPocket = pocket;
+    if (pocket) document.documentElement.setAttribute('data-pocket', '1');
+    else        document.documentElement.removeAttribute('data-pocket');
+    window.dispatchEvent(new CustomEvent('ep:pocket-changed', { detail: { pocket } }));
+  }
 }
 
 // Initial application (synchronous so the first render sees the correct

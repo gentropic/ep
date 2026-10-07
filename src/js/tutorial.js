@@ -21,6 +21,11 @@ function markDone() {
   try { localStorage.setItem(TUTORIAL_DONE_KEY, 'true'); } catch {}
 }
 
+// The pocket-mode hint (view.js) shares the done flag: dismissing either
+// surface means the user has seen the "this is a calculator you write"
+// beat once, on whichever form factor they met ep on.
+export function markTutorialDone() { markDone(); }
+
 export function resetTutorial() {
   try { localStorage.removeItem(TUTORIAL_DONE_KEY); } catch {}
 }

@@ -24,6 +24,7 @@ import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
 import { DOCS, renderDocInfo, parseSignature } from './docs.js';
+import { renderVarChips } from './accessory.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -2235,6 +2236,7 @@ export function renderResults() {
   renderChipResults();
   renderOutputs();
   applyErrorMarks();
+  renderVarChips();
 }
 
 // Per-line gutter unit-override menu. Opens when the user clicks a result

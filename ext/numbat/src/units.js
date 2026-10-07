@@ -84,6 +84,9 @@ export class UnitRegistry {
           dim,
           displayName: prefixedDisplay,
           fullName: prefixedFull,
+          // Which prefix produced this entry — lets pickers fold the rare
+          // ones (Qm, dam, zg…) without pattern-matching display names.
+          prefix: shortName,
         };
         // Generate all prefixed lookup names:
         //   long  prefix + canonical  (kilometre)

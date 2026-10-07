@@ -9,6 +9,7 @@ import { bootStorage, bootProgramFromStorage, saveCurrentProgram, scheduleAutosa
 import { openDrawer, closeDrawer } from './drawer.js';
 import { hasShareParam, consumeShareParam, adoptSharedProgram } from './share.js';
 import { startTutorial, isTutorialDone } from './tutorial.js';
+import { isPocket } from './viewport.js';
 import { renderScenariosStrip } from './scenarios.js';
 import './accessory.js';
 import './export.js';
@@ -45,6 +46,10 @@ function maybeStartTutorial() {
   // looking at someone else's calc, not exploring ep fresh.
   if (hasShareParam()) return;
   if (isTutorialDone()) return;
+  // Pocket mode has no chips panel for the overlay to point at; the
+  // one-line hint above the sheet (view.js applyPocketChrome) is the
+  // whole first-run experience there.
+  if (isPocket()) return;
   setTimeout(startTutorial, 400);  // let the initial render settle
 }
 
