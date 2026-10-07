@@ -1,11 +1,11 @@
 // Pocket-mode (phone layout) smoke — SPEC-pocket M1 guard.
 //
-// Not part of `npm test` (no *.test.js suffix) because it needs a browser.
-// Resolves Playwright from this repo's node_modules or, failing that, the
-// sibling ../auditable checkout, so it runs on the dev box without adding
-// a dependency here. Usage:
+// Lives outside test/ so `node --test` doesn't pick it up — it needs a
+// browser. Resolves Playwright from this repo's node_modules or, failing
+// that, the sibling ../auditable checkout, so it runs on the dev box
+// without adding a dependency here. Usage:
 //
-//   node test/pocket-smoke.mjs [screenshot.png]
+//   npm run smoke            (or: node smoke/pocket-smoke.mjs [screenshot.png])
 //
 // Opens index.html?mobile=1 in a Pixel-7-sized Chromium with fresh
 // storage and checks the phone layout is up: data-pocket set, panels
@@ -70,8 +70,12 @@ try {
       exportLabel: document.getElementById('exportBtn').textContent.trim(),
       pip: vis('#pipBtn'), form: vis('#formBtn'),
       file: document.getElementById('hdrFile').textContent.trim(),
+      inchips: document.querySelectorAll('#body .cm-ep-inchip').length,
+      decoLines: document.querySelectorAll('#body .cm-ep-deco-line').length,
     };
   });
+  check(s.inchips === 3, `expected 3 inline input chips, got ${s.inchips}`);
+  check(s.decoLines === 5, `expected 5 folded decorator lines, got ${s.decoLines}`);
 
   check(s.pocket === '1', 'data-pocket not set');
   check(!s.params, '@params panel still visible');

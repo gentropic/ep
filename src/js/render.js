@@ -24,7 +24,7 @@ import { attachLongPress, showMenu } from './menu.js';
 import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
 import { DOCS, renderDocInfo, parseSignature } from './docs.js';
-import { renderVarChips } from './accessory.js';
+import { renderVarChips, insertAtCursor } from './accessory.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -1363,6 +1363,25 @@ function mountCm6() {
           const to   = line.to;
           if (from >= to) continue;
           const kind = it.kind || 'error';
+          // Pocket-layout decorations ride the same effect (SPEC-pocket
+          // §3.1). They're emitted on every form factor and gated by CSS
+          // under html[data-pocket], so a resize across the breakpoint
+          // needs no re-dispatch.
+          //   inchip — mark over an @input binding's value text so it
+          //            renders as a tappable chip; still plain editable
+          //            text underneath (cursor lands inside the number).
+          //   deco   — line class on a decorator-only line (`@input`,
+          //            `@output(kg)`) so it renders as a small tag above
+          //            the binding instead of a full source line.
+          if (kind === 'inchip') {
+            const end = it.len ? Math.min(to, from + it.len) : to;
+            if (end > from) decos.push(Decoration.mark({ class: 'cm-ep-inchip' }).range(from, end));
+            continue;
+          }
+          if (kind === 'deco') {
+            decos.push(Decoration.line({ class: 'cm-ep-deco-line' }).range(line.from));
+            continue;
+          }
           // Inline mark for the underline (also keeps the title attribute
           // as a fallback for screen readers / quick hover). Warn rows
           // get a softer amber underline; info (print output) and
@@ -2246,9 +2265,25 @@ export function renderResults() {
 // reload/scenarios and isn't position-dependent.
 function openGutterUnitMenu(lineIdx, x, y) {
   const row = state.body[lineIdx];
-  if (!row || !row.result || !row.name) return;
-  const candidates = getCompatibleUnits(row.result.dim);
-  if (!candidates.length) return;
+  if (!row || !row.result) return;
+  const q = row.result;
+  // The three things people do with a number (SPEC-pocket §3.2): copy
+  // it, use it by name, or see it in another unit. The first two work
+  // for any dimensioned result, including bare expressions with no
+  // binding name (copy only).
+  const items = [];
+  if (q && typeof q.value === 'number' && q.dim && !q.__dataset) {
+    let txt = '';
+    try { txt = fmt(q).filter(Boolean).join(' '); } catch { /* non-formattable */ }
+    if (txt) items.push({ label: `copy  ${txt}`, action: () => { copyToClipboard(txt).catch(() => {}); } });
+  }
+  if (row.name) items.push({ label: `insert  ${row.name}`, action: () => insertAtCursor(row.name) });
+  const candidates = (row.name && q && q.dim) ? getCompatibleUnits(q.dim) : [];
+  if (!candidates.length) {
+    if (items.length) showMenu(items, x, y);
+    return;
+  }
+  if (items.length) items.push({ separator: true });
   state.ui.gutterUnits = state.ui.gutterUnits || {};
   const current = state.ui.gutterUnits[row.name] || null;
 
@@ -2268,16 +2303,16 @@ function openGutterUnitMenu(lineIdx, x, y) {
     action: () => setGutterUnit(row.name, c.name),
   });
 
-  const items = standard.map(toItem);
+  items.push(...standard.map(toItem));
   if (mesh.length) {
-    if (items.length) items.push({ separator: true });
+    items.push({ separator: true });
     items.push({
       label: `mesh sizes (${mesh.length})`,
       submenu: mesh.map(toItem),
     });
   }
   if (cores.length) {
-    if (items.length && !mesh.length) items.push({ separator: true });
+    if (!mesh.length) items.push({ separator: true });
     items.push({
       label: `DCDMA cores (${cores.length})`,
       submenu: cores.map(toItem),
@@ -2346,9 +2381,29 @@ function applyErrorMarks() {
   // listener so gutter redraws pick up cursor moves.
   state.ui._cursorLine = cursorLine;
   const items = [];
+  // Pocket chips: one mark per @input binding over its value text.
+  // Located by matching the param's valueSrc after the `=` on its own
+  // line; a line that doesn't match (multi-line value, odd spacing) just
+  // gets no chip — never a wrong range.
+  for (const p of state.params) {
+    const row = state.body[p.bodyIdx];
+    if (!row || typeof p.valueSrc !== 'string' || !p.valueSrc) continue;
+    const eq = row.src.indexOf('=');
+    if (eq < 0) continue;
+    let start = eq + 1;
+    while (start < row.src.length && row.src[start] === ' ') start++;
+    if (row.src.substr(start, p.valueSrc.length) !== p.valueSrc) continue;
+    items.push({ line: p.bodyIdx + 1, col: start + 1, len: p.valueSrc.length, kind: 'inchip', message: '' });
+  }
   for (let i = 0; i < state.body.length; i++) {
     const row = state.body[i];
     const onCursorLine = (i + 1) === cursorLine;
+    // Decorator-only lines. Detected from source rather than row.kind:
+    // the evaluator folds decorators into the statement they modify, so
+    // their rows don't carry a kind of their own.
+    if (/^\s*@(input|output|options|range)\b/.test(row.src || '')) {
+      items.push({ line: i + 1, col: 0, message: '', kind: 'deco' });
+    }
     if (row.error) {
       const message = row.error;
       let col = 0;

@@ -3263,3 +3263,30 @@ html[data-pocket] .unit-picker-grid { gap: 6px; }
  * governs desktop. Wider result gutter so "280.2 min" fits at 15px bold. */
 html[data-pocket] .body .cm-ep-suggest-inline { display: none !important; }
 html[data-pocket] .body { --ep-gutter-w: 118px; }
+
+/* Pocket slice 2 — inline input chips and folded decorator lines.
+ * Both decorations are emitted everywhere (render.js applyErrorMarks)
+ * and only styled here, under html[data-pocket]. */
+html[data-pocket] .body .cm-content .cm-ep-inchip {
+  display: inline-block;
+  padding: 1px 8px 2px;
+  margin: -2px 0;
+  border-radius: 6px;
+  background: var(--sw-bg-bright);
+  border: 1.5px solid var(--sw-orange);
+  font-weight: 700;
+  line-height: 22px;
+}
+html[data-pocket] .body .cm-content .cm-ep-deco-line {
+  font-family: var(--sw-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 18px;
+  padding-top: 8px;
+  color: var(--sw-orange);
+}
+html[data-pocket] .body .cm-content .cm-ep-deco-line .cm-ep-decorator,
+html[data-pocket] .body .cm-content .cm-ep-deco-line span { font-family: inherit; font-size: inherit; letter-spacing: inherit; }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result.deco { visibility: hidden; }
