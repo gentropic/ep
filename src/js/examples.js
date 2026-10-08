@@ -355,6 +355,13 @@ stereonet()
   |> with_title("live attitude")
 
 n = len(dd_log)
+
+# After a few measurements: their mean plane and density.
+# mean = mean_plane(dd_log, dip_log)
+# stereonet()
+#   |> with_poles(dd_log, dip_log, "poles")
+#   |> with_contours(dd_log, dip_log)
+#   |> with_planes(mean.dip_direction, mean.dip, "mean")
 `,
   },
 
@@ -385,6 +392,17 @@ stereonet()
   |> with_planes(faults_dd, faults_dip, "fault planes")
   |> with_lines(slip_trend, slip_plunge, "slip vector")
   |> with_title("Conjugate faults + slip")
+
+# One set on its own: poles, their density contours, and the
+# mean plane (principal axis of the orientation tensor).
+set1_dd  = [120, 128, 115, 122, 130] deg
+set1_dip = [ 45,  52,  48,  44,  50] deg
+mean1 = mean_plane(set1_dd, set1_dip)
+stereonet()
+  |> with_poles(set1_dd, set1_dip, "poles")
+  |> with_contours(set1_dd, set1_dip)
+  |> with_planes(mean1.dip_direction, mean1.dip, "mean plane")
+  |> with_title("Set 1 — poles, density, mean")
 
 # Shortcut form (single-layer): \`stereonet_planes(...)\` is sugar
 # for \`stereonet() |> with_planes(...) |> with_title(...)\`.

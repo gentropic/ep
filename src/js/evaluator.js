@@ -140,6 +140,22 @@ function host() {
   ].join('\n'));
   try { _host.use('sensor::functions'); }
   catch (e) { console.warn('ep: sensor::functions load failed:', e && e.message || e); }
+  // Structural means return structs; declaring them (and the fn
+  // signatures) lets the typechecker see `m.dip` as an Angle instead of
+  // reporting the proc as an unknown function.
+  _host.registerModule('structural::functions', [
+    'struct Plane { dip_direction: Angle, dip: Angle, n: Scalar, s1: Scalar }',
+    'struct Line { trend: Angle, plunge: Angle, n: Scalar, s1: Scalar }',
+    '@description("Mean attitude of a set of planes via their poles — the principal axis of the orientation tensor (axial). Fields dip_direction, dip, n, s1.")',
+    '@example("m = mean_plane(dd_log, dip_log)")',
+    'fn mean_plane(dip_directions: List<Angle>, dips: List<Angle>) -> Plane',
+    '@description("Mean lineation — the principal axis of the orientation tensor of the lines. Fields trend, plunge, n, s1.")',
+    '@example("l = mean_line(trend_log, plunge_log)")',
+    'fn mean_line(trends: List<Angle>, plunges: List<Angle>) -> Line',
+    '',
+  ].join('\n'));
+  try { _host.use('structural::functions'); }
+  catch (e) { console.warn('ep: structural::functions load failed:', e && e.message || e); }
   // `format_datetime`: the vendored datetime module declares it strictly
   // 2-arg (`format_datetime(format, input)`), but numbat-js's FFI proc
   // accepts an optional 3rd `tz` arg. Drop the .nbt fn record so calls

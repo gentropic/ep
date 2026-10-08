@@ -261,3 +261,49 @@ test('with_title rejects non-Plot first arg', () => {
     () => n.loadSource('let p = with_title(5, "hi")', '<t>'),
     /first arg must be a Plot/);
 });
+
+// ── contours + mean attitudes (structural stats) ─────────────────
+
+test('with_contours / with_line_contours: append contour layers', () => {
+  const n = mkHost();
+  n.loadSource('let p = stereonet() |> with_contours([120, 130] deg, [45, 50] deg, "density") |> with_line_contours(240 deg, 28 deg)', '<t>');
+  const p = n.values.get('p');
+  assert.deepEqual(p.layers.map(l => l.kind), ['contours', 'line-contours']);
+  assert.equal(p.layers[0].label, 'density');
+  assert.equal(p.layers[0].pairs.length, 2);
+});
+
+test('mean_plane: axial mean of poles — bisector of a symmetric pair, antipodes handled', () => {
+  const n = mkHost();
+  n.loadSource('let m = mean_plane([100, 120] deg, [30, 30] deg)', '<t>');
+  const m = n.values.get('m');
+  assert.equal(m.__struct, 'Plane');
+  const deg = q => q.value * 180 / Math.PI;
+  assert.ok(Math.abs(deg(m.dip_direction) - 110) < 1e-6, 'dd ' + deg(m.dip_direction));
+  // the bisector of two poles at the same dip is slightly steeper (nearer vertical)
+  const expectDip = Math.atan(Math.tan(30 * Math.PI / 180) * Math.cos(10 * Math.PI / 180)) * 180 / Math.PI;
+  assert.ok(Math.abs(deg(m.dip) - expectDip) < 1e-6, 'dip ' + deg(m.dip));
+  assert.equal(m.n.value, 2);
+  assert.ok(m.s1.value > 0.9 && m.s1.value <= 1);
+  // straddling north: 350 and 10 average to 0, not 180
+  n.loadSource('let m2 = mean_plane([350, 10] deg, [40, 40] deg)', '<t>');
+  const m2 = n.values.get('m2');
+  assert.ok(Math.abs(deg(m2.dip_direction)) < 1e-6 || Math.abs(deg(m2.dip_direction) - 360) < 1e-6, 'dd ' + deg(m2.dip_direction));
+  // a single plane is its own mean
+  n.loadSource('let m3 = mean_plane(215 deg, 62 deg)', '<t>');
+  const m3 = n.values.get('m3');
+  assert.ok(Math.abs(deg(m3.dip_direction) - 215) < 1e-9 && Math.abs(deg(m3.dip) - 62) < 1e-9);
+  assert.throws(() => n.loadSource('let m4 = mean_plane([1, 2] deg, [3] deg)', '<t>'), /same length/);
+});
+
+test('mean_line: axial mean of lineations', () => {
+  const n = mkHost();
+  n.loadSource('let l = mean_line([10, 350] deg, [20, 20] deg)', '<t>');
+  const l = n.values.get('l');
+  assert.equal(l.__struct, 'Line');
+  const deg = q => q.value * 180 / Math.PI;
+  const t = deg(l.trend);
+  assert.ok(Math.abs(t) < 1e-6 || Math.abs(t - 360) < 1e-6, 'trend ' + t);
+  const expectPlunge = Math.atan(Math.tan(20 * Math.PI / 180) / Math.cos(10 * Math.PI / 180)) * 180 / Math.PI;
+  assert.ok(Math.abs(deg(l.plunge) - expectPlunge) < 1e-6, 'plunge ' + deg(l.plunge));
+});

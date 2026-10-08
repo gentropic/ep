@@ -111,6 +111,10 @@ export const DOCS = {
   with_planes:      { signature: 'with_planes(plot: Plot, dipDirections, dips [, label]) -> Plot', description: 'Add a layer of planes (great circles) to a stereonet Plot. Returns a new Plot with the layer appended. Args are paired lists (or two scalars). Optional label is used in the legend.', example: 'plot |> with_planes(faults.dd, faults.dip, "fault planes")' },
   with_lines:       { signature: 'with_lines(plot: Plot, trends, plunges [, label]) -> Plot', description: 'Add a layer of lineations (points) to a stereonet Plot.', example: 'plot |> with_lines(slip.trend, slip.plunge, "slip vectors")' },
   with_poles:       { signature: 'with_poles(plot: Plot, dipDirections, dips [, label]) -> Plot', description: 'Add a layer of plane poles (points; each is the normal vector to a plane) to a stereonet Plot.', example: 'plot |> with_poles(joints.dd, joints.dip, "joint poles")' },
+  with_contours:    { signature: 'with_contours(plot: Plot, dipDirections, dips [, label]) -> Plot', description: 'Density contours of the poles to a set of planes (Fisher-kernel density, levels at 2, 4, 6, 8× uniform). One contour set per stereonet — a second contours layer is ignored. Pair it with `with_poles` of the same data.', example: 'stereonet()\n  |> with_poles(dd_log, dip_log, "poles")\n  |> with_contours(dd_log, dip_log)' },
+  with_line_contours: { signature: 'with_line_contours(plot: Plot, trends, plunges [, label]) -> Plot', description: 'Density contours of a set of lineations (same kernel as `with_contours`).', example: 'plot |> with_line_contours(lin.trend, lin.plunge)' },
+  mean_plane:       { signature: 'mean_plane(dipDirections: List<Angle>, dips: List<Angle>) -> Plane', description: 'Mean attitude of a set of planes: the principal axis of the orientation tensor of their poles (axial, so sets straddling the horizon average correctly). Fields: `dip_direction`, `dip`, `n`, and `s1` — the largest normalised eigenvalue, 1 for parallel planes down to ⅓ for no preferred orientation.', example: 'm = mean_plane(dd_log, dip_log)\nplot |> with_planes(m.dip_direction, m.dip, "mean")' },
+  mean_line:        { signature: 'mean_line(trends: List<Angle>, plunges: List<Angle>) -> Line', description: 'Mean lineation: the principal axis of the orientation tensor of the lines. Fields: `trend`, `plunge`, `n`, `s1` (as for `mean_plane`).', example: 'l = mean_line(trend_log, plunge_log)\nl.trend' },
   with_title:       { signature: 'with_title(plot: Plot, title: String) -> Plot', description: 'Set the title on a Plot. Returns a new Plot.', example: 'plot |> with_title("Conjugate fault set")' },
   with_xlabel:      { signature: 'with_xlabel(plot: Plot, label: String) -> Plot', description: 'Set the x-axis label on a Plot. Returns a new Plot.', example: 'plot |> with_xlabel("temperature (K)")' },
   with_ylabel:      { signature: 'with_ylabel(plot: Plot, label: String) -> Plot', description: 'Set the y-axis label on a Plot. Returns a new Plot.', example: 'plot |> with_ylabel("rate (1/s)")' },
@@ -278,6 +282,7 @@ export const DOC_GROUPS = [
   ]},
   { label: 'Stereonet (ep extension)', names: [
     'stereonet','with_planes','with_lines','with_poles',
+    'with_contours','with_line_contours','mean_plane','mean_line',
     'stereonet_planes','stereonet_lines',
   ]},
   { label: 'Layered plots (ep extension)', names: [

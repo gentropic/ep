@@ -190,6 +190,10 @@ function renderStereonet(host, plot) {
   try {
     const sn = new Stereonet();
     const layers = (plot && plot.layers) || [];
+    // bearing.js keeps one contour set per net; the first contours
+    // layer wins. Its conversions ride along in the vendored wrap.
+    const conv = (typeof __bearing !== 'undefined' && __bearing.conversions) || null;
+    let contoured = false;
     for (let li = 0; li < layers.length; li++) {
       const layer = layers[li];
       const pairs = layer.pairs || [];
@@ -200,6 +204,11 @@ function renderStereonet(host, plot) {
         for (const [trend, plunge] of pairs) sn.line(trend, plunge, style);
       } else if (layer.kind === 'poles') {
         for (const [dd, dip] of pairs) sn.pole(dd, dip, style);
+      } else if (layer.kind === 'contours' || layer.kind === 'line-contours') {
+        if (contoured || !conv || !pairs.length) continue;
+        const dcos = pairs.map(([a, b]) => layer.kind === 'contours' ? conv.planeToDcos(a, b) : conv.lineToDcos(a, b));
+        sn.contour(dcos, { stroke: style.stroke, strokeWidth: layer.width !== undefined ? layer.width : 0.9, opacity: layer.alpha !== undefined ? layer.alpha : 0.85 });
+        contoured = true;
       }
     }
     host.innerHTML = sn.svg();
@@ -950,6 +959,25 @@ function resultMarkerHtml(lineIdx) {
   // placeholder instead.
   if (typeof r.result !== 'object' || r.result.dim == null) {
     const t = typeof r.result;
+    // A struct shows its fields (`Plane · dip_direction 110 deg · dip
+    // 29.6 deg · n 2`), not just its type name — mean_plane() and
+    // friends are read straight off the gutter.
+    if (r.result && t === 'object' && r.result.__struct && !r.result.__plot) {
+      const parts = [];
+      for (const [k, v] of Object.entries(r.result)) {
+        if (k === '__struct' || parts.length >= 5) continue;
+        let s;
+        if (v && typeof v === 'object' && v.dim != null && typeof v.value === 'number') {
+          try { s = fmt(v).filter(Boolean).join(' '); } catch { s = String(v.value); }
+        } else if (typeof v === 'string') s = '"' + v.slice(0, 16) + '"';
+        else if (typeof v === 'boolean' || typeof v === 'number') s = String(v);
+        else if (Array.isArray(v)) s = `[${v.length}]`;
+        else continue;
+        parts.push(`${k} ${s}`);
+      }
+      const label = String(r.result.__struct) + (parts.length ? ' · ' + parts.join(' · ') : '');
+      return { html: `<span class="u">${escapeHtml(label)}</span>`, text: label, cls: '' };
+    }
     const label = t === 'boolean' ? (r.result ? 'true' : 'false')
                 : t === 'string'  ? '"' + String(r.result).slice(0, 32) + '"'
                 : t === 'function'? 'fn'

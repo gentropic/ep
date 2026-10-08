@@ -4917,6 +4917,70 @@ function _angleToDeg(q) {
   return (q instanceof Quantity ? q.value : Number(q)) * 180 / Math.PI;
 }
 
+// ── Structural attitude math (mean_plane / mean_line) ─────────────
+// Direction-cosine conventions match bearing.js (east, north, up; the
+// lower hemisphere is z < 0): the pole of a plane is its downward
+// normal, a line is taken at its plunging end.
+function _anglePairs(fnName, xs, ys) {
+  if (!Array.isArray(xs)) xs = [xs];
+  if (!Array.isArray(ys)) ys = [ys];
+  if (xs.length !== ys.length) throw new Error(`${fnName}: arg lists must be the same length (got ${xs.length} and ${ys.length})`);
+  if (!xs.length) throw new Error(`${fnName}: no data (empty lists)`);
+  const pairs = [];
+  for (let i = 0; i < xs.length; i++) pairs.push([_angleToDeg(xs[i]), _angleToDeg(ys[i])]);
+  return pairs;
+}
+const _DEG = Math.PI / 180;
+function _degQuantity(deg) { return new Quantity(deg * _DEG, {}, { mul: _DEG, name: 'deg' }); }
+function _planeToDcos(dd, dip) {
+  return [-Math.sin(dip * _DEG) * Math.sin(dd * _DEG), -Math.sin(dip * _DEG) * Math.cos(dd * _DEG), -Math.cos(dip * _DEG)];
+}
+function _lineToDcos(trend, plunge) {
+  return [Math.cos(plunge * _DEG) * Math.sin(trend * _DEG), Math.cos(plunge * _DEG) * Math.cos(trend * _DEG), -Math.sin(plunge * _DEG)];
+}
+function _lower(v) { return v[2] > 0 ? [-v[0], -v[1], -v[2]] : v; }
+function _dcosToPlane(v) {
+  const [x, y, z] = _lower(v);
+  const dip = Math.acos(Math.max(-1, Math.min(1, -z))) / _DEG;
+  let dd = Math.atan2(-x, -y) / _DEG;
+  if (dd < 0) dd += 360;
+  return [dip < 1e-9 ? 0 : dd, dip];
+}
+function _dcosToLine(v) {
+  const [x, y, z] = _lower(v);
+  const plunge = Math.asin(Math.max(-1, Math.min(1, -z))) / _DEG;
+  let trend = Math.atan2(x, y) / _DEG;
+  if (trend < 0) trend += 360;
+  return [trend, plunge];
+}
+// Principal axis of the orientation tensor T = (1/n) Σ v vᵀ — the
+// axial mean — by Jacobi rotation (3×3 symmetric). Returns the unit
+// eigenvector of the largest eigenvalue and that eigenvalue (s1).
+function _principalAxis(vs) {
+  const n = vs.length;
+  if (n === 1) return { axis: vs[0], s1: 1 };
+  const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (const v of vs) for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) A[i][j] += v[i] * v[j] / n;
+  const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 60; sweep++) {
+    let off = 0;
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) off += A[i][j] * A[i][j];
+    if (off < 1e-24) break;
+    for (let p = 0; p < 3; p++) for (let q = p + 1; q < 3; q++) {
+      if (Math.abs(A[p][q]) < 1e-300) continue;
+      const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+      const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let k = 0; k < 3; k++) { const akp = A[k][p], akq = A[k][q]; A[k][p] = c * akp - s * akq; A[k][q] = s * akp + c * akq; }
+      for (let k = 0; k < 3; k++) { const apk = A[p][k], aqk = A[q][k]; A[p][k] = c * apk - s * aqk; A[q][k] = s * apk + c * aqk; }
+      for (let k = 0; k < 3; k++) { const vkp = V[k][p], vkq = V[k][q]; V[k][p] = c * vkp - s * vkq; V[k][q] = s * vkp + c * vkq; }
+    }
+  }
+  let best = 0;
+  for (let i = 1; i < 3; i++) if (A[i][i] > A[best][best]) best = i;
+  return { axis: [V[0][best], V[1][best], V[2][best]], s1: A[best][best] };
+}
+
 // Append a stereonet layer (planes / lines / poles) to an existing
 // Plot of family 'stereonet'. Validates the Plot family, normalizes
 // scalar args into 1-element lists, converts radians → degrees.
@@ -5426,6 +5490,37 @@ const BUILTIN_PROCS = {
   with_poles(args) {
     if (args.length < 3 || args.length > 4) throw new Error(`with_poles: expected 3..4 args (plot, dipDirections, dips [, label]), got ${args.length}`);
     return _withStereonetLayer('with_poles', 'poles', args);
+  },
+  // Density contours (Fisher kernel, bearing.js computeContours at render
+  // time) of the poles to planes, or of lines. The renderer draws one
+  // contour set per stereonet — the first contours layer wins.
+  with_contours(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_contours: expected 3..4 args (plot, dipDirections, dips [, label]), got ${args.length}`);
+    return _withStereonetLayer('with_contours', 'contours', args);
+  },
+  with_line_contours(args) {
+    if (args.length < 3 || args.length > 4) throw new Error(`with_line_contours: expected 3..4 args (plot, trends, plunges [, label]), got ${args.length}`);
+    return _withStereonetLayer('with_line_contours', 'line-contours', args);
+  },
+  // Mean attitude of a set of planes (via their poles) or lines: the
+  // principal axis of the orientation tensor, which treats the data as
+  // axial (a pole and its antipode are the same plane), so sets that
+  // straddle the horizon average correctly. Returns a struct with the
+  // mean, the count, and s1 — the largest normalised eigenvalue
+  // (1 = all parallel, ⅓ = no preferred orientation).
+  mean_plane(args) {
+    if (args.length !== 2) throw new Error(`mean_plane: expected 2 args (dipDirections, dips), got ${args.length}`);
+    const pairs = _anglePairs('mean_plane', args[0], args[1]);
+    const { axis, s1 } = _principalAxis(pairs.map(([dd, dip]) => _planeToDcos(dd, dip)));
+    const [dd, dip] = _dcosToPlane(axis);
+    return { __struct: 'Plane', dip_direction: _degQuantity(dd), dip: _degQuantity(dip), n: new Quantity(pairs.length, {}), s1: new Quantity(s1, {}) };
+  },
+  mean_line(args) {
+    if (args.length !== 2) throw new Error(`mean_line: expected 2 args (trends, plunges), got ${args.length}`);
+    const pairs = _anglePairs('mean_line', args[0], args[1]);
+    const { axis, s1 } = _principalAxis(pairs.map(([t, p]) => _lineToDcos(t, p)));
+    const [trend, plunge] = _dcosToLine(axis);
+    return { __struct: 'Line', trend: _degQuantity(trend), plunge: _degQuantity(plunge), n: new Quantity(pairs.length, {}), s1: new Quantity(s1, {}) };
   },
   // Plot-level common adders.
   with_title(args) {

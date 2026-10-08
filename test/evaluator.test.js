@@ -499,3 +499,21 @@ test('a list literal keeps each element\'s written unit for display', () => {
   assert.deepEqual(r.rows[2].result, []);
   assert.equal(r.rows[3].result[0].disp.name, 'm');
 });
+
+test('mean_plane / mean_line: typed structs whose fields read back as angles; empty lists report no data', () => {
+  const r = evaluate(bodyOf([
+    'dd = [120, 128, 115, 122, 130] deg',
+    'dip = [45, 52, 48, 44, 50] deg',
+    'm = mean_plane(dd, dip)',
+    'd = m.dip',
+    'p = stereonet() |> with_poles(dd, dip) |> with_contours(dd, dip) |> with_planes(m.dip_direction, m.dip, "mean")',
+    'l = mean_line([10, 350] deg, [20, 20] deg)',
+    'bad = mean_plane([], [])',
+  ]));
+  for (const row of r.rows.slice(0, 6)) assert.equal(row.error, null, row.error);
+  assert.equal(r.rows[2].result.__struct, 'Plane');
+  assert.ok(Math.abs(r.rows[3].result.value * 180 / Math.PI - 47.66) < 0.01);
+  assert.deepEqual(r.rows[4].result.layers.map(l => l.kind), ['poles', 'contours', 'planes']);
+  assert.equal(r.rows[5].result.__struct, 'Line');
+  assert.match(r.rows[6].error, /no data/);
+});

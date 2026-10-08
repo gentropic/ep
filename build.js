@@ -78,7 +78,7 @@ const VENDORS = [
   // entry point is hoisted out. render.js uses it to render
   // `'stereonet'` plot descriptors.
   {                                dist: 'ext/bearing/dist/bearing.js',
-                                   wrap: 'const __bearing = (function(){ /* CONTENT */ return { Stereonet }; })();\nconst Stereonet = __bearing.Stereonet;',
+                                   wrap: 'const __bearing = (function(){ /* CONTENT */ return { Stereonet, conversions: conversions_exports }; })();\nconst Stereonet = __bearing.Stereonet;',
                                    opaque: true },
   // lead-acid shell shim (SPEC-pocket §4.2). Feature-detected: `shell.present`
   // is false on the web and the whole surface is dormant; inside the
@@ -221,7 +221,7 @@ function buildViewer() {
   const bearingRaw = readFileSync(join(ROOT, 'ext/bearing/dist/bearing.js'), 'utf8');
   const bearing    = 'const __bearing = (function(){ '
                    + stripModules(bearingRaw, 'ext/bearing/dist/bearing.js', { allowExportBlock: true })
-                   + ' return { Stereonet }; })();\nconst Stereonet = __bearing.Stereonet;';
+                   + ' return { Stereonet, conversions: conversions_exports }; })();\nconst Stereonet = __bearing.Stereonet;';
 
   const srcStripped = VIEWER_JS_FILES.map(name => {
     const raw = readFileSync(join(JS_DIR, name), 'utf8');
