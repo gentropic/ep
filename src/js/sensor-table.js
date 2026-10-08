@@ -147,6 +147,24 @@ export function captureEdits(lines, readings) {
   return out;
 }
 
+// The day's measurements as CSV: one column per `<name>_log` list, one
+// row per measurement index, the unit in the header (`dd_log (deg)`).
+// `logs` is [{ name, unit, values: number[] }] with values already in
+// the display unit; ragged lists leave cells empty. Plain numbers, no
+// locale separators; RFC 4180 line ends.
+export function measurementsCsv(logs) {
+  const cols = (logs || []).filter(l => l && Array.isArray(l.values));
+  if (!cols.length) return '';
+  const esc = (s) => /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  const header = ['n', ...cols.map(l => esc(l.unit ? `${l.name} (${l.unit})` : l.name))];
+  const rows = Math.max(...cols.map(l => l.values.length));
+  const lines = [header.join(',')];
+  for (let i = 0; i < rows; i++) {
+    lines.push([String(i + 1), ...cols.map(l => (i < l.values.length && l.values[i] != null) ? esc(String(l.values[i])) : '')].join(','));
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
 // Compass heading from the W3C deviceorientation alpha: alpha grows
 // counter-clockwise, headings grow clockwise.
 export function headingFromAlpha(alpha) {

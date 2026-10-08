@@ -7,6 +7,8 @@ import { currentProgramName, getSetting } from './storage.js';
 import { generateShareUrl, generateShareUrlForQR, qrSvgFor } from './share.js';
 import { isPocket, dismissKeyboard } from './viewport.js';
 import { deliverFile, shellPresent } from './shell.js';
+import { measurementsCsv } from './sensor-table.js';
+import { resolveUnitExpression } from './evaluator.js';
 
 const scrim         = document.getElementById('scrim');
 const exportDlgTitle = document.getElementById('exportDlgTitle');
@@ -46,6 +48,7 @@ const exportBtn     = document.getElementById('exportBtn');
 const cancelBtn     = document.getElementById('cancelBtn');
 const dlEpBtn       = document.getElementById('dlEpBtn');
 const dlHtmlBtn     = document.getElementById('dlHtmlBtn');
+const dlCsvBtn      = document.getElementById('dlCsvBtn');
 const copySrcBtn    = document.getElementById('copySrcBtn');
 const shareBtn      = document.getElementById('shareBtn');
 const shareRow      = document.getElementById('shareRow');
@@ -87,9 +90,48 @@ exportBtn.addEventListener('click', () => {
   // Share the file itself: the Web Share API where it takes files, or the
   // shell's share sheet inside the instrument (SPEC-pocket §4.2).
   if (shareFileBtn) shareFileBtn.style.display = (_canShareFiles || shellPresent()) ? '' : 'none';
+  if (dlCsvBtn) dlCsvBtn.style.display = measurementLogs().length ? '' : 'none';
   renderExportInputs();
   scrim.classList.add('on');
 });
+
+// The sheet's `<name>_log` lists (what "● measure" writes), in sheet
+// order, as columns of display-unit numbers. Empty when the sheet has
+// no logs — the button hides.
+function measurementLogs() {
+  const out = [];
+  const scope = state._scope || {};
+  for (const row of state.body || []) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*_log)\s*=/.exec(row.src || '');
+    if (!m) continue;
+    const list = scope[m[1]];
+    if (!Array.isArray(list)) continue;
+    const sig = Math.max(3, Math.min(10, getSetting('sigDigits', 4) | 0));
+    let unit = '', mul = 1;
+    const first = list.find(q => q && typeof q.value === 'number');
+    const d = first && first.disp;
+    if (d && typeof d === 'object') { mul = d.mul; unit = d.name; }
+    else if (typeof d === 'string') { try { const s = resolveUnitExpression(d); mul = s.mul; unit = s.displayName; } catch { /* dimensionless */ } }
+    const values = list.map(q => (q && typeof q.value === 'number') ? Number((q.value / mul).toPrecision(sig)) : (typeof q === 'string' ? q : null));
+    out.push({ name: m[1], unit, values });
+  }
+  return out;
+}
+
+if (dlCsvBtn) {
+  dlCsvBtn.addEventListener('click', async () => {
+    const csv = measurementsCsv(measurementLogs());
+    if (!csv) return;
+    const name = (exportNameEl.value || 'program') + '-measurements.csv';
+    try {
+      // Inside the shell the share sheet is the point (send the day's
+      // numbers on); on the web it's a download.
+      const r = await deliverFile(name, csv, 'text/csv', { share: shellPresent() });
+      if (r.via === 'shell') { flash(dlCsvBtn, 'saved to Downloads'); return; }
+    } catch (e) { console.error('ep: .csv export failed:', e); flash(dlCsvBtn, 'failed'); return; }
+    scrim.classList.remove('on');
+  });
+}
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
 scrim.addEventListener('click', e => { if (e.target === scrim) scrim.classList.remove('on'); });
 window.addEventListener('keydown', e => {

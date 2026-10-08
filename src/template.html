@@ -315,6 +315,17 @@
       </div>
     </div>
 
+    <div class="settings-section">
+      <div class="settings-section-hdr">sensors</div>
+      <div class="settings-row">
+        <div class="settings-row-label">
+          <div>magnetic declination</div>
+          <div class="settings-row-hint">degrees, east positive. added to every compass azimuth (heading, dip direction, strike, trend) so readings are true-north. logged with each measurement as declination_log, so a sheet can be post-corrected.</div>
+        </div>
+        <div class="settings-row-control settings-number"><input id="declinationInput" type="number" step="0.1" min="-180" max="180" inputmode="decimal"> <span class="settings-unit">deg</span></div>
+      </div>
+    </div>
+
     <!-- Everything below is a preference most people never touch; the
          defaults are the recommendation. Folded so the three settings
          that matter stay in view. -->
@@ -507,6 +518,7 @@
       <button class="btn" id="cancelBtn">Cancel</button>
       <button class="btn" id="copySrcBtn">⧉ copy source</button>
       <button class="btn" id="shareBtn">🔗 link</button>
+      <button class="btn" id="dlCsvBtn" style="display:none" title="The day's measurements — every &lt;name&gt;_log list as a column">↓ measurements .csv</button>
       <button class="btn" id="dlEpBtn">↓ .ep</button>
       <button class="btn primary" id="dlHtmlBtn">↓ .html</button>
       <button class="btn primary" id="shareFileBtn" style="display:none" title="Send the form through the system share sheet">Share</button>

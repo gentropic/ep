@@ -3759,3 +3759,26 @@ html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding.sensor-off {
   transition: transform 160ms ease, opacity 160ms ease;
 }
 .ep-toast.on { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* Undo on the keyboard row — pocket only (desktop has Ctrl+Z). */
+.accessory .tok-undo { display: none; }
+html[data-pocket] .accessory .tok-undo { display: inline-flex; font-size: 21px; }
+
+/* Number-field settings (declination). */
+.settings-number input {
+  width: 6em;
+  font-family: var(--au-font-mono);
+  font-size: 12px;
+  padding: 5px 7px;
+  color: var(--au-fg);
+  background: var(--au-surface-bright);
+  border: 1px solid var(--au-border);
+  border-radius: var(--au-radius);
+}
+.settings-number input:focus { outline: none; border-color: var(--au-action); }
+.settings-unit { font-family: var(--au-font-mono); font-size: 11px; color: var(--au-fg-soft); }
+html[data-pocket] .settings-number input { font-size: 16px; padding: 8px 10px; width: 7em; }
+
+/* The day's measurements: a full row of its own under the primaries
+ * (it only shows when the sheet has _log lists). */
+html[data-pocket] .dialog-actions #dlCsvBtn { flex: 1 1 100%; order: 1; }

@@ -16,6 +16,7 @@ import { epConfirm } from './dialogs.js';
 import { startTutorial, resetTutorial } from './tutorial.js';
 import { formatCurrentProgram } from './format-cmd.js';
 import { dismissKeyboard } from './viewport.js';
+import { setDeclination } from './sensors.js';
 import { idbReplaceAllPrograms } from './idb.js';
 import { checkForUpdateNow, getLastUpdateCheck, syncAutoCheckSetting } from './update-check.js';
 
@@ -77,6 +78,22 @@ const desktopDrawerControl = document.getElementById('desktopDrawerControl');
 const suggestAnnotationsControl = document.getElementById('suggestAnnotationsControl');
 const lineNumbersControl        = document.getElementById('lineNumbersControl');
 const samplesNControl           = document.getElementById('samplesNControl');
+const declinationInput          = document.getElementById('declinationInput');
+
+// Magnetic declination (deg, east positive) — a plain number field; the
+// value is per place, not per sheet, so it lives with the settings.
+// sensors.js applies it to every azimuth source and logs it per
+// measurement.
+if (declinationInput) {
+  const apply = () => {
+    const v = parseFloat(declinationInput.value);
+    const d = isFinite(v) ? Math.max(-180, Math.min(180, v)) : 0;
+    setSetting('declination', d);
+    if (typeof setDeclination === 'function') setDeclination(d);
+  };
+  declinationInput.addEventListener('change', apply);
+  declinationInput.addEventListener('blur', apply);
+}
 
 export function openSettings() {
   if (!panel) return;
@@ -207,6 +224,8 @@ function renderControls() {
   // Uncertainty sample count. Changes N for every future distribution
   // call, so a full re-evaluate is needed to redraw existing Uncertain
   // outputs with the new sample size.
+  if (declinationInput) declinationInput.value = String(getSetting('declination', 0));
+
   const samplesOpts = SAMPLES_OPTIONS.map(n => ({ key: n, label: String(n) }));
   renderPillRow(samplesNControl, samplesOpts, getSetting('samplesN', 1000), v => {
     setSetting('samplesN', v);

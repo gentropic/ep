@@ -70,11 +70,26 @@ function onSample(phys, sample, tMs = Date.now()) {
   }
 }
 
+// Magnetic declination (deg, east positive), from Settings. The phone's
+// orientation is magnetic-north referenced; adding the declination to
+// every azimuth makes the readings true-north. In the W3C frame alpha
+// grows counter-clockwise, so true alpha = alpha − declination.
+let declinationDeg = (() => { const v = parseFloat(getSetting('declination', 0)); return isFinite(v) ? v : 0; })();
+export function setDeclination(deg) {
+  const v = parseFloat(deg);
+  declinationDeg = isFinite(v) ? v : 0;
+  dirty = true;
+}
+export function getDeclination() { return declinationDeg; }
+const AZIMUTH_SOURCES = new Set(['heading', 'dip_direction', 'strike', 'trend']);
+
 // One normalised rotation sample for every source that reads from the
-// fused orientation: the phone-ish names and the structural attitude.
+// fused orientation: the phone-ish names and the structural attitude,
+// declination applied.
 function rotationSample(alpha, beta, gamma) {
-  const att = attitudeFrom(alpha, beta, gamma) || {};
-  return { heading: headingFromAlpha(alpha), beta, gamma, ...att };
+  const a = typeof alpha === 'number' ? alpha - declinationDeg : alpha;
+  const att = attitudeFrom(a, beta, gamma) || {};
+  return { heading: headingFromAlpha(a), beta, gamma, ...att };
 }
 
 // ── readers ───────────────────────────────────────────────────────
@@ -125,7 +140,7 @@ function openWebReader(phys) {
       if (e.type === 'deviceorientationabsolute') sawAbsolute = true;
       else if (sawAbsolute) return;
       const s = rotationSample(e.alpha, e.beta, e.gamma);
-      if (typeof e.webkitCompassHeading === 'number') s.heading = e.webkitCompassHeading;
+      if (typeof e.webkitCompassHeading === 'number') s.heading = ((e.webkitCompassHeading + declinationDeg) % 360 + 360) % 360;
       onSample('rotation', s);
     };
     window.addEventListener('deviceorientationabsolute', h);
@@ -267,6 +282,12 @@ export function captureReadings() {
     if (text) readings.push({ name: p.name, text });
   }
   if (!readings.length) return 0;
+  // Azimuths were taken with the current declination applied: log it
+  // beside them (one value per measurement, in declination_log) so any
+  // row can be post-corrected when the declination turns out wrong.
+  if (wanted().some(p => state._live.has(p.name) && AZIMUTH_SOURCES.has(p.sensor.source))) {
+    readings.push({ name: 'declination', text: `${String(Number(declinationDeg.toFixed(2)))} deg` });
+  }
   const before = view.state.doc.toString();
   const after = captureEdits(before.split('\n'), readings).join('\n');
   if (after !== before) {

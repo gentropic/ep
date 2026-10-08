@@ -81,7 +81,7 @@ try {
   check(!s.params, '@params panel still visible');
   check(s.outputs && s.outputsFixed === 'fixed', 'outputs strip not shown as a fixed bar');
   check(s.outChips === 2, `expected 2 output chips on the demo sheet, got ${s.outChips}`);
-  check(s.tokCount === 9, `expected 9 keyboard-row tokens, got ${s.tokCount}: ${s.tokLabels.join(' ')}`);
+  check(s.tokCount === 10, `expected 10 keyboard-row tokens (incl. undo), got ${s.tokCount}: ${s.tokLabels.join(' ')}`);
   check(s.tokMinH >= 44, `keyboard-row tokens shorter than 44px (${s.tokMinH})`);
   check(!s.tokOverflow, 'keyboard row overflows the viewport');
   check(s.vchips >= 3, `expected variable chips, got ${s.vchips}`);

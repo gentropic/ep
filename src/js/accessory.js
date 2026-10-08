@@ -10,6 +10,7 @@
 import { state } from './state.js';
 import { openUnitPicker } from './unit-picker.js';
 import { smartInsertion, TOKEN_KIND } from './insert.js';
+import { editorView } from './render.js';
 
 const TOKENS = [
   ['op', '+', '+'], ['op', '−', '-'], ['op', '×', '*'], ['op', '÷', '/'],
@@ -118,6 +119,23 @@ TOKENS.forEach(([cls, lbl, ins]) => {
   b.addEventListener('click', () => insertSmart(token, kind));
   accEl.append(b);
 });
+
+// Undo, pocket only: a phone keyboard has no Ctrl+Z, and a bad
+// measurement (or a fat-fingered chip) needs a way back that isn't
+// editing list text by hand. One CM6 history step per tap.
+const undoBtn = document.createElement('button');
+undoBtn.className = 'tok pk tok-undo';
+undoBtn.textContent = '↶';
+undoBtn.title = 'undo';
+undoBtn.setAttribute('aria-label', 'undo');
+undoBtn.tabIndex = -1;
+keepEditorFocus(undoBtn);
+undoBtn.addEventListener('click', () => {
+  const view = typeof editorView === 'function' ? editorView() : null;
+  const CM6 = globalThis.CM6;
+  if (view && CM6 && typeof CM6.undo === 'function') CM6.undo(view);
+});
+accEl.append(undoBtn);
 
 // "More units" button at the tail of the bar — opens the unit picker
 // sheet (categorised grid of every resolvable unit name).

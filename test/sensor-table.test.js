@@ -88,3 +88,15 @@ test('captureEdits: creates log lists under a measurements heading, then extends
   const filled = captureEdits(pre, [{ name: 'dd', text: '10 deg' }, { name: 'dip', text: '20 deg' }, { name: 'rake', text: '5 deg' }]);
   assert.deepEqual(filled, ['# measurements — tap measure', '# every reading lands here', 'dd_log = [10 deg]', 'dip_log = [20 deg]', 'rake_log = [5 deg]', '', 'stereonet_planes(dd_log, dip_log)']);
 });
+
+test('measurementsCsv: a column per log with its unit, a row per index, ragged lists padded', async () => {
+  const { measurementsCsv } = await import('../src/js/sensor-table.js');
+  const csv = measurementsCsv([
+    { name: 'dd_log', unit: 'deg', values: [171.3, 182] },
+    { name: 'dip_log', unit: 'deg', values: [12.4, 15.1] },
+    { name: 'declination_log', unit: 'deg', values: [2.5] },
+    { name: 'note_log', unit: '', values: ['a,b'] },
+  ]);
+  assert.equal(csv, 'n,dd_log (deg),dip_log (deg),declination_log (deg),note_log\r\n1,171.3,12.4,2.5,"a,b"\r\n2,182,15.1,,\r\n');
+  assert.equal(measurementsCsv([]), '');
+});
