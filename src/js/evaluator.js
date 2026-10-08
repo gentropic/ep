@@ -738,8 +738,35 @@ function evalExprText(text, env) {
 // and the unit resolves to the value's dimension, tag the result with it
 // (the same pre-resolved display tag `->` uses). Arithmetic drops the tag,
 // as in Numbat, so `2 * (150 lb)` still auto-scales.
+// Split `a, f(b, c), "x,y"` at the commas that sit outside brackets and
+// strings. Empty when the text is blank.
+function splitTopLevelCommas(text) {
+  const out = [];
+  let depth = 0, inStr = false, cur = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) { cur += ch; if (ch === '\\') { cur += text[++i] || ''; } else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') { inStr = true; cur += ch; continue; }
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  if (cur.trim() || out.length) out.push(cur);
+  return out.filter((s, i, a) => s.trim() || i < a.length - 1);
+}
+
 const WRITTEN_UNIT_RE = /^\s*[+-]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*([A-Za-zµμ°Ω%][^\s()+\-*,>]*(?:\s*\/\s*[A-Za-zµμ°Ω][^\s()+\-*,>]*)?)\s*$/;
 function tagWrittenUnit(q, exprText, env) {
+  // A list literal tags each element with ITS written unit, so
+  // `dd_log = [89.4 deg, 90 deg]` echoes degrees in the gutter instead
+  // of canonical radians. Elements are tagged in place: the array's
+  // identity (and any tag on it) stays as numbat-js produced it.
+  if (Array.isArray(q) && /^\s*\[[\s\S]*\]\s*$/.test(exprText || '')) {
+    const parts = splitTopLevelCommas(exprText.trim().slice(1, -1));
+    if (parts.length === q.length) for (let i = 0; i < q.length; i++) q[i] = tagWrittenUnit(q[i], parts[i], env);
+    return q;
+  }
   if (!q || Object.getPrototypeOf(q) !== Quantity.prototype || q.disp) return q;
   const m = WRITTEN_UNIT_RE.exec(exprText || '');
   if (!m) return q;

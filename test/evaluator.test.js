@@ -489,3 +489,13 @@ test('record(): the trailing series of a sensor binding through the host hook', 
   const off = evaluate(body);   // no readings, no hook → empty series, no error
   assert.equal(off.rows[3].result.value, 0);
 });
+
+test('a list literal keeps each element\'s written unit for display', () => {
+  const r = evaluate(bodyOf(['dd_log = [89.39 deg, 90 deg]', 'z = [1 km, 200 m]', 'e = []', 'mix = [1 m, len("ab")]']));
+  for (const row of r.rows) assert.equal(row.error, null, row.error);
+  assert.deepEqual(r.rows[0].result.map(q => q.disp && q.disp.name), ['deg', 'deg']);
+  assert.ok(Math.abs(r.rows[0].result[0].value - 89.39 * Math.PI / 180) < 1e-12);
+  assert.deepEqual(r.rows[1].result.map(q => q.disp && q.disp.name), ['km', 'm']);
+  assert.deepEqual(r.rows[2].result, []);
+  assert.equal(r.rows[3].result[0].disp.name, 'm');
+});
