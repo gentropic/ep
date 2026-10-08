@@ -123,12 +123,25 @@ export function captureEdits(lines, readings) {
     if (!done) pending.push(`${name}_log = [${text}]`);
   }
   if (pending.length) {
-    while (out.length && out[out.length - 1].trim() === '') out.pop();
-    if (!out.some(l => /^\s*#\s*measurements\b/i.test(l))) {
-      if (out.length) out.push('');
-      out.push('# measurements');
+    // Where the block goes: after the existing log lines under the
+    // `# measurements` heading when there is one; otherwise right after
+    // the last @sensor binding — BEFORE anything later that may already
+    // use the logs (`stereonet_planes(dd_log, dip_log)` at the end of a
+    // sheet must see them defined above it).
+    const headingAt = out.findIndex(l => /^\s*#\s*measurements\b/i.test(l));
+    let at;
+    if (headingAt >= 0) {
+      at = headingAt + 1;
+      while (at < out.length && /^\s*[A-Za-z_][A-Za-z0-9_]*_log\s*=/.test(out[at])) at++;
+      out.splice(at, 0, ...pending);
+    } else {
+      let lastSensor = -1;
+      for (let i = 0; i < out.length; i++) if (/^\s*@sensor\b/.test(out[i])) lastSensor = i + 1;   // the binding line below it
+      at = lastSensor >= 0 ? Math.min(lastSensor + 1, out.length) : out.length;
+      const block = ['', '# measurements', ...pending];
+      if (at < out.length && out[at].trim() !== '') block.push('');
+      out.splice(at, 0, ...block);
     }
-    out.push(...pending);
   }
   return out;
 }

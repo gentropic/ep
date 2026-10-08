@@ -69,11 +69,16 @@ test('attitudeFrom: rolled about the long axis (gamma) dips east or west; alpha 
 });
 
 test('captureEdits: creates log lists under a measurements heading, then extends them in place', () => {
-  const sheet = ['@sensor(dip)', 'dip = 0 deg', '@sensor(dip_direction)', 'dd = 0 deg', ''];
+  const sheet = ['@sensor(dip)', 'dip = 0 deg', '@sensor(dip_direction)', 'dd = 0 deg', '', 'stereonet_planes(dd_log, dip_log)'];
   const once = captureEdits(sheet, [{ name: 'dd', text: '171.3 deg' }, { name: 'dip', text: '12.4 deg' }]);
-  assert.deepEqual(once.slice(-3), ['# measurements', 'dd_log = [171.3 deg]', 'dip_log = [12.4 deg]']);
+  // the block lands after the last @sensor binding, before the line that uses the logs
+  assert.deepEqual(once, ['@sensor(dip)', 'dip = 0 deg', '@sensor(dip_direction)', 'dd = 0 deg', '', '# measurements', 'dd_log = [171.3 deg]', 'dip_log = [12.4 deg]', '', 'stereonet_planes(dd_log, dip_log)']);
   const twice = captureEdits(once, [{ name: 'dd', text: '182 deg' }, { name: 'dip', text: '15.1 deg' }]);
-  assert.deepEqual(twice.slice(-2), ['dd_log = [171.3 deg, 182 deg]', 'dip_log = [12.4 deg, 15.1 deg]']);
+  assert.deepEqual(twice.slice(5, 8), ['# measurements', 'dd_log = [171.3 deg, 182 deg]', 'dip_log = [12.4 deg, 15.1 deg]']);
+  // a new binding logged later joins the block under the heading
+  const more = captureEdits(twice, [{ name: 'dd', text: '1 deg' }, { name: 'dip', text: '2 deg' }, { name: 'rake', text: '88 deg' }]);
+  assert.equal(more[8], 'rake_log = [88 deg]');
+  assert.equal(more[more.length - 1], 'stereonet_planes(dd_log, dip_log)');
   // a trailing comment on the log line survives; an empty list fills
   const withComment = captureEdits(['x_log = []   # today'], [{ name: 'x', text: '1 m' }]);
   assert.deepEqual(withComment, ['x_log = [1 m]   # today']);
