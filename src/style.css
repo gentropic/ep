@@ -3655,3 +3655,27 @@ html[data-pocket] .scenario-chip { min-height: 36px; padding: 0 14px; font-size:
 @keyframes ep-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .ep-gutter-result.live::after { animation: none; } }
 html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding.live { visibility: visible; }
+
+/* Live readings: the dot REPLACES the input triangle in front of the
+ * value instead of trailing it — seen on the phone, "▲ 925.5 hPa ●" did
+ * not fit the gutter and the unit was clipped. */
+.ep-gutter-result.live::before {
+  content: '';
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-right: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--au-success);
+  vertical-align: middle;
+  animation: ep-live-pulse 1.2s ease-in-out infinite;
+}
+.ep-gutter-result.live::after { content: none; }
+.ep-gutter-result.live.held::before { background: var(--au-warn); animation: none; }
+@media (prefers-reduced-motion: reduce) { .ep-gutter-result.live::before { animation: none; } }
+
+/* Reduced motion (Switchboard §8): sheets and dialogs snap instead of
+ * sliding. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .settings-panel, .unit-sheet, .scrim .dialog, .accessory, .sighelp-strip, #outputsPanel { transition: none !important; }
+}
