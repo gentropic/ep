@@ -987,9 +987,11 @@ function resultMarkerHtml(lineIdx) {
   }
   if (n === undefined) [n, u] = fmt(r.result);
 
+  // The tooltip says in words what the dot says in colour.
+  const liveNote = /\bheld\b/.test(cls) ? ' · held reading' : /\blive\b/.test(cls) ? ' · live reading' : '';
   return {
     html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''),
-    text: n + (u ? ' ' + u : ''),
+    text: n + (u ? ' ' + u : '') + liveNote,
     cls,
   };
 }
@@ -1398,6 +1400,10 @@ function mountCm6() {
           }
           if (kind === 'deco') {
             decos.push(Decoration.line({ class: 'cm-ep-deco-line' }).range(line.from));
+            continue;
+          }
+          if (kind === 'commentline') {
+            decos.push(Decoration.line({ class: 'cm-ep-comment-line' }).range(line.from));
             continue;
           }
           // Inline mark for the underline (also keeps the title attribute
@@ -2449,6 +2455,11 @@ function applyErrorMarks() {
     if (/^\s*@(input|output|options|range|sensor)\b/.test(row.src || '')) {
       items.push({ line: i + 1, col: 0, message: '', kind: 'deco' });
     }
+    // Comment lines never carry a result, so they get the full width
+    // instead of wrapping early around the result gutter's reserve.
+    if (/^\s*(#|--)/.test(row.src || '')) {
+      items.push({ line: i + 1, col: 0, message: '', kind: 'commentline' });
+    }
     if (row.error) {
       const message = row.error;
       let col = 0;
@@ -2482,7 +2493,7 @@ function applyErrorMarks() {
     // user can also opt out entirely via Settings → display →
     // "annotation suggestions" off.
     if (row.suggest && !row.error && !row.suspect
-        && getSetting('suggestAnnotations', true)) {
+        && getSetting('suggestAnnotations', false)) {
       items.push({
         line: i + 1, col: 0, message: '', kind: 'suggest',
         suggestDim: row.suggest.dimName, rowIdx: i,

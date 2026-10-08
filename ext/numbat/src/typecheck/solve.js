@@ -46,7 +46,15 @@ export function solve(constraintSet, opts) {
             subst = extendTVar(subst, r.id, tDim(dimExprFromVar(freshTDimVar())));
             continue;
           }
-          throw new UnifyError(`expected dimension type, got ${formatTypePretty(r)}`, c.span);
+          // Say what it IS in words — "got ($735²) -> $735" told a user
+          // nothing; "got a function" tells them to add the parentheses.
+          const what = r.kind === 'TFn'     ? 'a function — call it with arguments'
+                     : r.kind === 'TList'   ? 'a list'
+                     : r.kind === 'TBool'   ? 'a Bool'
+                     : r.kind === 'TString' ? 'a String'
+                     : r.kind === 'TStruct' ? `a ${r.name} struct`
+                     : formatTypePretty(r);
+          throw new UnifyError(`expected a number (with or without a unit), got ${what}`, c.span);
         } else if (c.kind === 'HasField') {
           const r = applyType(c.t, subst);
           if (r.kind === 'TStruct') {

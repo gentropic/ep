@@ -186,7 +186,7 @@ function renderControls() {
   // buttons show up at all. Fires ep:params-changed so a single re-render
   // clears the existing widgets without waiting for the next edit.
   renderPillRow(suggestAnnotationsControl, ON_OFF,
-    getSetting('suggestAnnotations', true) ? 'on' : 'off', v => {
+    getSetting('suggestAnnotations', false) ? 'on' : 'off', v => {
       const on = v === 'on';
       setSetting('suggestAnnotations', on);
       window.dispatchEvent(new CustomEvent('ep:params-changed'));

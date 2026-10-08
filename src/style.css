@@ -3679,3 +3679,30 @@ html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding.live { visib
 @media (prefers-reduced-motion: reduce) {
   .drawer, .settings-panel, .unit-sheet, .scrim .dialog, .accessory, .sighelp-strip, #outputsPanel { transition: none !important; }
 }
+
+/* Comment and decorator lines carry no result: full width, no gutter
+ * reserve (the result gutter overlays only lines that have one). */
+.body .cm-line.cm-ep-comment-line,
+.body .cm-line.cm-ep-deco-line { padding-right: 14px; }
+
+/* Settings: the advanced fold. */
+.settings-advanced { margin-bottom: 14px; }
+.settings-advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  border: 1px solid var(--au-border-soft);
+  border-radius: var(--au-radius);
+  background: var(--au-surface-raised);
+  color: var(--au-fg-muted);
+}
+.settings-advanced > summary::-webkit-details-marker { display: none; }
+.settings-advanced > summary::before { content: '▸ '; }
+.settings-advanced[open] > summary { margin-bottom: 14px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.settings-advanced[open] > summary::before { content: '▾ '; }
+html[data-pocket] .settings-advanced > summary { min-height: 44px; display: flex; align-items: center; font-size: 12px; }
+
+/* The ephemeral-sheet save lives in the drawer on the phone; the header
+ * stays uncluttered. */
+html[data-pocket] #saveEphemeralBtn { display: none !important; }
+#drawerSaveBtn .drawer-action-icon { color: var(--au-warn); }

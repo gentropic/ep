@@ -65,8 +65,12 @@ function ensurePocketHint() {
     '<span class="pocket-hint-text"><b>A calculator you write.</b> Touch a number.</span>' +
     '<button class="pocket-hint-empty">Empty sheet</button>' +
     '<button class="pocket-hint-x" aria-label="dismiss hint">✕</button>';
-  const done = () => { el.remove(); pocketHintEl = null; markTutorialDone(); };
+  const done = () => { if (!pocketHintEl) return; el.remove(); pocketHintEl = null; markTutorialDone(); };
   el.querySelector('.pocket-hint-x').addEventListener('click', done);
+  // The first edit is proof the user got it: typing in the editor or a
+  // chip dismisses the hint on its own (after boot has settled, so the
+  // initial render's own input events don't count).
+  setTimeout(() => { bodyHost.addEventListener('input', done, { once: true }); }, 800);
   // The other first-run exit: skip the worked example and start clean.
   el.querySelector('.pocket-hint-empty').addEventListener('click', () => { done(); newProgram(); });
   bodyHost.parentElement.insertBefore(el, bodyHost);

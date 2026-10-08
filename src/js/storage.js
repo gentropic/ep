@@ -40,17 +40,26 @@ let autosaveTimer   = null;
 const hdrFileEl       = document.getElementById('hdrFile');
 const saveStatusEl    = document.getElementById('saveStatus');
 const saveEphemeralBtn = document.getElementById('saveEphemeralBtn');
+const drawerSaveBtn    = document.getElementById('drawerSaveBtn');
 
 // Updates the header UI to reflect whether the current program is ephemeral
 // (not yet committed to storage). Shows an amber "save" button + a dot on
-// the filename when ephemeral.
+// the filename when ephemeral; on the phone the header button is hidden
+// and the drawer's "save this sheet" entry carries the same action.
 export function applyEphemeralUI() {
   if (hdrFileEl) hdrFileEl.classList.toggle('ephemeral', !!state._ephemeral);
   if (saveEphemeralBtn) saveEphemeralBtn.style.display = state._ephemeral ? '' : 'none';
+  if (drawerSaveBtn)    drawerSaveBtn.style.display    = state._ephemeral ? '' : 'none';
 }
 
 if (saveEphemeralBtn) {
   saveEphemeralBtn.addEventListener('click', () => saveCurrentProgram({force: true}));
+}
+if (drawerSaveBtn) {
+  drawerSaveBtn.addEventListener('click', () => {
+    saveCurrentProgram({force: true});
+    window.dispatchEvent(new CustomEvent('ep:close-drawer'));
+  });
 }
 
 // render.js fires ep:params-changed after any chip / body edit. We listen

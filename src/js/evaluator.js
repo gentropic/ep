@@ -787,7 +787,7 @@ function typecheckStatementSrc(stmtSrc, tcEnv, srcLineOffset, colShift, outError
     // annotation extractor pick the right column.
     const rawCol  = err.span?.col ?? 1;
     const origCol = Math.max(1, rawCol - colShift);
-    const formatted = `<row>:1:${origCol}: ${err.message}`;
+    const formatted = `<row>:1:${origCol}: ${humanizeTypeMessage(err.message)}`;
     if (!outErrorsByLine.has(row)) outErrorsByLine.set(row, formatted);
   }
 }
@@ -850,6 +850,23 @@ function freshEnv() {
 // engine, not in the user's program — label it so, and log the stack so
 // it's debuggable, instead of surfacing "Cannot convert undefined or null
 // to object" in the gutter as if the user wrote something wrong.
+// Typechecker messages in words a calculator user can act on: internal
+// dimension variables (`$735`) become D, D2, …; type variables (`'a12`)
+// become T, T2, …; "cannot unify X with Y" reads as a mismatch.
+function humanizeTypeMessage(msg) {
+  if (typeof msg !== 'string') return msg;
+  const dims = new Map(), tys = new Map();
+  const name = (map, prefix, id) => {
+    if (!map.has(id)) map.set(id, prefix + (map.size ? String(map.size + 1) : ''));
+    return map.get(id);
+  };
+  return msg
+    .replace(/\$(\d+)/g, (_, id) => name(dims, 'D', id))
+    .replace(/'a(\d+)/g, (_, id) => name(tys, 'T', id))
+    .replace(/^cannot unify (.+?) with (.+?)(\s*\(.*\))?$/, (_, a, b, ctx) => `type mismatch: ${a} vs ${b}${ctx || ''}`)
+    .replace(/∀\([^)]*\)\.\s*/g, '');
+}
+
 function rowErrorMessage(e) {
   if (e instanceof TypeError || e instanceof ReferenceError) {
     console.error('ep: internal error while evaluating:', e);

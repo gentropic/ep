@@ -23,10 +23,11 @@ const TOKENS = [
   ['unit', 'g/t', ' g/t'], ['unit', 'ppm', ' ppm'], ['unit', 'ozt', ' ozt'],
 ];
 
-// The pocket keyboard row: operators, grouping, the conversion arrow. The
-// system keyboard supplies digits and letters; functions are typed or
+// The pocket keyboard row: operators, grouping, `=` (a new binding on a
+// phone shouldn't need the symbols page), the conversion arrow. The system
+// keyboard supplies digits and letters; `^` and functions are typed or
 // completed; units come from the picker.
-const POCKET_KEEP = new Set(['+', '−', '×', '÷', '^', '(', ')', '→']);
+const POCKET_KEEP = new Set(['+', '−', '×', '÷', '=', '(', ')', '→']);
 
 // Insert text at the cursor of state._lastFocused (CM6 or plain input).
 // Used by the accessory bar and by the unit-picker sheet; exported so any

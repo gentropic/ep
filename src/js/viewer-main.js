@@ -10,6 +10,10 @@ import { encodeInlineI } from './capsule.js';
 import { attachCsv } from './csv-assets.js';   // also registers the load_csv resolver
 
 import { state } from './state.js';
+import { setFmtSigDigits } from './units.js';
+
+// Numbers as the author saw them (export.js bakes the editor's setting).
+if (state.ui && Number.isFinite(state.ui.sigDigits)) setFmtSigDigits(state.ui.sigDigits);
 
 evaluateAll();
 renderChips();

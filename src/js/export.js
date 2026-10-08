@@ -3,7 +3,7 @@
 // the STATE markers — preserving this contract is critical to the round-trip.
 
 import { state } from './state.js';
-import { currentProgramName } from './storage.js';
+import { currentProgramName, getSetting } from './storage.js';
 import { generateShareUrl, generateShareUrlForQR, qrSvgFor } from './share.js';
 import { isPocket, dismissKeyboard } from './viewport.js';
 import { deliverFile, shellPresent } from './shell.js';
@@ -133,6 +133,8 @@ function buildExportHtml() {
       formView:         true,
       showSource:       false,
       includeEditLink:  exportIncludeEditLinkEl ? exportIncludeEditLinkEl.checked : true,
+      // The form shows numbers the way its author saw them.
+      sigDigits:        getSetting('sigDigits', 4),
       ...(exposedInputNames() ? { exposedInputs: exposedInputNames() } : {}),
       scenarios:        state.ui.scenarios       || {},
       activeScenario:   state.ui.activeScenario  || null,
