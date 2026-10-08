@@ -126,6 +126,62 @@ try {
   await page.evaluate(() => document.getElementById('formBtn').click());
   await page.waitForTimeout(200);
 
+  // Touch gestures via CDP (SPEC-pocket §3.1 / §3.2): long-press on a
+  // result opens the menu, a tap does not; dragging a sheet's header down
+  // dismisses it.
+  const cdp = await page.context().newCDPSession(page);
+  const touch = async (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  // (not a .binding cell — those are visibility:hidden in pocket mode and
+  // don't receive touches)
+  const cell = await page.evaluate(() => { const e = document.querySelector('.ep-result-gutter .ep-gutter-result:not(.binding)'); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  await touch('touchStart', cell.x, cell.y); await page.waitForTimeout(80); await touch('touchEnd', cell.x, cell.y);
+  await page.waitForTimeout(200);
+  check(!(await page.$('.ctx-menu')), 'a short tap on a result opened the menu');
+  await touch('touchStart', cell.x, cell.y); await page.waitForTimeout(700); await touch('touchEnd', cell.x, cell.y);
+  await page.waitForTimeout(200);
+  check(!!(await page.$('.ctx-menu')), 'long-press on a result did not open the menu');
+  const menuLabels = await page.evaluate(() => [...document.querySelectorAll('.ctx-menu-item')].map(e => e.textContent.trim()));
+  check(menuLabels.some(l => l.startsWith('copy')) && menuLabels.some(l => l.startsWith('insert')), `result menu lacks copy / insert: ${menuLabels.slice(0, 4).join(' | ')}`);
+  await page.keyboard.press('Escape'); await page.mouse.click(5, 300); await page.waitForTimeout(150);
+
+  await page.click('#menuBtn'); await page.waitForTimeout(350);
+  const hdr = await page.evaluate(() => { const r = document.querySelector('#drawer .drawer-hdr').getBoundingClientRect(); return { x: r.x + 40, y: r.y + r.height / 2 }; });
+  await touch('touchStart', hdr.x, hdr.y);
+  for (let i = 1; i <= 6; i++) { await touch('touchMove', hdr.x, hdr.y + i * 40); await page.waitForTimeout(25); }
+  await touch('touchEnd', hdr.x, hdr.y + 240);
+  await page.waitForTimeout(350);
+  check(!(await page.evaluate(() => document.getElementById('drawer').classList.contains('on'))), 'swipe down did not dismiss the drawer');
+
+  // Keyboard row spacing rules (insert.js): `3` then km → `3 km`; then ÷
+  // then `4` then units… drive the pure path through the bar buttons.
+  await page.evaluate(() => {
+    const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '3' }, selection: { anchor: 1 } });
+    view.focus();
+  });
+  await page.click('.accessory .tok[data-tok="÷"]');
+  await page.keyboard.type('4');
+  await page.click('.tok-more-units');
+  await page.waitForTimeout(250);
+  await page.click('.unit-picker-pill:has-text("min")');
+  await page.click('#unitSheetCloseBtn');
+  await page.click('.accessory .tok[data-tok="→"]');
+  const typed = await page.evaluate(() => (typeof cmView !== 'undefined' ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'))).state.doc.toString());
+  check(typed === '3 ÷ 4 min -> ' || typed === '3 / 4 min -> ', `keyboard row produced ${JSON.stringify(typed)}`);
+
+  // Export: "which inputs" toggles exist; the viewer honours exposedInputs.
+  await page.evaluate(() => {
+    const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '@input\na = 1 m\n@input\nb = 2 m\n@input\nc = 3 m\n@output\nd = a + b + c\n' } });
+  });
+  await page.waitForTimeout(400);
+  await page.click('#exportBtn'); await page.waitForTimeout(250);
+  const toggles = await page.evaluate(() => document.querySelectorAll('#exportInputs input[type="checkbox"]').length);
+  check(toggles === 3, `expected 3 export input toggles, got ${toggles}`);
+  await page.keyboard.press('Escape');
+  const shown = await page.evaluate(() => { state.ui.exposedInputs = ['a', 'c']; renderChips(); const n = document.querySelectorAll('#chips .chip').length; delete state.ui.exposedInputs; renderChips(); return n; });
+  check(shown === 2, `exposedInputs should leave 2 chips, got ${shown}`);
+
   // Acceptance expression from SPEC-pocket §3.2.
   await page.evaluate(() => {
     const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));

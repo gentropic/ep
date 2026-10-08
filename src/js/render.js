@@ -25,6 +25,7 @@ import { takeSnapshot, currentProgramName, getSetting } from './storage.js';
 import { epPrompt } from './dialogs.js';
 import { DOCS, renderDocInfo, parseSignature } from './docs.js';
 import { renderVarChips, insertAtCursor } from './accessory.js';
+import { isPocket } from './viewport.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -1270,11 +1271,18 @@ function mountCm6() {
       el.innerHTML = this.html;
       el.title = this.text;
       const idx = this.lineIdx;
-      // Click on a result cell opens the per-line unit-override menu.
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openGutterUnitMenu(idx, e.clientX, e.clientY);
-      });
+      // Click on a result cell opens the per-line menu (copy / insert /
+      // convert). On the phone a tap is also how you scroll, so there
+      // it's a long-press (SPEC-pocket §3.2); attachLongPress also keeps
+      // right-click working.
+      if (typeof isPocket === 'function' && isPocket()) {
+        attachLongPress(el, (x, y) => openGutterUnitMenu(idx, x, y));
+      } else {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openGutterUnitMenu(idx, e.clientX, e.clientY);
+        });
+      }
       return el;
     }
   }
@@ -2180,8 +2188,13 @@ export function renderChips() {
   // hides the whole panel when .app.auto-hide-empty is also set.
   const paramsPanel = document.getElementById('paramsPanel');
   if (paramsPanel) paramsPanel.classList.toggle('empty', state.params.length === 0);
+  // An exported form may expose only some of its @inputs (export sheet
+  // → "inputs"); the rest keep their baked values and get no chip. The
+  // editor never sets this, so it shows everything.
+  const exposed = Array.isArray(state.ui.exposedInputs) ? new Set(state.ui.exposedInputs) : null;
   state.params.forEach(p => {
     const name = p.name;
+    if (exposed && !exposed.has(name)) return;
     const chip = document.createElement('div');
     chip.className = 'chip';
     chip.dataset.paramName = name;

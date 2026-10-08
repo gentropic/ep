@@ -13,7 +13,7 @@
 // per category, expanded on tap, and always searchable.
 
 import { getUnitsByCategory } from './evaluator.js';
-import { insertAtCursor } from './accessory.js';
+import { insertSmart } from './accessory.js';
 
 const upSheet    = document.getElementById('unitSheet');
 const upScrim    = document.getElementById('unitSheetScrim');
@@ -105,7 +105,7 @@ function makePill(u, extraClass = '') {
   b.addEventListener('mousedown',   e => e.preventDefault());
   b.addEventListener('pointerdown', e => e.preventDefault());
   b.addEventListener('click', () => {
-    insertAtCursor(' ' + u.name);
+    insertSmart(u.name, 'unit');
     pushRecent(u.name);
     // Keep open so users can chain insertions (e.g., picking a unit
     // and then a different one in the next expression). Close button

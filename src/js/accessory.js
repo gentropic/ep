@@ -9,6 +9,7 @@
 
 import { state } from './state.js';
 import { openUnitPicker } from './unit-picker.js';
+import { smartInsertion, TOKEN_KIND } from './insert.js';
 
 const TOKENS = [
   ['op', '+', '+'], ['op', '−', '-'], ['op', '×', '*'], ['op', '÷', '/'],
@@ -53,6 +54,38 @@ export function insertAtCursor(text) {
   return true;
 }
 
+// Insert a token with spacing rules (insert.js smartInsertion): a unit
+// after a number gets its space, an operator trims the spaces before it
+// and pads itself, `->` likewise. Works on the current line of a CM6 view
+// or a plain input; falls back to insertAtCursor when there's no target.
+export function insertSmart(token, kind) {
+  const t = state._lastFocused;
+  if (!t) return false;
+  if (t.dispatch && t.state && t.state.selection) {
+    const sel = t.state.selection.main;
+    const line = t.state.doc.lineAt(sel.from);
+    const before = t.state.doc.sliceString(line.from, sel.from);
+    const after  = t.state.doc.sliceString(sel.to, line.to);
+    const { trim, text } = smartInsertion(before, after, token, kind);
+    t.dispatch({
+      changes:   { from: sel.from - trim, to: sel.to, insert: text },
+      selection: { anchor: sel.from - trim + text.length },
+    });
+    t.focus();
+    return true;
+  }
+  if (typeof t.selectionStart !== 'number') return false;
+  const start = t.selectionStart, end = t.selectionEnd;
+  const v = t.value;
+  const { trim, text } = smartInsertion(v.slice(0, start), v.slice(end), token, kind);
+  t.value = v.slice(0, start - trim) + text + v.slice(end);
+  const caret = start - trim + text.length;
+  t.setSelectionRange(caret, caret);
+  t.focus();
+  t.dispatchEvent(new Event('input', {bubbles: true}));
+  return true;
+}
+
 // Keep focus (and the soft keyboard) on the editor when a palette button
 // is tapped. mousedown covers mouse; pointerdown covers touch, where
 // Android Chrome would otherwise move focus to the button and dismiss
@@ -73,7 +106,15 @@ TOKENS.forEach(([cls, lbl, ins]) => {
   // would not want ~26 token buttons between the outputs and the drawer.
   b.tabIndex = -1;
   keepEditorFocus(b);
-  b.addEventListener('click', () => insertAtCursor(ins));
+  // Operators / arrows / parens go through the spacing rules; units and
+  // functions too (their table text carried a leading space or trailing
+  // paren for the raw path — the rules supply those now).
+  const kind = TOKEN_KIND[lbl]
+    || (cls === 'unit' ? 'unit'
+      : cls === 'fn' ? (/\($/.test(ins) ? 'fn' : 'name')   // `pi` behaves like a name
+      : 'raw');
+  const token = kind === 'raw' ? ins : ins.trim();
+  b.addEventListener('click', () => insertSmart(token, kind));
   accEl.append(b);
 });
 
@@ -119,7 +160,7 @@ export function renderVarChips() {
     b.textContent = name;
     b.tabIndex = -1;
     keepEditorFocus(b);
-    b.addEventListener('click', () => insertAtCursor(name));
+    b.addEventListener('click', () => insertSmart(name, 'name'));
     varsRow.append(b);
   }
   varsRow.hidden = all.length === 0;

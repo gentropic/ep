@@ -10,6 +10,37 @@ import { isPocket, dismissKeyboard } from './viewport.js';
 const scrim         = document.getElementById('scrim');
 const exportDlgTitle = document.getElementById('exportDlgTitle');
 const shareFileBtn  = document.getElementById('shareFileBtn');
+const exportInputsRow = document.getElementById('exportInputsRow');
+const exportInputsEl  = document.getElementById('exportInputs');
+
+// "Which @inputs to expose" (SPEC-pocket §3.6): one toggle per param,
+// all on by default. Unticked inputs keep their baked value in the
+// exported form and get no chip. Rebuilt on every open from state.params.
+function renderExportInputs() {
+  if (!exportInputsRow || !exportInputsEl) return;
+  exportInputsEl.innerHTML = '';
+  const params = state.params || [];
+  exportInputsRow.style.display = params.length > 1 ? '' : 'none';
+  for (const p of params) {
+    const lbl = document.createElement('label');
+    lbl.className = 'export-input-toggle';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.name = p.name;
+    lbl.append(cb, document.createTextNode(' ' + p.name));
+    exportInputsEl.append(lbl);
+  }
+}
+
+// null when every input is exposed (the common case — keep the exported
+// state minimal), else the list of names to show.
+function exposedInputNames() {
+  if (!exportInputsEl) return null;
+  const boxes = [...exportInputsEl.querySelectorAll('input[type="checkbox"]')];
+  if (!boxes.length || boxes.every(b => b.checked)) return null;
+  return boxes.filter(b => b.checked).map(b => b.dataset.name);
+}
 const exportBtn     = document.getElementById('exportBtn');
 const cancelBtn     = document.getElementById('cancelBtn');
 const dlEpBtn       = document.getElementById('dlEpBtn');
@@ -53,6 +84,7 @@ exportBtn.addEventListener('click', () => {
   // form" (SPEC-pocket §3.6) — say so.
   if (exportDlgTitle) exportDlgTitle.textContent = isPocket() ? 'Make this a form' : 'Export ep program';
   if (shareFileBtn) shareFileBtn.style.display = _canShareFiles ? '' : 'none';
+  renderExportInputs();
   scrim.classList.add('on');
 });
 cancelBtn.addEventListener('click', () => scrim.classList.remove('on'));
@@ -87,6 +119,7 @@ function buildExportHtml() {
       formView:         true,
       showSource:       false,
       includeEditLink:  exportIncludeEditLinkEl ? exportIncludeEditLinkEl.checked : true,
+      ...(exposedInputNames() ? { exposedInputs: exposedInputNames() } : {}),
       scenarios:        state.ui.scenarios       || {},
       activeScenario:   state.ui.activeScenario  || null,
     },

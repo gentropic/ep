@@ -3153,8 +3153,7 @@ html[data-pocket] #exportBtn {
 /* Panels: the sheet is the screen. Scenarios return as a bottom sheet
  * in a later slice; hidden for now rather than squeezed. */
 html[data-pocket] .app:not(.form) #paramsPanel,
-html[data-pocket] .app:not(.form) .show-source,
-html[data-pocket] .scenarios-strip { display: none !important; }
+html[data-pocket] .app:not(.form) .show-source { display: none !important; }
 
 /* First-run hint — one line above the sheet (view.js builds it). */
 .pocket-hint { display: none; }
@@ -3620,3 +3619,21 @@ html[data-pocket] .viewer-share-btn {
 
 /* Examples list — group separators (everyday / science / field). */
 .examples-group-hdr { margin-top: 14px; border-top: 1px solid var(--au-border-soft); }
+
+/* Export sheet — "which inputs to expose" toggles. */
+.export-inputs { display: flex; flex-wrap: wrap; gap: 6px 10px; flex: 1; }
+.export-input-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--au-font-mono); font-size: 12px; color: var(--au-fg);
+  padding: 4px 8px; border: 1px solid var(--au-border-soft); border-radius: var(--au-radius);
+  background: var(--au-surface-bright); cursor: pointer;
+}
+.export-input-toggle input { accent-color: var(--au-action); margin: 0; }
+html[data-pocket] .export-input-toggle { min-height: 40px; font-size: 14px; padding: 6px 12px; border-radius: 8px; }
+html[data-pocket] .export-input-toggle input { width: 18px; height: 18px; }
+html[data-pocket] .export-inputs-row { align-items: flex-start; }
+
+/* Scenarios strip on the phone: a horizontal row of thumb-sized chips
+ * under the top bar, present only when the sheet has saved scenarios. */
+html[data-pocket] .scenarios-strip { padding: 8px 12px; gap: 8px; }
+html[data-pocket] .scenario-chip { min-height: 36px; padding: 0 14px; font-size: 13px; border-radius: 18px; }

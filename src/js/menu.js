@@ -170,14 +170,24 @@ export function showMenu(items, x, y, opts = {}) {
 export function attachLongPress(el, fn) {
   let timer = null;
   let startX = 0, startY = 0;
-  const cancelOnce = e => { e.stopPropagation(); e.preventDefault(); };
+
+  // Suppress the click that follows the touch release so a long-press
+  // doesn't double-fire. It has to be swallowed at the window, not on
+  // `el`: fn() usually opens a menu under the finger, so the compat
+  // click targets a menu item and would activate it (seen with a real
+  // touch sequence — the result menu opened and instantly picked
+  // "copy"). Armed for a short window only, so a right-click path that
+  // never produces a click doesn't eat the user's next real one.
+  const swallowNextClick = () => {
+    const h = e => { e.stopPropagation(); e.preventDefault(); };
+    window.addEventListener('click', h, {capture: true, once: true});
+    setTimeout(() => window.removeEventListener('click', h, {capture: true}), 700);
+  };
 
   const start = (x, y) => {
     startX = x; startY = y;
     timer = setTimeout(() => {
-      // Suppress the click event that follows the touch release so a
-      // long-press doesn't double-fire.
-      el.addEventListener('click', cancelOnce, {once: true, capture: true});
+      swallowNextClick();
       fn(x, y);
     }, 500);
   };

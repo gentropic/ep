@@ -13,6 +13,7 @@ import { isPocket } from './viewport.js';
 import { renderScenariosStrip } from './scenarios.js';
 import './accessory.js';
 import './export.js';
+import './sheets.js';
 import './io.js';
 import { epPrompt } from './dialogs.js';
 import './ctxmenu.js';

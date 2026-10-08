@@ -137,6 +137,7 @@ const JS_FILES = [
   'drawer.js',
   'tutorial.js',
   'unit-picker.js',
+  'insert.js',
   'accessory.js',
   'view.js',
   'export.js',
@@ -144,6 +145,7 @@ const JS_FILES = [
   'settings.js',
   'gcu-announce.js',
   'pip.js',
+  'sheets.js',
   'main.js',
 ];
 
