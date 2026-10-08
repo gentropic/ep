@@ -603,7 +603,7 @@ export function getCompatibleUnits(targetDim) {
     if (!dEq(e.dim, targetDim)) continue;
     if (seen.has(e.displayName)) continue;
     seen.add(e.displayName);
-    out.push({ name: e.displayName, fullName: e.fullName, mul: e.mul, inputOnly: !!e.inputOnly });
+    out.push({ name: e.displayName, fullName: e.fullName, mul: e.mul, inputOnly: !!e.inputOnly, prefix: e.prefix || null });
   }
   out.sort((a, b) => a.mul - b.mul);
   return out;

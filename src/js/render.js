@@ -26,6 +26,7 @@ import { epPrompt } from './dialogs.js';
 import { DOCS, renderDocInfo, parseSignature } from './docs.js';
 import { renderVarChips, insertAtCursor } from './accessory.js';
 import { isPocket } from './viewport.js';
+import { isRarePrefixed } from './unit-picker.js';
 
 const chipsEl    = document.getElementById('chips');
 const outChipsEl = document.getElementById('outChips');
@@ -2315,9 +2316,14 @@ function openGutterUnitMenu(lineIdx, x, y) {
   // through unchanged.
   const isMesh = c => /^mesh\d+/.test(c.name);
   const isCore = c => /_(core|hole)$/.test(c.name);
+  // Rare metric prefixes (qs, Ym, dam …) fold the same way as in the
+  // unit sheet (unit-picker.js isRarePrefixed; absent in the viewer
+  // bundle, where this menu never opens).
+  const isRare = c => (typeof isRarePrefixed === 'function') && isRarePrefixed(c);
   const mesh = candidates.filter(isMesh);
   const cores = candidates.filter(isCore);
-  const standard = candidates.filter(c => !isMesh(c) && !isCore(c));
+  const rare = candidates.filter(c => !isMesh(c) && !isCore(c) && isRare(c));
+  const standard = candidates.filter(c => !isMesh(c) && !isCore(c) && !isRare(c));
 
   const toItem = c => ({
     label: c.name + (c.name === current ? '  ✓' : ''),
@@ -2325,15 +2331,19 @@ function openGutterUnitMenu(lineIdx, x, y) {
   });
 
   items.push(...standard.map(toItem));
-  if (mesh.length) {
+  if (rare.length) {
     items.push({ separator: true });
+    items.push({ label: `rare prefixes (${rare.length})`, submenu: rare.map(toItem) });
+  }
+  if (mesh.length) {
+    if (!rare.length) items.push({ separator: true });
     items.push({
       label: `mesh sizes (${mesh.length})`,
       submenu: mesh.map(toItem),
     });
   }
   if (cores.length) {
-    if (!mesh.length) items.push({ separator: true });
+    if (!mesh.length && !rare.length) items.push({ separator: true });
     items.push({
       label: `DCDMA cores (${cores.length})`,
       submenu: cores.map(toItem),

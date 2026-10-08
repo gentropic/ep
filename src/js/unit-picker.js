@@ -32,7 +32,7 @@ let _longTailOpen = new Set();   // categories whose long-tail row is expanded
 // actually say — the registry's full BIPM expansion (Qm, dam, Mton, cyr,
 // µton …) folds into the long tail. An explicit allowlist beats a prefix
 // rule here: `k` is everyday on `m` and `W`, noise on `ton` and `yr`.
-const EVERYDAY_PREFIXED = new Set([
+export const EVERYDAY_PREFIXED = new Set([
   'mm', 'cm', 'km', 'µm', 'nm',
   'mg', 'µg', 'kg', 'ng',
   'mL', 'µL',
@@ -49,7 +49,10 @@ const EVERYDAY_PREFIXED = new Set([
   'ha', 'hL',
 ]);
 const isMeshOrCore = (name) => /^mesh\d+/.test(name) || /_(core|hole)$/.test(name);
-const isLongTail = (u) => isMeshOrCore(u.name) || (!!u.prefix && !EVERYDAY_PREFIXED.has(u.name.replace('μ', 'µ')));
+// A rarely-wanted prefixed unit (Qm, dam, zg …) — shared with the result
+// menu in render.js so both surfaces fold the same long tail.
+export const isRarePrefixed = (u) => !!u.prefix && !EVERYDAY_PREFIXED.has(String(u.name).replace('μ', 'µ'));
+const isLongTail = (u) => isMeshOrCore(u.name) || isRarePrefixed(u);
 
 function longTailLabel(tail) {
   const parts = [];
