@@ -14,12 +14,16 @@
 // background refresh ("auto-check off") or (b) explicitly run one now.
 // Messages on `navigator.serviceWorker.controller.postMessage(...)`.
 
-const CACHE = 'ep-shell-v1';
+const CACHE = 'ep-shell-v2';   // v2: PNG icons joined the shell (TWA / Play need them)
 const SHELL = [
   './',
   './manifest.webmanifest',
   './icon.svg',
   './icon-maskable.svg',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-192.png',
+  './icon-maskable-512.png',
 ];
 
 let _autoCheck = true;     // toggled by main thread via message

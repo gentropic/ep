@@ -1,26 +1,23 @@
 {
-  "name": "ep — notepad calculator",
+  "id": "./",
+  "name": "ep — a calculator you write",
   "short_name": "ep",
-  "description": "Unit-aware notepad calculator with shareable single-file form export.",
+  "description": "A calculator you write, with units that check themselves, that turns into a form you can send.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#15171A",
   "theme_color": "#D4672E",
-  "categories": ["productivity", "utilities"],
+  "categories": ["productivity", "utilities", "education"],
+  "prefer_related_applications": false,
   "icons": [
-    {
-      "src": "./icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "./icon-maskable.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
-    }
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ]
 }

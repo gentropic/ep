@@ -50,3 +50,11 @@ CLAUDE.md
 
 # design specs and proposals drafted externally — never committed
 spec_inbox/
+
+# Android TWA (android/README.md): only the config + docs are tracked. The
+# generated Bubblewrap project, keystores and build outputs never are.
+android/*
+!android/twa-manifest.json
+!android/assetlinks.json
+!android/README.md
+!android/listing.md
