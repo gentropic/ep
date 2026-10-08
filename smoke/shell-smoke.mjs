@@ -90,6 +90,15 @@ try {
   check(liveCells >= 1, 'no live marker on the sensor row');
   const outText = await page.evaluate(() => document.querySelector('#outChips .chip-out-val') && document.querySelector('#outChips .chip-out-val').textContent.trim());
   check(outText && !/^180\b/.test(outText), `output did not follow the live heading: ${outText}`);
+  // A live stereonet must redraw as the reading moves (the plot widget
+  // used to be reused because its fingerprint ignored the data).
+  await page.evaluate(() => { cmView.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: '@sensor(heading)\naz = 0 deg\n@sensor(dip)\ndip = 30 deg\nstereonet_planes(az, dip, "live")\n' } }); });
+  await page.waitForFunction(() => state._live.has('az') && !!document.querySelector('.cm-ep-plot-block svg, .cm-ep-plot-block canvas'), null, { timeout: 8000 }).catch(() => {});
+  const frame = () => page.evaluate(() => { const el = document.querySelector('.cm-ep-plot-block svg, .cm-ep-plot-block canvas'); return el ? (el.tagName === 'CANVAS' ? el.toDataURL().length + ':' + el.toDataURL().slice(-40) : el.innerHTML.length + ':' + el.innerHTML.slice(-80)) : null; });
+  const f1 = await frame();
+  await page.waitForTimeout(1500);
+  const f2 = await frame();
+  check(f1 && f2 && f1 !== f2, `live stereonet did not redraw (${f1 && f1.slice(0, 20)} → ${f2 && f2.slice(0, 20)})`);
   check(errors.length === 0, 'page errors: ' + errors.join(' | '));
 } finally {
   await browser.close();

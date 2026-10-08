@@ -34,6 +34,21 @@ const bodyEl     = document.getElementById('body');
 const paramMetaEl = document.getElementById('paramMeta');
 const outMetaEl   = document.getElementById('outMeta');
 
+// Fingerprint of a plot descriptor for the block widget's eq(): a fresh
+// descriptor arrives on every evaluation, so identity is useless, and a
+// fingerprint of type + lengths + labels (the old check) missed every
+// change in the DATA — a live stereonet driven by @sensor readings kept
+// its first frame forever. Covers the single-series fields (xs / ys /
+// values) and the layered form (layers[].pairs / values), numbers
+// included; stringify at ≤2 Hz on sheet-sized data is cheap.
+function plotFingerprint(p) {
+  if (!p) return '';
+  const layers = Array.isArray(p.layers)
+    ? p.layers.map(l => [l.kind || l.type || '', l.label || '', l.color || '', l.pairs || l.values || l.xs || null, l.ys || null, l.yLo || null, l.yHi || null])
+    : null;
+  return JSON.stringify([p.type, p.family, p.title, p.xLabel, p.yLabel, p.xUnit, p.yUnit, p.valueUnit, p.xs || p.values || null, p.ys || null, layers]);
+}
+
 let cmView = null;
 // The live editor, for modules that edit the sheet programmatically
 // (sensors.js capture). null before mount and in the viewer.
@@ -1062,18 +1077,7 @@ function mountCm6() {
         // is enough for re-render decisions.
         const a = this.plot, b = other.plot;
         if (!a || !b) return a === b;
-        return a.type === b.type
-          && a.title  === b.title
-          && a.xLabel === b.xLabel
-          && a.yLabel === b.yLabel
-          && a.xUnit  === b.xUnit
-          && a.yUnit  === b.yUnit
-          && a.valueUnit === b.valueUnit
-          && (a.xs?.length || 0) === (b.xs?.length || 0)
-          && (a.ys?.length || 0) === (b.ys?.length || 0)
-          && (a.values?.length || 0) === (b.values?.length || 0)
-          && JSON.stringify(a.xs || a.values || []) === JSON.stringify(b.xs || b.values || [])
-          && JSON.stringify(a.ys || []) === JSON.stringify(b.ys || []);
+        return plotFingerprint(a) === plotFingerprint(b);
       }
       if (this.kind === 'csv-asset') {
         const a = this.csv, b = other.csv;
