@@ -53,6 +53,24 @@ let cmView = null;
 // The live editor, for modules that edit the sheet programmatically
 // (sensors.js capture). null before mount and in the viewer.
 export function editorView() { return cmView; }
+
+// A one-line status toast above the keyboard row, for actions whose
+// effect lands out of view (measure logs its readings near the top of
+// the sheet while the user watches a plot at the bottom). Self-clears.
+let _toastEl = null;
+let _toastTimer = null;
+export function showToast(text, ms = 1800) {
+  if (!_toastEl) {
+    _toastEl = document.createElement('div');
+    _toastEl.className = 'ep-toast';
+    _toastEl.setAttribute('role', 'status');
+    document.body.appendChild(_toastEl);
+  }
+  _toastEl.textContent = text;
+  _toastEl.classList.add('on');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { _toastEl.classList.remove('on'); _toastTimer = null; }, ms);
+}
 let _syncingFromChip = false;
 
 // CM6 error-decoration plumbing — assigned inside mountCm6() (where CM6 is
@@ -1109,8 +1127,13 @@ function mountCm6() {
           const host = document.createElement('div');
           host.className = 'cm-ep-stereonet';
           wrap.appendChild(host);
-          const desc = this.plot;
-          requestAnimationFrame(() => renderStereonet(host, desc));
+          // Drawn synchronously: renderStereonet reads its colors off
+          // the document root, not the host, so it needs no attachment.
+          // A deferred draw left the block EMPTY for a frame, so the
+          // sheet shrank, the scroller clamped scrollTop upward, and
+          // the SVG then landed below the fold (a live stereonet at the
+          // bottom of a sheet kept pushing the view up).
+          renderStereonet(host, this.plot);
           return wrap;
         }
         // Canvas-rendered chart. Block widget so it claims its own row
@@ -1137,15 +1160,12 @@ function mountCm6() {
         // 2:1 aspect ratio. Setting inline width/height would override
         // the responsive CSS.
         wrap.appendChild(canvas);
-        // Defer the draw to next frame: the canvas needs to be in the
-        // DOM before getComputedStyle resolves --sw-* CSS variables.
-        // attachPlotHover runs after the draw so canvas._plotState is
-        // ready for the inverse pixel → data transform.
-        const desc = this.plot;
-        requestAnimationFrame(() => {
-          drawPlot(canvas, desc, dpr);
-          attachPlotHover(canvas);
-        });
+        // Draw now (drawPlot reads its colors off the document root), so
+        // the block has its height the moment CM6 measures it. The hover
+        // wiring waits a frame: it positions the tooltip relative to the
+        // wrapper, which needs computed style, i.e. attachment.
+        drawPlot(canvas, this.plot, dpr);
+        requestAnimationFrame(() => attachPlotHover(canvas));
         return wrap;
       }
       if (this.kind === 'suggest') {
@@ -1210,6 +1230,32 @@ function mountCm6() {
       msg.textContent = this.message;
       el.append(pad, msg);
       return el;
+    }
+    // A plot whose data changed (eq() false, same widget class) redraws
+    // INTO its existing block instead of being torn down and rebuilt.
+    // That keeps the block's height — and the scroll position — stable,
+    // and is most of what made a 2 Hz live plot feel sluggish: CM6 no
+    // longer re-measures a fresh block, the browser no longer re-lays
+    // out an SVG from scratch.
+    updateDOM(dom) {
+      if (this.kind !== 'plot' || !this.plot || !dom) return false;
+      const wasStereonet = dom.classList.contains('cm-ep-stereonet-block');
+      if (this.plot.__plot && this.plot.family === 'stereonet') {
+        const host = wasStereonet && dom.querySelector('.cm-ep-stereonet');
+        if (!host) return false;
+        let title = dom.querySelector('.cm-ep-stereonet-title');
+        if (this.plot.title) {
+          if (!title) { title = document.createElement('div'); title.className = 'cm-ep-stereonet-title'; dom.insertBefore(title, host); }
+          title.textContent = this.plot.title;
+        } else if (title) title.remove();
+        renderStereonet(host, this.plot);
+        return true;
+      }
+      const canvas = !wasStereonet && dom.querySelector('canvas.cm-ep-plot-canvas');
+      if (!canvas) return false;
+      drawPlot(canvas, this.plot, Math.max(1, window.devicePixelRatio || 1));
+      attachPlotHover(canvas);
+      return true;
     }
     ignoreEvent() { return false; }
   }

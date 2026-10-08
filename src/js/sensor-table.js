@@ -131,8 +131,9 @@ export function captureEdits(lines, readings) {
     const headingAt = out.findIndex(l => /^\s*#\s*measurements\b/i.test(l));
     let at;
     if (headingAt >= 0) {
+      // past the heading's own comment lines and the logs already there
       at = headingAt + 1;
-      while (at < out.length && /^\s*[A-Za-z_][A-Za-z0-9_]*_log\s*=/.test(out[at])) at++;
+      while (at < out.length && /^\s*(#|[A-Za-z_][A-Za-z0-9_]*_log\s*=)/.test(out[at])) at++;
       out.splice(at, 0, ...pending);
     } else {
       let lastSensor = -1;

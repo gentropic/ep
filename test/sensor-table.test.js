@@ -82,4 +82,9 @@ test('captureEdits: creates log lists under a measurements heading, then extends
   // a trailing comment on the log line survives; an empty list fills
   const withComment = captureEdits(['x_log = []   # today'], [{ name: 'x', text: '1 m' }]);
   assert.deepEqual(withComment, ['x_log = [1 m]   # today']);
+  // a heading with its own comment lines and pre-declared empty logs
+  // (the compass example): new logs go after both, not between them
+  const pre = ['# measurements — tap measure', '# every reading lands here', 'dd_log = []', 'dip_log = []', '', 'stereonet_planes(dd_log, dip_log)'];
+  const filled = captureEdits(pre, [{ name: 'dd', text: '10 deg' }, { name: 'dip', text: '20 deg' }, { name: 'rake', text: '5 deg' }]);
+  assert.deepEqual(filled, ['# measurements — tap measure', '# every reading lands here', 'dd_log = [10 deg]', 'dip_log = [20 deg]', 'rake_log = [5 deg]', '', 'stereonet_planes(dd_log, dip_log)']);
 });

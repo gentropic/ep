@@ -165,7 +165,15 @@ export function renderVarChips() {
     m.title = 'append the current readings to their _log lists';
     m.tabIndex = -1;
     keepEditorFocus(m);
-    m.addEventListener('click', () => { if (typeof captureReadings === 'function') captureReadings(); });
+    // The chip itself acknowledges the tap (it sits under the thumb);
+    // captureReadings raises the toast that says where the numbers went.
+    let ack = null;
+    m.addEventListener('click', () => {
+      const n = typeof captureReadings === 'function' ? captureReadings() : 0;
+      m.textContent = n ? '✓ logged' : '● measure';
+      if (ack) clearTimeout(ack);
+      ack = setTimeout(() => { m.textContent = '● measure'; ack = null; }, 1200);
+    });
     varsRow.append(m);
   }
   for (const name of all) {

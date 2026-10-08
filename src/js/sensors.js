@@ -16,7 +16,7 @@
 // state._live so the sheet keeps computing with it.
 
 import { state, evaluateAll } from './state.js';
-import { renderResults, editorView } from './render.js';
+import { renderResults, editorView, showToast } from './render.js';
 import { resolveUnitExpression } from './evaluator.js';
 import { getSetting } from './storage.js';
 import { SENSOR_SOURCES, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom, captureEdits } from './sensor-table.js';
@@ -205,10 +205,24 @@ export function syncSensors() {
     timer = setInterval(() => {
       if (!dirty) return;
       dirty = false;
+      // A phone at rest still streams samples; skip the re-evaluation
+      // when no reading moved at the displayed precision — nothing on
+      // screen would change.
+      const key = liveKey();
+      if (key === lastTickKey) return;
+      lastTickKey = key;
       evaluateAll();
       renderResults();
     }, REEVAL_MS);
   } else if (!needPhys.size && timer) { clearInterval(timer); timer = null; }
+}
+
+let lastTickKey = '';
+function liveKey() {
+  const sig = Math.max(3, Math.min(10, getSetting('sigDigits', 4) | 0));
+  const parts = [];
+  for (const [name, r] of state._live) parts.push(name, held.has(name) ? 'h' : Number(r.value).toPrecision(sig));
+  return parts.join('\u0001');
 }
 
 export function sensorStatus(name) { return status.get(name) || null; }
@@ -259,6 +273,13 @@ export function captureReadings() {
     view.dispatch({ changes: { from: 0, to: before.length, insert: after }, userEvent: 'input.capture' });
   }
   if (navigator.vibrate) { try { navigator.vibrate(25); } catch { /* no haptics */ } }
+  // Say what happened: the log lines usually sit out of view (under the
+  // sensor bindings, while the user watches a plot further down).
+  const first = new RegExp(`^\\s*${readings[0].name}_log\\s*=\\s*\\[([^\\]]*)\\]`, 'm').exec(after);
+  const n = first ? first[1].split(',').filter(s => s.trim()).length : 1;
+  const names = readings.map(r => r.name + '_log');
+  const list = names.length > 3 ? names.slice(0, 2).join(', ') + ` and ${names.length - 2} more` : names.join(', ');
+  showToast(`measurement ${n} logged → ${list}`);
   return readings.length;
 }
 

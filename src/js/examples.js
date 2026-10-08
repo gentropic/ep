@@ -343,14 +343,18 @@ plunge = 0 deg
 @sensor(rake, avg 0.5 s)
 rake = 0 deg
 
+# measurements — "● measure" (keyboard row) appends
+# every reading here; each one joins the stereonet.
+dd_log = []
+dip_log = []
+
 stereonet()
   |> with_planes(dd, dip, "surface")
   |> with_lines(trend, plunge, "lineation")
+  |> with_planes(dd_log, dip_log, "measured")
   |> with_title("live attitude")
 
-# Tap "● measure" on the keyboard row to log the
-# readings into dd_log, dip_log, … then plot them:
-# stereonet_planes(dd_log, dip_log, "measured")
+n = len(dd_log)
 `,
   },
 
