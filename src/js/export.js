@@ -6,6 +6,7 @@ import { state } from './state.js';
 import { currentProgramName } from './storage.js';
 import { generateShareUrl, generateShareUrlForQR, qrSvgFor } from './share.js';
 import { isPocket, dismissKeyboard } from './viewport.js';
+import { deliverFile, shellPresent } from './shell.js';
 
 const scrim         = document.getElementById('scrim');
 const exportDlgTitle = document.getElementById('exportDlgTitle');
@@ -83,7 +84,9 @@ exportBtn.addEventListener('click', () => {
   // On a phone the dialog is a bottom sheet and export IS "make this a
   // form" (SPEC-pocket §3.6) — say so.
   if (exportDlgTitle) exportDlgTitle.textContent = isPocket() ? 'Make this a form' : 'Export ep program';
-  if (shareFileBtn) shareFileBtn.style.display = _canShareFiles ? '' : 'none';
+  // Share the file itself: the Web Share API where it takes files, or the
+  // shell's share sheet inside the instrument (SPEC-pocket §4.2).
+  if (shareFileBtn) shareFileBtn.style.display = (_canShareFiles || shellPresent()) ? '' : 'none';
   renderExportInputs();
   scrim.classList.add('on');
 });
@@ -93,10 +96,21 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && scrim.classList.contains('on')) scrim.classList.remove('on');
 });
 
-dlEpBtn.addEventListener('click', () => {
+// Flash a button label for a moment (the shell path has no download
+// animation to tell the user something happened).
+function flash(btn, label, ms = 1500) {
+  const prev = btn.textContent;
+  btn.textContent = label;
+  setTimeout(() => { btn.textContent = prev; }, ms);
+}
+
+dlEpBtn.addEventListener('click', async () => {
   const text = serializeProgram();
   const name = (exportNameEl.value || 'program') + '.ep';
-  downloadFile(text, name, 'text/plain');
+  try {
+    const r = await deliverFile(name, text, 'text/plain');
+    if (r.via === 'shell') { flash(dlEpBtn, 'saved to Downloads'); return; }
+  } catch (e) { console.error('ep: .ep export failed:', e); flash(dlEpBtn, 'failed'); return; }
   scrim.classList.remove('on');
 });
 
@@ -137,20 +151,29 @@ function buildExportHtml() {
   return { html, name };
 }
 
-dlHtmlBtn.addEventListener('click', () => {
+dlHtmlBtn.addEventListener('click', async () => {
   const out = buildExportHtml();
   if (!out) return;
-  downloadFile(out.html, out.name, 'text/html');
+  try {
+    const r = await deliverFile(out.name, out.html, 'text/html');
+    if (r.via === 'shell') { flash(dlHtmlBtn, 'saved to Downloads'); return; }
+  } catch (e) { console.error('ep: .html export failed:', e); flash(dlHtmlBtn, 'failed'); return; }
   scrim.classList.remove('on');
 });
 
-// Share the form itself (not a link) through the system share sheet —
-// the phone's natural "send this to someone" gesture. Only wired where
-// navigator.canShare accepts files.
+// Share the form itself (not a link) — the phone's natural "send this to
+// someone" gesture. Inside the shell: publish to Downloads, then the
+// system share sheet by reference. On the web: navigator.share with the
+// file where that's supported.
 if (shareFileBtn) {
   shareFileBtn.addEventListener('click', async () => {
     const out = buildExportHtml();
     if (!out) return;
+    if (shellPresent()) {
+      try { await deliverFile(out.name, out.html, 'text/html', { share: true }); scrim.classList.remove('on'); }
+      catch (e) { console.error('ep: share failed:', e); flash(shareFileBtn, 'failed'); }
+      return;
+    }
     try {
       const file = new File([out.html], out.name, { type: 'text/html' });
       await navigator.share({ files: [file], title: out.name.replace(/\.html$/, '') });

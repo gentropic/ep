@@ -6,6 +6,7 @@ import { state, evaluateAll } from './state.js';
 import { renderChips, renderBody, renderResults } from './render.js';
 import { setCurrentProgramName, uniqueProgramName, saveCurrentProgram } from './storage.js';
 import { attachFromText } from './attach-dialog.js';
+import { programFromExportedHtml, isExportedForm } from './exported-form.js';
 
 const fileInput   = document.getElementById('fileInput');
 const dropOverlay = document.getElementById('dropOverlay');
@@ -35,7 +36,10 @@ fileInput.addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const text = await file.text();
-    loadProgramText(text, file.name);
+    // An exported form picked back in opens as its program.
+    const form = isExportedForm(text) ? programFromExportedHtml(text) : null;
+    if (form) loadProgramText(form.lines.join('\n'), form.name + '.ep');
+    else      loadProgramText(text, file.name);
   } catch (err) {
     console.error('Failed to read file:', err);
   } finally {

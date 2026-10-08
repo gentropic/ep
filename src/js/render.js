@@ -2555,8 +2555,12 @@ export function renderOutputs() {
     // the same `n` / `u` it shows.
     let n, u, sNum = null, sMin = null, sMax = null, err = null;
     if (q == null) {
+      // No value: the binding errored, or something it depends on did.
+      // A dash reads as "no answer"; "undefined" read as a bug (seen on
+      // the phone form).
       val.classList.add('error');
-      val.textContent = 'undefined';
+      val.textContent = '—';
+      val.title = 'no value — this output or a line it depends on has an error';
     } else {
       // Per-output unit (if any) overrides the binding's own display.
       // resolveUnitExpression falls back to parsing the text as a Numbat

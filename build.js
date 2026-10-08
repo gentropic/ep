@@ -80,6 +80,12 @@ const VENDORS = [
   {                                dist: 'ext/bearing/dist/bearing.js',
                                    wrap: 'const __bearing = (function(){ /* CONTENT */ return { Stereonet }; })();\nconst Stereonet = __bearing.Stereonet;',
                                    opaque: true },
+  // lead-acid shell shim (SPEC-pocket §4.2). Feature-detected: `shell.present`
+  // is false on the web and the whole surface is dormant; inside the
+  // instrument APK it is the door for exports (publishStream + share),
+  // intake (shared files) and sensors. Two top-level names: `shell`,
+  // `orientationFromRotationVector`.
+  {                                dist: 'ext/leadacid/index.js' },
 ];
 
 // JS subset for the viewer artifact — chip eval + render only. No editor,
@@ -140,8 +146,10 @@ const JS_FILES = [
   'insert.js',
   'accessory.js',
   'view.js',
-  'export.js',
   'io.js',
+  'exported-form.js',
+  'shell.js',
+  'export.js',
   'settings.js',
   'gcu-announce.js',
   'pip.js',

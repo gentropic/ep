@@ -30,25 +30,35 @@ const TIGHT = /(^|[(\[])$/;
 // one space before it (after `=` / `,`) but none after.
 const UNARY_AFTER = /[=,]$/;
 
+// Text after the cursor matters too (seen on the phone: tapping inside a
+// chip puts the cursor mid-line). `trimAfter` is how many leading spaces
+// after the cursor to drop so a padded token doesn't double them; a
+// unit / name inserted right before a word gets a space after it.
+const WORD_START = /^[0-9A-Za-z_(°µμ]/;
+
 export function smartInsertion(before, after, token, kind) {
   const b = String(before || '');
+  const a = String(after || '');
   const trailingWs = b.length - b.replace(/[ \t]+$/, '').length;
+  const leadingWs  = a.length - a.replace(/^[ \t]+/, '').length;
   const trimmed = b.slice(0, b.length - trailingWs);
   const sep = TIGHT.test(trimmed) ? '' : ' ';
+  const padded = (text) => ({ trim: trailingWs, text, trimAfter: text.endsWith(' ') ? leadingWs : 0 });
+  const word = (text) => ({ trim: trailingWs, text: text + (WORD_START.test(a) ? ' ' : ''), trimAfter: 0 });
   switch (kind) {
     case 'op': {
-      if (TIGHT.test(trimmed))       return { trim: trailingWs, text: token };
-      if (UNARY_AFTER.test(trimmed)) return { trim: trailingWs, text: ' ' + token };
-      return { trim: trailingWs, text: ' ' + token + ' ' };
+      if (TIGHT.test(trimmed))       return padded(token);
+      if (UNARY_AFTER.test(trimmed)) return padded(' ' + token);
+      return padded(' ' + token + ' ');
     }
-    case 'pow':   return { trim: trailingWs, text: '^' };
-    case 'close': return { trim: trailingWs, text: ')' };
-    case 'arrow': return { trim: trailingWs, text: ' ' + token + ' ' };
-    case 'open':  return { trim: trailingWs, text: sep + '(' };
-    case 'fn':
+    case 'pow':   return padded('^');
+    case 'close': return padded(')');
+    case 'arrow': return padded(' ' + token + ' ');
+    case 'open':  return padded(sep + '(');
+    case 'fn':    return padded(sep + token);
     case 'unit':
-    case 'name':  return { trim: trailingWs, text: sep + token };
-    default:      return { trim: 0, text: String(token) };
+    case 'name':  return word(sep + token);
+    default:      return { trim: 0, text: String(token), trimAfter: 0 };
   }
 }
 

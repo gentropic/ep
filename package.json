@@ -8,6 +8,7 @@
     "build": "node build.js",
     "test": "node --test",
     "smoke": "node smoke/pocket-smoke.mjs",
+    "smoke:shell": "node smoke/shell-smoke.mjs",
     "check:install": "node smoke/installability.mjs",
     "pack:numbat": "node build.js && node ext/numbat/pkg/pack.js"
   }

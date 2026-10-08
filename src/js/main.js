@@ -14,6 +14,7 @@ import { renderScenariosStrip } from './scenarios.js';
 import './accessory.js';
 import './export.js';
 import './sheets.js';
+import { wireShellIntake } from './shell.js';
 import './io.js';
 import { epPrompt } from './dialogs.js';
 import './ctxmenu.js';
@@ -78,6 +79,9 @@ bootStorage().then(async () => {
   }
   applyInitialUI();
   maybeStartTutorial();
+  // Inside the lead-acid shell: files shared to the app (the share that
+  // launched it arrives first) open as sheets / forms / attached CSVs.
+  wireShellIntake().then(on => { if (on) console.info('ep: shell intake wired'); });
 });
 
 // ── Keyboard shortcuts (§2.1) ─────────────────────────────────

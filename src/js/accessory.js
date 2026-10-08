@@ -66,9 +66,9 @@ export function insertSmart(token, kind) {
     const line = t.state.doc.lineAt(sel.from);
     const before = t.state.doc.sliceString(line.from, sel.from);
     const after  = t.state.doc.sliceString(sel.to, line.to);
-    const { trim, text } = smartInsertion(before, after, token, kind);
+    const { trim, text, trimAfter } = smartInsertion(before, after, token, kind);
     t.dispatch({
-      changes:   { from: sel.from - trim, to: sel.to, insert: text },
+      changes:   { from: sel.from - trim, to: sel.to + (trimAfter || 0), insert: text },
       selection: { anchor: sel.from - trim + text.length },
     });
     t.focus();
@@ -77,8 +77,8 @@ export function insertSmart(token, kind) {
   if (typeof t.selectionStart !== 'number') return false;
   const start = t.selectionStart, end = t.selectionEnd;
   const v = t.value;
-  const { trim, text } = smartInsertion(v.slice(0, start), v.slice(end), token, kind);
-  t.value = v.slice(0, start - trim) + text + v.slice(end);
+  const { trim, text, trimAfter } = smartInsertion(v.slice(0, start), v.slice(end), token, kind);
+  t.value = v.slice(0, start - trim) + text + v.slice(end + (trimAfter || 0));
   const caret = start - trim + text.length;
   t.setSelectionRange(caret, caret);
   t.focus();

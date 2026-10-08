@@ -3,9 +3,17 @@ import assert from 'node:assert/strict';
 import { smartInsertion } from '../src/js/insert.js';
 
 const apply = (before, token, kind, after = '') => {
-  const { trim, text } = smartInsertion(before, after, token, kind);
-  return before.slice(0, before.length - trim) + text + after;
+  const { trim, text, trimAfter } = smartInsertion(before, after, token, kind);
+  return before.slice(0, before.length - trim) + text + after.slice(trimAfter || 0);
 };
+
+test('text after the cursor: a unit before a word gets its space, a padded op does not double one', () => {
+  assert.equal(apply('distance = 14', 'km', 'unit', 'km'), 'distance = 14 km km');
+  assert.equal(apply('distance = 14', 'km', 'unit', ' km'), 'distance = 14 km km');
+  assert.equal(apply('distance = 14', '*', 'op', ' km'), 'distance = 14 * km');
+  assert.equal(apply('x', '->', 'arrow', '  y'), 'x -> y');
+  assert.equal(apply('2', 'sqrt(', 'fn', ')'), '2 sqrt()');
+});
 
 test('unit after a number gets one space, never two', () => {
   assert.equal(apply('3', 'km', 'unit'), '3 km');
