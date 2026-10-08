@@ -917,6 +917,8 @@ function resultMarkerHtml(lineIdx) {
     const label = t === 'boolean' ? (r.result ? 'true' : 'false')
                 : t === 'string'  ? '"' + String(r.result).slice(0, 32) + '"'
                 : t === 'function'? 'fn'
+                : (r.result && r.result.__plot) ? (r.result.family || 'plot')   // the plot renders below the line
+                : (r.result && r.result.__struct) ? String(r.result.__struct)
                 : t;
     return { html: `<span class="u">${escapeHtml(label)}</span>`, text: label, cls: '' };
   }

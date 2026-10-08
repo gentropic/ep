@@ -319,10 +319,10 @@ line_plot()
     slug: 'compass_clinometer',
     name: 'Compass-clinometer (live)',
     desc: 'Lay the phone on a surface: dip direction / dip / strike, and the long edge as a lineation, on a live stereonet',
-    body: `# Compass-clinometer — the phone as a Brunton.
-# Plane: lay the BACK of the phone flat on the surface.
-# Line: lay the long edge along the lineation.
-# Long-press a reading to hold it.
+    body: `# Compass-clinometer
+# Plane: phone's back on the rock.
+# Line: long edge along it.
+# Long-press a reading to hold.
 
 @sensor(dip_direction, avg 0.5 s)
 dd = 0 deg
