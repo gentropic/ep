@@ -3706,3 +3706,18 @@ html[data-pocket] .settings-advanced > summary { min-height: 44px; display: flex
  * stays uncluttered. */
 html[data-pocket] #saveEphemeralBtn { display: none !important; }
 #drawerSaveBtn .drawer-action-icon { color: var(--au-warn); }
+
+/* A @sensor binding without a reading: the default shows with a hollow
+ * grey dot (visible in pocket too, where plain input echoes are hidden). */
+.ep-gutter-result.sensor-off::before {
+  content: '';
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--au-fg-soft);
+  background: transparent;
+  vertical-align: middle;
+}
+.ep-gutter-result.sensor-off { color: var(--au-fg-soft); }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding.sensor-off { visibility: visible; }

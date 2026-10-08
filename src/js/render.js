@@ -949,6 +949,11 @@ function resultMarkerHtml(lineIdx) {
   if (r.name && state._live && state._live.has(r.name)) {
     const held = typeof sensorStatus === 'function' && sensorStatus(r.name) === 'held';
     cls = (cls + (held ? ' live held' : ' live')).trim();
+  } else if (r.name && state.params.some(p => p.name === r.name && p.sensor)) {
+    // A @sensor binding with no reading (desktop, or a source this device
+    // can't provide): show the default with a grey dot so it's clear the
+    // value is standing in, not measured.
+    cls = (cls + ' sensor-off').trim();
   }
 
   // A datetime renders as a calendar date — fmt() routes DateTime values
@@ -988,7 +993,9 @@ function resultMarkerHtml(lineIdx) {
   if (n === undefined) [n, u] = fmt(r.result);
 
   // The tooltip says in words what the dot says in colour.
-  const liveNote = /\bheld\b/.test(cls) ? ' · held reading' : /\blive\b/.test(cls) ? ' · live reading' : '';
+  const liveNote = /\bheld\b/.test(cls) ? ' · held reading'
+                 : /\blive\b/.test(cls) ? ' · live reading'
+                 : /\bsensor-off\b/.test(cls) ? ' · default — no sensor reading here' : '';
   return {
     html: escapeHtml(n) + (u ? ` <span class="u">${escapeHtml(u)}</span>` : ''),
     text: n + (u ? ' ' + u : '') + liveNote,

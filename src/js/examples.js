@@ -330,8 +330,9 @@ dd = 0 deg
 @sensor(dip, avg 0.5 s)
 dip = 0 deg
 
-@output(deg)
-strike = dd - 90 deg
+# right-hand rule: dd - 90°, dip to the right
+@sensor(strike, avg 0.5 s)
+strike = 0 deg
 
 @sensor(trend, avg 0.5 s)
 trend = 0 deg
