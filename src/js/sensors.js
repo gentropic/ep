@@ -16,9 +16,10 @@
 // state._live so the sheet keeps computing with it.
 
 import { state, evaluateAll } from './state.js';
-import { renderResults } from './render.js';
+import { renderResults, editorView } from './render.js';
 import { resolveUnitExpression } from './evaluator.js';
-import { SENSOR_SOURCES, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom } from './sensor-table.js';
+import { getSetting } from './storage.js';
+import { SENSOR_SOURCES, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom, captureEdits } from './sensor-table.js';
 import { shell, orientationFromRotationVector } from '../../ext/leadacid/index.js';
 
 const REEVAL_MS = 500;            // ≤ 2 Hz re-evaluation while live
@@ -220,6 +221,46 @@ export function toggleSensorHold(name) {
 }
 
 export function isSensorHeld(name) { return held.has(name); }
+
+export function hasLiveSensors() { return !!(state._live && state._live.size); }
+
+// Format a live binding's current value in its own display unit, as
+// source text that parses back (`171.3 deg`, `1_013.2 hPa` — never a
+// locale comma).
+function readingText(name) {
+  const q = state._scope && state._scope[name];
+  if (!q || typeof q.value !== 'number') return null;
+  let mul = 1, unit = '';
+  const d = q.disp;
+  if (d && typeof d === 'object') { mul = d.mul; unit = d.name; }
+  else if (typeof d === 'string') { try { const s = resolveUnitExpression(d); mul = s.mul; unit = s.displayName; } catch { /* dimensionless fallback */ } }
+  const sig = Math.max(3, Math.min(10, getSetting('sigDigits', 4) | 0));
+  const n = Number((q.value / mul).toPrecision(sig));
+  const num = String(n).replace(/,/g, '_');
+  return unit ? `${num} ${unit}` : num;
+}
+
+// "measure": append every live reading to its `<name>_log` list in the
+// sheet (sensor-table.js captureEdits). One editor transaction, so one
+// undo step removes a bad capture. Returns the number of readings logged.
+export function captureReadings() {
+  const view = editorView();
+  if (!view) return 0;
+  const readings = [];
+  for (const p of wanted()) {
+    if (!state._live.has(p.name)) continue;
+    const text = readingText(p.name);
+    if (text) readings.push({ name: p.name, text });
+  }
+  if (!readings.length) return 0;
+  const before = view.state.doc.toString();
+  const after = captureEdits(before.split('\n'), readings).join('\n');
+  if (after !== before) {
+    view.dispatch({ changes: { from: 0, to: before.length, insert: after }, userEvent: 'input.capture' });
+  }
+  if (navigator.vibrate) { try { navigator.vibrate(25); } catch { /* no haptics */ } }
+  return readings.length;
+}
 
 state._recordSource = (name, windowS) => {
   const buf = buffers.get(name);

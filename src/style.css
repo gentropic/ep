@@ -3721,3 +3721,14 @@ html[data-pocket] #saveEphemeralBtn { display: none !important; }
 }
 .ep-gutter-result.sensor-off { color: var(--au-fg-soft); }
 html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding.sensor-off { visibility: visible; }
+
+/* "● measure" — leads the variable-chip row while readings are live. */
+.vchip.measure {
+  color: #fff;
+  background: var(--au-success);
+  border-color: var(--au-success);
+  font-family: var(--au-font-sans);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.vchip.measure:active { filter: brightness(0.85); }

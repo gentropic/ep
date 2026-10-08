@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SENSOR_SOURCES, parseSensorArgs, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom } from '../src/js/sensor-table.js';
+import { SENSOR_SOURCES, parseSensorArgs, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom, captureEdits } from '../src/js/sensor-table.js';
 
 test('parseSensorArgs: source, rate hint, averaging window, hold', () => {
   assert.deepEqual(parseSensorArgs(['pressure']), { source: 'pressure', rateHz: 10, avgS: 0, hold: false });
@@ -66,4 +66,15 @@ test('attitudeFrom: rolled about the long axis (gamma) dips east or west; alpha 
   assert.ok(Math.abs(turned.dip - 30) < 1e-9);
   assert.ok(Math.abs(turned.dipDirection - 90) < 1e-9, 'dip direction ' + turned.dipDirection);
   assert.equal(attitudeFrom(null, 1, 2), null);
+});
+
+test('captureEdits: creates log lists under a measurements heading, then extends them in place', () => {
+  const sheet = ['@sensor(dip)', 'dip = 0 deg', '@sensor(dip_direction)', 'dd = 0 deg', ''];
+  const once = captureEdits(sheet, [{ name: 'dd', text: '171.3 deg' }, { name: 'dip', text: '12.4 deg' }]);
+  assert.deepEqual(once.slice(-3), ['# measurements', 'dd_log = [171.3 deg]', 'dip_log = [12.4 deg]']);
+  const twice = captureEdits(once, [{ name: 'dd', text: '182 deg' }, { name: 'dip', text: '15.1 deg' }]);
+  assert.deepEqual(twice.slice(-2), ['dd_log = [171.3 deg, 182 deg]', 'dip_log = [12.4 deg, 15.1 deg]']);
+  // a trailing comment on the log line survives; an empty list fills
+  const withComment = captureEdits(['x_log = []   # today'], [{ name: 'x', text: '1 m' }]);
+  assert.deepEqual(withComment, ['x_log = [1 m]   # today']);
 });

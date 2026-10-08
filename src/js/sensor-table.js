@@ -99,6 +99,40 @@ export function trailingMean(buffer, nowMs, windowS) {
   return s / vals.length;
 }
 
+// Capture (SPEC-pocket §4.3, "measure"): append readings to per-binding
+// log lists in the sheet's source. `readings` is [{ name, text }] with
+// text already formatted in the binding's unit ("171.3 deg"). For each
+// one, a line `<name>_log = [ … ]` is extended in place if it exists,
+// else created under a `# measurements` heading at the end. Pure: takes
+// and returns the lines array. The log stays plain Numbat (a list), so
+// `stereonet_planes(dd_log, dip_log)` and `len(dd_log)` just work.
+export function captureEdits(lines, readings) {
+  const out = lines.slice();
+  const pending = [];
+  for (const { name, text } of readings) {
+    const re = new RegExp(`^(\\s*${name}_log\\s*=\\s*\\[)([^\\]]*)(\\].*)$`);
+    let done = false;
+    for (let i = 0; i < out.length; i++) {
+      const m = re.exec(out[i]);
+      if (!m) continue;
+      const inner = m[2].trim();
+      out[i] = m[1] + (inner ? inner + ', ' + text : text) + m[3];
+      done = true;
+      break;
+    }
+    if (!done) pending.push(`${name}_log = [${text}]`);
+  }
+  if (pending.length) {
+    while (out.length && out[out.length - 1].trim() === '') out.pop();
+    if (!out.some(l => /^\s*#\s*measurements\b/i.test(l))) {
+      if (out.length) out.push('');
+      out.push('# measurements');
+    }
+    out.push(...pending);
+  }
+  return out;
+}
+
 // Compass heading from the W3C deviceorientation alpha: alpha grows
 // counter-clockwise, headings grow clockwise.
 export function headingFromAlpha(alpha) {

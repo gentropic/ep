@@ -194,6 +194,16 @@ try {
   const az = await page.evaluate(() => ({ live: state._live.get('az') && state._live.get('az').value, gutter: [...document.querySelectorAll('.ep-result-gutter .ep-gutter-result')].map(e => e.textContent.trim()).filter(Boolean) }));
   check(az.live != null && Math.abs(az.live - 270 * Math.PI / 180) < 1e-6, `web heading fallback gave ${JSON.stringify(az)}`);
   check(az.gutter.some(t => /^270 deg/.test(t)), `gutter should show 270 deg, got ${JSON.stringify(az.gutter)}`);
+  // "measure": the chip appears with a live reading and logs it into az_log.
+  const measure = await page.$('.accessory .vchip.measure');
+  check(!!measure, 'measure chip missing while a sensor is live');
+  await page.evaluate(() => captureReadings());
+  await page.evaluate(() => captureReadings());
+  await page.waitForTimeout(500);
+  const doc = await page.evaluate(() => cmView.state.doc.toString());
+  check(/az_log = \[270 deg, 270 deg\]/.test(doc), `capture did not log readings: ${JSON.stringify(doc)}`);
+  const logLen = await page.evaluate(() => { const r = state.body.find(x => x.name === 'az_log'); return r && Array.isArray(r.result) ? r.result.length : -1; });
+  check(logLen === 2, `az_log should evaluate to 2 readings, got ${logLen}`);
 
   // Acceptance expression from SPEC-pocket §3.2.
   await page.evaluate(() => {

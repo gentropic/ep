@@ -35,6 +35,9 @@ const paramMetaEl = document.getElementById('paramMeta');
 const outMetaEl   = document.getElementById('outMeta');
 
 let cmView = null;
+// The live editor, for modules that edit the sheet programmatically
+// (sensors.js capture). null before mount and in the viewer.
+export function editorView() { return cmView; }
 let _syncingFromChip = false;
 
 // CM6 error-decoration plumbing — assigned inside mountCm6() (where CM6 is
@@ -2326,6 +2329,7 @@ function openGutterUnitMenu(lineIdx, x, y) {
   if (row.name && state._live && state._live.has(row.name) && typeof toggleSensorHold === 'function') {
     const heldNow = typeof isSensorHeld === 'function' && isSensorHeld(row.name);
     items.push({ label: heldNow ? 'resume live reading' : 'hold this reading', action: () => toggleSensorHold(row.name) });
+    if (typeof captureReadings === 'function') items.push({ label: 'measure — log all readings', action: () => captureReadings() });
   }
   const candidates = (row.name && q && q.dim) ? getCompatibleUnits(q.dim) : [];
   if (!candidates.length) {

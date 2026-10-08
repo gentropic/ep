@@ -151,10 +151,23 @@ export function renderVarChips() {
     (r.inParams ? inputs : others).push(r.name);
   }
   const all = [...inputs, ...others];
-  const key = all.join('\u0001') + '\u0002' + inputs.length;
+  const live = typeof hasLiveSensors === 'function' && hasLiveSensors();
+  const key = all.join('\u0001') + '\u0002' + inputs.length + (live ? '\u0003live' : '');
   if (key === _varsKey) return;
   _varsKey = key;
   varsRow.innerHTML = '';
+  // "measure" leads the row while the sheet has live sensor readings:
+  // one tap logs every reading into its `<name>_log` list.
+  if (live) {
+    const m = document.createElement('button');
+    m.className = 'vchip measure';
+    m.textContent = '● measure';
+    m.title = 'append the current readings to their _log lists';
+    m.tabIndex = -1;
+    keepEditorFocus(m);
+    m.addEventListener('click', () => { if (typeof captureReadings === 'function') captureReadings(); });
+    varsRow.append(m);
+  }
   for (const name of all) {
     const b = document.createElement('button');
     b.className = 'vchip' + (inputs.includes(name) ? ' in' : '');
@@ -164,7 +177,7 @@ export function renderVarChips() {
     b.addEventListener('click', () => insertSmart(name, 'name'));
     varsRow.append(b);
   }
-  varsRow.hidden = all.length === 0;
+  varsRow.hidden = all.length === 0 && !live;
 }
 
 // Publish the bar's rendered height as --ep-acc-h so the fixed-position
