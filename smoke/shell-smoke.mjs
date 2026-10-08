@@ -77,6 +77,19 @@ try {
   }, formHtml);
   await page.waitForFunction(() => cmView.state.doc.toString().includes('distance = 14 km'), null, { timeout: 8000 }).catch(() => {});
   check(await page.evaluate(() => cmView.state.doc.toString().includes('distance = 14 km') && document.getElementById('hdrFile').textContent.includes('weekend_hike')), 'shared exported form did not open as its program');
+  // @sensor over the shell stream: the bench serves a slowly rotating
+  // rotation vector, so a heading binding must go live and change.
+  await page.evaluate(() => { cmView.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: '@sensor(heading)\naz = 0 deg\n@output\nback = az + 180 deg\n' } }); });
+  await page.waitForFunction(() => state._live.has('az'), null, { timeout: 8000 }).catch(() => {});
+  check(await page.evaluate(() => state._live.has('az')), 'heading binding never went live on the bench stream');
+  const h1 = await page.evaluate(() => state._live.get('az') && state._live.get('az').value);
+  await page.waitForTimeout(1500);
+  const h2 = await page.evaluate(() => state._live.get('az') && state._live.get('az').value);
+  check(typeof h1 === 'number' && typeof h2 === 'number' && h1 !== h2, `heading did not move: ${h1} → ${h2}`);
+  const liveCells = await page.evaluate(() => document.querySelectorAll('.ep-result-gutter .ep-gutter-result.live').length);
+  check(liveCells >= 1, 'no live marker on the sensor row');
+  const outText = await page.evaluate(() => document.querySelector('#outChips .chip-out-val') && document.querySelector('#outChips .chip-out-val').textContent.trim());
+  check(outText && !/^180\b/.test(outText), `output did not follow the live heading: ${outText}`);
   check(errors.length === 0, 'page errors: ' + errors.join(' | '));
 } finally {
   await browser.close();

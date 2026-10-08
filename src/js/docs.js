@@ -103,6 +103,7 @@ export const DOCS = {
   lognormal:   { signature: 'lognormal<D>(mu: D, sigma: D) -> D', description: 'Draw samples from a lognormal distribution. `mu` and `sigma` are real-space mean and standard deviation; conversion to log-space happens internally. All samples are positive.', example: 'delay = lognormal(12 min, 4 min)' },
   triangular:  { signature: 'triangular<D>(lo: D, mode: D, hi: D) -> D', description: 'Draw samples from a triangular distribution with the given low, mode, and high points.', example: 'recovery = triangular(0.82, 0.91, 0.95)' },
   percentile:  { signature: 'percentile<D>(x: D, p: Scalar) -> D', description: 'Return the p-th percentile of an uncertain value (p in [0, 100]). Collapses to a regular Quantity. Linear interpolation between adjacent order statistics.', example: 'p95 = percentile(total, 95)' },
+  record:      { signature: 'record<D>(x: D, window: Time) -> List<D>', description: 'The trailing series of a live @sensor binding over the last `window`, oldest first, in the binding\'s unit (ep extension). `plot(record(p, 10 min))` is a barometer scope; `mean(record(g, 5 s))` a settled reading. Empty when the sensor is not live.', example: 'trace = record(p, 60 s)' },
   sweep:       { signature: 'sweep<D>(start: D, end: D, n: Scalar) -> D', description: 'Vary a value linearly between `start` and `end` across `n` samples. Returns a Swept value: subsequent arithmetic carries both the output samples and the input axis through, so the output chip can render Y(X) as an inline line plot. Deterministic sibling of `normal` / `uniform` — sensitivity sweep rather than uncertainty propagation.', example: 'length = sweep(180 m, 220 m, 41)' },
   stereonet_planes: { signature: 'stereonet_planes(dipDirections, dips [, title])', description: 'Shortcut for `stereonet() |> with_planes(dd, dip) |> with_title(title)` — a single-layer stereonet of planes drawn as great circles. Args may be two lists of equal length (CSV-column form) or two scalars. Angles must be tagged with `deg` or `rad` — bare numbers are interpreted as radians per Numbat convention.', example: 'stereonet_planes(faults.dd, faults.dip)\nstereonet_planes(120 deg, 45 deg, "Single plane")' },
   stereonet_lines:  { signature: 'stereonet_lines(trends, plunges [, title])', description: 'Shortcut for `stereonet() |> with_lines(t, p) |> with_title(title)` — a single-layer stereonet of lineations drawn as points.', example: 'stereonet_lines(lin.trend, lin.plunge)\nstereonet_lines(240 deg, 25 deg, "Slip vector")' },
@@ -197,6 +198,7 @@ export const DOCS = {
   '@output':  { signature: '@output[(unit)]', description: 'Marks the next binding as a result. Optional unit override forces the chip to display in that unit.', example: '@output(kg)\nmass = volume * density' },
   '@options': { signature: '@options(a, b, c, ...)', description: 'Renders the chip as a dropdown. The binding value should be one of the listed labels.', example: '@options(granite, basalt, sandstone)\nrock = granite' },
   '@range':   { signature: '@range(min, max [, step])', description: 'Renders a numeric chip as a slider. Step is optional. Unit of the binding is preserved as you drag.', example: '@range(0, 500)\nlength = 200 m' },
+  '@sensor':  { signature: '@sensor(source [, N Hz] [, avg T] [, hold])', description: 'Makes the next binding a live input driven by a phone sensor (ep extension). The literal is the default when no reading is available, and fixes the unit. Sources: pressure (hPa), heading / tilt / roll (deg), accel, accel.x/y/z, gravity.x/y/z (m/s²), gyro.x/y/z (rad/s), mag, mag.x/y/z (µT), light (lx), battery (%), time (s). `N Hz` is a rate hint, `avg T` a trailing mean, `hold` starts frozen. Inside the ep app every source works; in a browser only orientation / motion / battery / time have fallbacks.', example: '@sensor(pressure)\np = 1013.25 hPa\nh = (1 - (p / 1013.25 hPa)^(1/5.255)) * 44330 m' },
 
   // ── Constants ─────────────────────────────────────────────────────
   pi:  { signature: 'pi : Scalar', description: 'π ≈ 3.14159…' },
@@ -268,6 +270,9 @@ export const DOC_GROUPS = [
   { label: 'Sensitivity sweep (ep extension)', names: [
     'sweep',
   ]},
+  { label: 'Sensors (ep extension)', names: [
+    'record',
+  ]},
   { label: 'Solvers (ep extension)', names: [
     'solve_for','minimize','maximize',
   ]},
@@ -297,7 +302,7 @@ export const DOC_GROUPS = [
     'cylinder_volume','sample_mass',
   ]},
   { label: 'Decorators', names: [
-    '@input','@output','@options','@range',
+    '@input','@output','@options','@range','@sensor',
   ]},
   { label: 'Constants', names: [
     'pi','tau','e','NaN','inf',

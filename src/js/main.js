@@ -14,6 +14,7 @@ import { renderScenariosStrip } from './scenarios.js';
 import './accessory.js';
 import './export.js';
 import './sheets.js';
+import './sensors.js';
 import { wireShellIntake } from './shell.js';
 import './io.js';
 import { epPrompt } from './dialogs.js';

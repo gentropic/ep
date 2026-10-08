@@ -25,7 +25,8 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, dEmpty, fmtDim, setDispResolver } from './units.js';
-import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, setRecordSource, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
+import { SENSOR_SOURCES, parseSensorArgs } from './sensor-table.js';
 import { traceBlame } from './blame.js';
 
 // ── Numbat host (shared across all evaluate() calls) ──────────────
@@ -131,6 +132,14 @@ function host() {
   ].join('\n'));
   try { _host.use('sweep::functions'); }
   catch (e) { console.warn('ep: sweep::functions load failed:', e && e.message || e); }
+  _host.registerModule('sensor::functions', [
+    '@description("The trailing series of a live `@sensor` binding over the last `window`, oldest first, as a list in the binding\'s unit. `plot(record(p, 10 min))` is a barometer scope; `mean(record(g, 5 s))` a settled reading. Empty when the sensor is not live.")',
+    '@example("trace = record(p, 60 s)")',
+    'fn record<D>(x: D, window: Time) -> List<D>',
+    '',
+  ].join('\n'));
+  try { _host.use('sensor::functions'); }
+  catch (e) { console.warn('ep: sensor::functions load failed:', e && e.message || e); }
   // `format_datetime`: the vendored datetime module declares it strictly
   // 2-arg (`format_datetime(format, input)`), but numbat-js's FFI proc
   // accepts an optional 3rd `tz` arg. Drop the .nbt fn record so calls
@@ -538,7 +547,7 @@ export function getCompletionData() {
     'let', 'fn', 'if', 'then', 'else', 'where', 'dimension', 'unit',
     'struct', 'use', 'to', 'per', 'and', 'or', 'not', 'true', 'false',
   ];
-  const decorators = ['@input', '@output', '@options', '@range'];
+  const decorators = ['@input', '@output', '@options', '@range', '@sensor'];
   return { units, functions, dimensions, keywords, decorators };
 }
 
@@ -849,7 +858,13 @@ function rowErrorMessage(e) {
   return (e && e.message) || String(e);
 }
 
-export function evaluate(body) {
+// opts (SPEC-pocket §4.3):
+//   live         Map<bindingName, { value }> — canonical readings for
+//                @sensor bindings; a binding with no entry uses its literal.
+//   recordSource (name, windowSeconds) → number[] for record().
+export function evaluate(body, opts = {}) {
+  const live = opts.live instanceof Map ? opts.live : null;
+  setRecordSource(typeof opts.recordSource === 'function' ? opts.recordSource : null);
   const source = body.map(r => r.src).join('\n');
   let statements;
   try {
@@ -949,6 +964,15 @@ export function evaluate(body) {
     const outDec    = stmt.decorators.find(d => d.name === 'output');
     const optDec    = stmt.decorators.find(d => d.name === 'options');
     const rangeDec  = stmt.decorators.find(d => d.name === 'range');
+    const sensorDec = stmt.decorators.find(d => d.name === 'sensor');
+    // @sensor(source[, N Hz][, avg T][, hold]) — the binding is an input
+    // whose value is driven by a reading; its literal is the default and
+    // the unit the reading is coerced to. Unknown source → an error on
+    // the row, literal kept.
+    const sensorSpec = sensorDec ? parseSensorArgs(sensorDec.args) : null;
+    const sensorErr  = sensorDec && !sensorSpec
+      ? `@sensor: unknown source '${(sensorDec.args[0] || '').trim()}' (have: ${Object.keys(SENSOR_SOURCES).join(', ')})`
+      : null;
     const isOutput  = !!outDec;
     const outputUnit = isOutput && outDec.args.length ? outDec.args[0] : null;
     const decoratorOptions = optDec ? optDec.args : null;
@@ -968,7 +992,7 @@ export function evaluate(body) {
         chipRange = { min, max, step };
       }
     }
-    const wantsChip = isInput || !!decoratorOptions;
+    const wantsChip = isInput || !!decoratorOptions || !!sensorDec;
 
     const ownerIdx = stmt.bindingLine - 1;
     // For a multi-line pipeline (`stereonet() |> with_… |> with_…`),
@@ -1003,7 +1027,7 @@ export function evaluate(body) {
       if (wantsChip && finalOptions && finalOptions.length) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
-          range: chipRange,
+          range: chipRange, sensor: sensorSpec,
           bodyIdx: ownerIdx, result: null, error: null,
         });
         if (isOutput) { outputs.push({ name, unit: outputUnit }); row.outputs = [name]; }
@@ -1018,6 +1042,22 @@ export function evaluate(body) {
           if (!dEq(expected, q.dim)) {
             throw new Error(`annotated ${c.anno} but got [${fmtDim(q.dim)}]`);
           }
+        }
+        if (sensorErr) throw new Error(sensorErr);
+        if (sensorSpec) {
+          // The literal fixes the dimension (and the display unit); a
+          // live reading replaces its value. The tag lets record() find
+          // the binding's series through the value it is handed.
+          const src  = SENSOR_SOURCES[sensorSpec.source];
+          const spec = resolveUnitExpression(src.unit);
+          if (!(q instanceof Quantity) || !dEq(spec.dim, q.dim)) {
+            throw new Error(`@sensor(${sensorSpec.source}) reads [${fmtDim(spec.dim)}] (${src.unit}), but the default is [${q && q.dim ? fmtDim(q.dim) : '?'}]`);
+          }
+          const reading = live && live.get(name);
+          if (reading && typeof reading.value === 'number' && isFinite(reading.value)) {
+            q = new Quantity(reading.value, spec.dim, q.disp || { mul: spec.mul, name: spec.displayName });
+          }
+          q.__sensor = name;
         }
         env.values.set(name, q);
         env.values.set('_',   q);
@@ -1115,7 +1155,7 @@ export function evaluate(body) {
       if (wantsChip) {
         params.push({
           name, valueSrc: c.expr, anno: c.anno || null, options: finalOptions,
-          range: chipRange,
+          range: chipRange, sensor: sensorSpec,
           bodyIdx: ownerIdx, result: q, error: err,
         });
       }
@@ -1133,7 +1173,7 @@ export function evaluate(body) {
         const err = recExpr ? `couldn't parse: ${recExpr}` : 'empty expression';
         params.push({
           name: recName, valueSrc: recExpr, anno: recAnno, options: decoratorOptions || null,
-          range: chipRange,
+          range: chipRange, sensor: sensorSpec,
           bodyIdx: ownerIdx, result: null, error: err,
         });
         row.kind  = 'binding';

@@ -100,6 +100,7 @@ const VIEWER_JS_FILES = [
   'docs.js',
   'units.js',
   'blame.js',
+  'sensor-table.js',  // evaluator.js imports it (@sensor source table); readers stay editor-only
   'evaluator.js',
   'state.js',
   'csv-assets.js',
@@ -118,6 +119,7 @@ const JS_FILES = [
   'guides.js',
   'units.js',
   'blame.js',
+  'sensor-table.js',
   'evaluator.js',
   'state.js',
   'snapshot-retention.js',
@@ -154,6 +156,7 @@ const JS_FILES = [
   'gcu-announce.js',
   'pip.js',
   'sheets.js',
+  'sensors.js',
   'main.js',
 ];
 

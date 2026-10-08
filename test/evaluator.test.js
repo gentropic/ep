@@ -449,3 +449,43 @@ test('evaluate: a function in arithmetic is a named error, never a raw TypeError
   assert.doesNotMatch(r.rows[0].error, /internal error|Cannot convert/);
   assert.match(r.rows[1].error, /dimension mismatch|can't add/);
 });
+
+test('@sensor: a live reading replaces the literal; the literal fixes dim and display unit', () => {
+  const body = bodyOf([
+    '@sensor(pressure)',
+    'p = 1013.25 hPa',
+    'h = (1 - (p / 1013.25 hPa)^(1/5.255)) * 44330 m',
+  ]);
+  const cold = evaluate(body);
+  assert.equal(cold.rows[1].error, null, cold.rows[1].error);
+  assert.equal(cold.params.length, 1);
+  assert.deepEqual(cold.params[0].sensor, { source: 'pressure', rateHz: 10, avgS: 0, hold: false });
+  assert.ok(approx(cold.rows[2].result.value, 0));            // at sea-level pressure, no altitude
+  // 1000 hPa canonical: hPa = 100 Pa; Pa canonical in gram units = 1000 (kg→g) → 1e5 per hPa
+  const hPa = cold.rows[1].result.value / 1013.25;
+  const live = new Map([['p', { value: 1000 * hPa }]]);
+  const warm = evaluate(body, { live });
+  assert.equal(warm.rows[1].error, null);
+  assert.ok(approx(warm.rows[1].result.value, 1000 * hPa));
+  assert.equal(warm.rows[1].result.__sensor, 'p');
+  assert.ok(warm.rows[2].result.value > 100);                 // ~110 m above sea level
+});
+
+test('@sensor: dimension mismatch and unknown source are row errors', () => {
+  const r = evaluate(bodyOf(['@sensor(pressure)', 'x = 3 m']));
+  assert.match(r.rows[1].error, /reads \[.*\] \(hPa\), but the default is/);
+  const u = evaluate(bodyOf(['@sensor(nope)', 'x = 3 m']));
+  assert.match(u.rows[1].error, /unknown source 'nope'/);
+});
+
+test('record(): the trailing series of a sensor binding through the host hook', () => {
+  const body = bodyOf(['@sensor(heading)', 'az = 0 deg', 'trace = record(az, 60 s)', 'n = len(trace)']);
+  const r = evaluate(body, {
+    live: new Map([['az', { value: 1.0 }]]),
+    recordSource: (name, win) => (name === 'az' && win === 60) ? [0.1, 0.2, 0.3] : [],
+  });
+  for (const row of r.rows) assert.equal(row.error, null, row.error);
+  assert.equal(r.rows[3].result.value, 3);
+  const off = evaluate(body);   // no readings, no hook → empty series, no error
+  assert.equal(off.rows[3].result.value, 0);
+});

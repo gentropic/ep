@@ -1428,6 +1428,22 @@ const BUILTIN_PROCS = {
     const v   = sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
     return new Quantity(v, x.dim, x.disp);
   },
+  // `record(x, window)` — the trailing series of a live @sensor binding
+  // as a List<Quantity> (SPEC-pocket §4.3): `plot(record(p, 10 min))` is
+  // a barometer scope, `mean(record(g, 5 s))` a settled g. Elements carry
+  // the binding's dim and display tag.
+  record(args) {
+    if (args.length !== 2) throw new Error(`record: expected 2 args (sensor binding, window), got ${args.length}`);
+    const [x, w] = args;
+    if (!(x instanceof Quantity) || !x.__sensor) {
+      throw new Error('record: first argument must be a @sensor binding (e.g. record(p, 60 s))');
+    }
+    if (!(w instanceof Quantity) || !dimEq(w.dim, { time: 1 })) {
+      throw new Error('record: window must be a Time (e.g. 60 s)');
+    }
+    const vals = _recordSource ? (_recordSource(x.__sensor, w.value) || []) : [];
+    return Array.from(vals, v => new Quantity(v, x.dim, x.disp));
+  },
   // Materialize the sample array as a regular List<Quantity> — escape
   // hatch for custom reductions / plotting / export. Each element
   // carries the Uncertain's dim and display tag.
@@ -2274,6 +2290,15 @@ export function setPlotSink(fn) { _plotSink = fn; }
 // "no asset", so load_csv fails gracefully outside ep.
 let _csvResolver = null;
 export function setCsvResolver(fn) { _csvResolver = fn; }
+
+// Sensor recording source — the host (ep) supplies
+// `(bindingName, windowSeconds) → number[]` (canonical values, oldest
+// first) for `record(x, 60 s)`. `x` must be a value the host tagged with
+// `__sensor = <binding name>` (a live @sensor input). null → record()
+// returns an empty list, so a sheet with sensors still evaluates on a
+// desktop with no readings.
+let _recordSource = null;
+export function setRecordSource(fn) { _recordSource = fn; }
 
 // Extract canonical numbers and unit string from a List<Quantity> arg.
 // numbat-js represents Lists as plain JS arrays whose entries are

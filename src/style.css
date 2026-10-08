@@ -3637,3 +3637,21 @@ html[data-pocket] .export-inputs-row { align-items: flex-start; }
  * under the top bar, present only when the sheet has saved scenarios. */
 html[data-pocket] .scenarios-strip { padding: 8px 12px; gap: 8px; }
 html[data-pocket] .scenario-chip { min-height: 36px; padding: 0 14px; font-size: 13px; border-radius: 18px; }
+
+/* @sensor bindings (SPEC-pocket §4.3): a live reading shows in the gutter
+ * even where plain input echoes are hidden, with a pulsing dot; held
+ * readings keep a still dot. */
+.ep-gutter-result.live::after {
+  content: '';
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--au-success);
+  vertical-align: middle;
+  animation: ep-live-pulse 1.2s ease-in-out infinite;
+}
+.ep-gutter-result.live.held::after { background: var(--au-warn); animation: none; }
+@keyframes ep-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .ep-gutter-result.live::after { animation: none; } }
+html[data-pocket] .body .ep-result-gutter .ep-gutter-result.binding.live { visibility: visible; }

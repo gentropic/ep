@@ -941,6 +941,13 @@ function resultMarkerHtml(lineIdx) {
   // the value (via .suspect::after) — additive with any existing
   // input/output dot.
   if (r.suspect) cls = (cls + ' suspect').trim();
+  // A @sensor binding with a reading: the value in the gutter IS the
+  // reading, so it shows even where plain input echoes are hidden
+  // (pocket), with a live / held marker.
+  if (r.name && state._live && state._live.has(r.name)) {
+    const held = typeof sensorStatus === 'function' && sensorStatus(r.name) === 'held';
+    cls = (cls + (held ? ' live held' : ' live')).trim();
+  }
 
   // A datetime renders as a calendar date — fmt() routes DateTime values
   // to the date formatter (unit is null). Skip the unit-resolution block
@@ -2300,6 +2307,11 @@ function openGutterUnitMenu(lineIdx, x, y) {
     if (txt) items.push({ label: `copy  ${txt}`, action: () => { copyToClipboard(txt).catch(() => {}); } });
   }
   if (row.name && typeof insertAtCursor === 'function') items.push({ label: `insert  ${row.name}`, action: () => insertAtCursor(row.name) });
+  // A live @sensor binding: freeze / resume the reading.
+  if (row.name && state._live && state._live.has(row.name) && typeof toggleSensorHold === 'function') {
+    const heldNow = typeof isSensorHeld === 'function' && isSensorHeld(row.name);
+    items.push({ label: heldNow ? 'resume live reading' : 'hold this reading', action: () => toggleSensorHold(row.name) });
+  }
   const candidates = (row.name && q && q.dim) ? getCompatibleUnits(q.dim) : [];
   if (!candidates.length) {
     if (items.length) showMenu(items, x, y);
@@ -2432,7 +2444,7 @@ function applyErrorMarks() {
     // Decorator-only lines. Detected from source rather than row.kind:
     // the evaluator folds decorators into the statement they modify, so
     // their rows don't carry a kind of their own.
-    if (/^\s*@(input|output|options|range)\b/.test(row.src || '')) {
+    if (/^\s*@(input|output|options|range|sensor)\b/.test(row.src || '')) {
       items.push({ line: i + 1, col: 0, message: '', kind: 'deco' });
     }
     if (row.error) {

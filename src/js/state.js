@@ -31,9 +31,16 @@ state.assets = state.assets || {};
 // through .html / URL exports.
 state._ephemeral = false;
 
+// Live sensor readings (SPEC-pocket §4.3): sensors.js fills
+// `state._live` (binding name → { value } in canonical units) and provides
+// `state._recordSource` for record(); evaluate() consumes both. Neither is
+// persisted or exported.
+state._live = new Map();
+state._recordSource = null;
+
 export function evaluateAll() {
   const oldByName = new Map(state.params.map(p => [p.name, p]));
-  const r = evaluate(state.body);
+  const r = evaluate(state.body, { live: state._live, recordSource: state._recordSource });
 
   // Reconcile body rows in place — the renderer holds direct refs (_resEl, _rowEl) on them.
   for (let i = 0; i < state.body.length; i++) {
@@ -60,6 +67,7 @@ export function evaluateAll() {
       reused.anno     = p.anno;
       reused.options  = p.options;
       reused.range    = p.range;
+      reused.sensor   = p.sensor;
       reused.bodyIdx  = p.bodyIdx;
       reused.result   = p.result;
       reused.error    = p.error;
@@ -78,4 +86,9 @@ export function evaluateAll() {
   state.params         = newParams;
   state.outputs        = r.outputs;
   state._scope         = r.scope;
+  // Lets side modules (sensors.js) react to every evaluation without
+  // this module knowing them. Guarded for the Node test runner.
+  if (typeof window !== 'undefined' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('ep:evaluated'));
+  }
 }

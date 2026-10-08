@@ -182,6 +182,19 @@ try {
   const shown = await page.evaluate(() => { state.ui.exposedInputs = ['a', 'c']; renderChips(); const n = document.querySelectorAll('#chips .chip').length; delete state.ui.exposedInputs; renderChips(); return n; });
   check(shown === 2, `exposedInputs should leave 2 chips, got ${shown}`);
 
+  // @sensor web fallback: a synthetic deviceorientation event drives a
+  // heading binding (alpha 90 counter-clockwise → heading 270).
+  await page.evaluate(() => {
+    const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '@sensor(heading)\naz = 0 deg\n' } });
+  });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 90, beta: 10, gamma: 5 })));
+  await page.waitForTimeout(900);
+  const az = await page.evaluate(() => ({ live: state._live.get('az') && state._live.get('az').value, gutter: [...document.querySelectorAll('.ep-result-gutter .ep-gutter-result')].map(e => e.textContent.trim()).filter(Boolean) }));
+  check(az.live != null && Math.abs(az.live - 270 * Math.PI / 180) < 1e-6, `web heading fallback gave ${JSON.stringify(az)}`);
+  check(az.gutter.some(t => /^270 deg/.test(t)), `gutter should show 270 deg, got ${JSON.stringify(az.gutter)}`);
+
   // Acceptance expression from SPEC-pocket §3.2.
   await page.evaluate(() => {
     const view = (typeof cmView !== 'undefined') ? cmView : EditorView.findFromDOM(document.querySelector('#body .cm-editor'));
