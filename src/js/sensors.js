@@ -270,7 +270,18 @@ export function captureReadings() {
   const before = view.state.doc.toString();
   const after = captureEdits(before.split('\n'), readings).join('\n');
   if (after !== before) {
-    view.dispatch({ changes: { from: 0, to: before.length, insert: after }, userEvent: 'input.capture' });
+    // Replace only the span that changed (the measurements block), not
+    // the whole document: a full replace drops every decoration inside
+    // it, so a plot further down blinked out until the next evaluation.
+    const lim = Math.min(before.length, after.length);
+    let head = 0;
+    while (head < lim && before[head] === after[head]) head++;
+    let tail = 0;
+    while (tail < lim - head && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail++;
+    view.dispatch({
+      changes: { from: head, to: before.length - tail, insert: after.slice(head, after.length - tail) },
+      userEvent: 'input.capture',
+    });
   }
   if (navigator.vibrate) { try { navigator.vibrate(25); } catch { /* no haptics */ } }
   // Say what happened: the log lines usually sit out of view (under the
