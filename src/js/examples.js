@@ -316,6 +316,40 @@ line_plot()
   },
 
   {
+    slug: 'compass_clinometer',
+    name: 'Compass-clinometer (live)',
+    desc: 'Lay the phone on a surface: dip direction / dip / strike, and the long edge as a lineation, on a live stereonet',
+    body: `# Compass-clinometer — the phone as a Brunton.
+# Plane: lay the BACK of the phone flat on the surface.
+# Line: lay the long edge along the lineation.
+# Long-press a reading to hold it.
+
+@sensor(dip_direction, avg 0.5 s)
+dd = 0 deg
+
+@sensor(dip, avg 0.5 s)
+dip = 0 deg
+
+@output(deg)
+strike = dd - 90 deg
+
+@sensor(trend, avg 0.5 s)
+trend = 0 deg
+
+@sensor(plunge, avg 0.5 s)
+plunge = 0 deg
+
+@sensor(rake, avg 0.5 s)
+rake = 0 deg
+
+stereonet()
+  |> with_planes(dd, dip, "surface")
+  |> with_lines(trend, plunge, "lineation")
+  |> with_title("live attitude")
+`,
+  },
+
+  {
     slug: 'stereonet',
     name: 'Stereonet — fault attitudes',
     desc: 'Fluent builder: layer planes + lineations on one stereonet',
@@ -465,7 +499,7 @@ flight_time = 2 * v0 * sin(angle) / g
 const EXAMPLE_GROUPS = [
   { key: 'everyday', title: 'everyday',  slugs: ['weekend_hike', 'recipe_scaling', 'road_trip', 'unit_conversions', 'compound_interest'] },
   { key: 'science',  title: 'science',   slugs: ['cylinder', 'projectile', 'commute', 'layered_xy'] },
-  { key: 'field',    title: 'field',     slugs: ['ore_body', 'drillhole_sample', 'sieve_mesh', 'stereonet', 'sensitivity_sweep', 'uncertain_resource'] },
+  { key: 'field',    title: 'field',     slugs: ['compass_clinometer', 'stereonet', 'ore_body', 'drillhole_sample', 'sieve_mesh', 'sensitivity_sweep', 'uncertain_resource'] },
 ];
 
 export function getExamples() { return EXAMPLES; }

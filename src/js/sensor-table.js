@@ -26,6 +26,15 @@ export const SENSOR_SOURCES = {
   heading:  { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.heading },
   tilt:     { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.beta },
   roll:     { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.gamma },
+  // Structural geology — the phone as a compass-clinometer. Plane: lay the
+  // back of the phone on the surface. Line: lay the long edge along the
+  // lineation. All derived from the same fused rotation (attitudeFrom).
+  dip:           { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.dip },
+  dip_direction: { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.dipDirection },
+  strike:        { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.strike },
+  trend:         { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.trend },
+  plunge:        { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.plunge },
+  rake:          { phys: 'rotation', unit: 'deg', web: 'orientation', pick: o => o.rake },
   accel:    { phys: 'accel',    unit: 'm/s^2', web: 'motion',    pick: v => Math.hypot(v[0], v[1], v[2]) },
   ...XYZ('accel', 'm/s^2', 'motion'),
   ...XYZ('gravity', 'm/s^2', 'motion'),
@@ -95,4 +104,45 @@ export function trailingMean(buffer, nowMs, windowS) {
 export function headingFromAlpha(alpha) {
   if (typeof alpha !== 'number' || !isFinite(alpha)) return null;
   return ((360 - alpha) % 360 + 360) % 360;
+}
+
+// Structural attitude from a W3C orientation triple (degrees). The
+// device→earth rotation is R = Rz(α)·Rx(β)·Ry(γ) with device axes x right,
+// y top, z out of the screen and earth axes east, north, up (the W3C
+// spec's own matrix; the lead-acid shim produces the same triple from
+// the fused rotation vector).
+//
+//   plane (phone's back on the surface): the upward unit normal n is the
+//   device z axis flipped up if needed; dip = acos(n·up); the horizontal
+//   part of an upward normal points DOWN-dip, so dip direction =
+//   atan2(n.east, n.north); strike = dip direction − 90 (right-hand rule:
+//   dip to the right when looking along strike).
+//   line (long edge along the lineation): the device y axis, taken at
+//   its downward end; plunge = asin(−d.up); trend = atan2(d.east, d.north).
+//   rake: the angle in the plane from the right-hand strike direction to
+//   the line, 0–180°.
+// Returns null when the triple is incomplete. Angles in degrees.
+export function attitudeFrom(alpha, beta, gamma) {
+  if (![alpha, beta, gamma].every(v => typeof v === 'number' && isFinite(v))) return null;
+  const r = Math.PI / 180;
+  const cA = Math.cos(alpha * r), sA = Math.sin(alpha * r);
+  const cB = Math.cos(beta * r),  sB = Math.sin(beta * r);
+  const cG = Math.cos(gamma * r), sG = Math.sin(gamma * r);
+  // columns of R: device x, y, z expressed in (east, north, up)
+  const y = [-sA * cB, cA * cB, sB];
+  let   n = [cA * sG + sA * sB * cG, sA * sG - cA * sB * cG, cB * cG];
+  if (n[2] < 0) n = n.map(v => -v);
+  const az = (e, nn) => ((Math.atan2(e, nn) / r) % 360 + 360) % 360;
+  const dip = Math.acos(Math.max(-1, Math.min(1, n[2]))) / r;
+  const dipDirection = dip < 1e-6 ? 0 : az(n[0], n[1]);
+  const strike = (dipDirection - 90 + 360) % 360;
+  const d = y[2] > 0 ? y.map(v => -v) : y;              // downward end of the long edge
+  const plunge = Math.asin(Math.max(-1, Math.min(1, -d[2]))) / r;
+  const trend = az(d[0], d[1]);
+  // rake: angle from the strike direction (horizontal, in the plane) to d
+  const sr = strike * r;
+  const s = [Math.sin(sr), Math.cos(sr), 0];
+  const dot = Math.max(-1, Math.min(1, s[0] * d[0] + s[1] * d[1] + s[2] * d[2]));
+  const rake = Math.acos(dot) / r;
+  return { dip, dipDirection, strike, trend, plunge, rake };
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SENSOR_SOURCES, parseSensorArgs, RingBuffer, trailingMean, headingFromAlpha } from '../src/js/sensor-table.js';
+import { SENSOR_SOURCES, parseSensorArgs, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom } from '../src/js/sensor-table.js';
 
 test('parseSensorArgs: source, rate hint, averaging window, hold', () => {
   assert.deepEqual(parseSensorArgs(['pressure']), { source: 'pressure', rateHz: 10, avgS: 0, hold: false });
@@ -41,4 +41,29 @@ test('headingFromAlpha turns counter-clockwise alpha into a clockwise compass he
   assert.equal(headingFromAlpha(90), 270);
   assert.equal(headingFromAlpha(270), 90);
   assert.equal(headingFromAlpha(null), null);
+});
+
+test('attitudeFrom: flat phone, then the top edge raised 30° (plane dips south)', () => {
+  const flat = attitudeFrom(0, 0, 0);
+  assert.ok(Math.abs(flat.dip) < 1e-9 && Math.abs(flat.plunge) < 1e-9);
+  // beta = +30: the top of the phone comes up, the back faces down-south.
+  const a = attitudeFrom(0, 30, 0);
+  assert.ok(Math.abs(a.dip - 30) < 1e-9, 'dip ' + a.dip);
+  assert.ok(Math.abs(a.dipDirection - 180) < 1e-9, 'dip direction ' + a.dipDirection);
+  assert.ok(Math.abs(a.strike - 90) < 1e-9, 'strike ' + a.strike);
+  // the long edge plunges 30° toward the south; the dip line has rake 90
+  assert.ok(Math.abs(a.trend - 180) < 1e-9, 'trend ' + a.trend);
+  assert.ok(Math.abs(a.plunge - 30) < 1e-9, 'plunge ' + a.plunge);
+  assert.ok(Math.abs(a.rake - 90) < 1e-9, 'rake ' + a.rake);
+});
+
+test('attitudeFrom: rolled about the long axis (gamma) dips east or west; alpha rotates the strike', () => {
+  const east = attitudeFrom(0, 0, 20);     // right edge drops → back faces down-east? gamma>0 raises the right edge
+  assert.ok(Math.abs(east.dip - 20) < 1e-9);
+  assert.ok([90, 270].some(d => Math.abs(east.dipDirection - d) < 1e-9), 'dip direction ' + east.dipDirection);
+  assert.ok(Math.abs(east.rake) < 1e-9 || Math.abs(east.rake - 180) < 1e-9, 'long edge along strike → rake 0/180, got ' + east.rake);
+  const turned = attitudeFrom(90, 30, 0);   // same tilt, device yawed 90° counter-clockwise
+  assert.ok(Math.abs(turned.dip - 30) < 1e-9);
+  assert.ok(Math.abs(turned.dipDirection - 90) < 1e-9, 'dip direction ' + turned.dipDirection);
+  assert.equal(attitudeFrom(null, 1, 2), null);
 });

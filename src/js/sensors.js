@@ -18,7 +18,7 @@
 import { state, evaluateAll } from './state.js';
 import { renderResults } from './render.js';
 import { resolveUnitExpression } from './evaluator.js';
-import { SENSOR_SOURCES, RingBuffer, trailingMean, headingFromAlpha } from './sensor-table.js';
+import { SENSOR_SOURCES, RingBuffer, trailingMean, headingFromAlpha, attitudeFrom } from './sensor-table.js';
 import { shell, orientationFromRotationVector } from '../../ext/leadacid/index.js';
 
 const REEVAL_MS = 500;            // ≤ 2 Hz re-evaluation while live
@@ -69,6 +69,13 @@ function onSample(phys, sample, tMs = Date.now()) {
   }
 }
 
+// One normalised rotation sample for every source that reads from the
+// fused orientation: the phone-ish names and the structural attitude.
+function rotationSample(alpha, beta, gamma) {
+  const att = attitudeFrom(alpha, beta, gamma) || {};
+  return { heading: headingFromAlpha(alpha), beta, gamma, ...att };
+}
+
 // ── readers ───────────────────────────────────────────────────────
 function openShellReader(phys, rateHz) {
   const types = phys;
@@ -81,7 +88,7 @@ function openShellReader(phys, rateHz) {
       if (phys === 'rotation') {
         const o = orientationFromRotationVector(d.v);
         if (!o) return;
-        onSample('rotation', { heading: headingFromAlpha(o.alpha), beta: o.beta, gamma: o.gamma }, t);
+        onSample('rotation', rotationSample(o.alpha, o.beta, o.gamma), t);
       } else {
         onSample(phys, Array.isArray(d.v) ? d.v : [d.v], t);
       }
@@ -116,8 +123,9 @@ function openWebReader(phys) {
       if (e.alpha == null && e.beta == null) return;
       if (e.type === 'deviceorientationabsolute') sawAbsolute = true;
       else if (sawAbsolute) return;
-      const heading = typeof e.webkitCompassHeading === 'number' ? e.webkitCompassHeading : headingFromAlpha(e.alpha);
-      onSample('rotation', { heading, beta: e.beta, gamma: e.gamma });
+      const s = rotationSample(e.alpha, e.beta, e.gamma);
+      if (typeof e.webkitCompassHeading === 'number') s.heading = e.webkitCompassHeading;
+      onSample('rotation', s);
     };
     window.addEventListener('deviceorientationabsolute', h);
     window.addEventListener('deviceorientation', h);
