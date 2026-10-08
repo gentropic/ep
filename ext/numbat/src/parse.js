@@ -475,7 +475,11 @@ export function parse(tokens, sourceName = '<input>') {
     return { type: 'Lambda', params, body, span: openTok.span };
   }
 
-  // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [x, ...args]).
+  // Pipe `|>`: `x |> f` → Call(f, [x]); `x |> f(args)` → Call(f, [...args, x]).
+  // The piped value becomes the LAST argument, as upstream: the prelude's
+  // list functions take the list last (`map(f, xs)`, `contains(x, xs)`)
+  // precisely so `xs |> map(f)` and `xs |> contains(0)` read naturally,
+  // and upstream's own `unique` is written `xs |> _unique([])`.
   // Left-associative, looser than conversion (`pi/3 + pi |> cos` works).
   function parsePipe() {
     let l = parseOr();
@@ -485,7 +489,7 @@ export function parse(tokens, sourceName = '<input>') {
       if (right.type === 'Ident') {
         l = { type: 'Call', name: right.name, args: [l] };
       } else if (right.type === 'Call') {
-        l = { type: 'Call', name: right.name, args: [l, ...right.args] };
+        l = { type: 'Call', name: right.name, args: [...right.args, l] };
       } else {
         throw err(peek(), '|> RHS must be a function name or call');
       }

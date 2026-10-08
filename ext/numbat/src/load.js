@@ -20,6 +20,7 @@
 
 import { Quantity, DateTime, Uncertain, Swept, getUncertaintyRng, getSampleCount } from './quantity.js';
 import { dimEq, dimMul, dimDiv, dimPow, dimEmpty, dimFormat } from './dimensions.js';
+import { METRIC_PREFIXES } from './units.js';
 import { formatDatetimeWith } from './format.js';
 import { tokenize } from './tokenize.js';
 import { parse } from './parse.js';
@@ -117,6 +118,18 @@ const BUILTIN_FNS = {
   floor(q) { return new Quantity(Math.floor(q.value), q.dim); },
   ceil(q)  { return new Quantity(Math.ceil(q.value),  q.dim); },
   round(q) { return new Quantity(Math.round(q.value), q.dim); },
+  // trunc / fract are declared extern in core::functions upstream; they
+  // act on the number as written in its unit (trunc(3.7 km) = 3 km),
+  // falling back to the canonical value when no unit tag is present.
+  trunc(q) {
+    const u = _carriedUnit(q), mul = u ? u.mul : 1;
+    return new Quantity(Math.trunc(q.value / mul) * mul, q.dim, q.disp);
+  },
+  fract(q) {
+    const u = _carriedUnit(q), mul = u ? u.mul : 1;
+    const n = q.value / mul;
+    return new Quantity((n - Math.trunc(n)) * mul, q.dim, q.disp);
+  },
   factorial(q) {
     mustBeDimensionless(q, 'factorial');
     const n = q.value;
@@ -560,16 +573,41 @@ function _principalAxis(vs) {
   return { axis: [V[0][best], V[1][best], V[2][best]], s1: A[best][best] };
 }
 
+// The Plot argument of a `with_*` adder, wherever it sits: first when
+// called directly (`with_planes(plot, dd, dip)`), last when piped
+// (`plot |> with_planes(dd, dip)` is `with_planes(dd, dip, plot)`, the
+// pipe putting its value last as upstream Numbat does). Returns the
+// plot and the remaining args in order.
+function _takePlot(fnName, args) {
+  const i = args.findIndex(a => a && a.__plot);
+  if (i < 0) throw new Error(`${fnName}: first arg must be a Plot (or pipe one in: plot |> ${fnName}(…)) — build one with stereonet() / line_plot() / …`);
+  return { plot: args[i], rest: args.filter((_, j) => j !== i) };
+}
+
+// The unit a quantity carries, as { mul, name } — from an object tag
+// (`{mul, name}`, compound targets and ep's written-unit tagging) or a
+// string tag (`'km'`, a plain `-> km` conversion) resolved through the
+// host registry. Null when the value carries nothing usable, in which
+// case callers fall back to the canonical (base) unit.
+function _carriedUnit(q) {
+  const d = q && q.disp;
+  if (d && typeof d === 'object' && d.mul) return { mul: d.mul, name: d.name || '' };
+  if (typeof d === 'string' && d) {
+    const e = _unitResolver ? _unitResolver(d) : null;
+    if (e && e.mul) return { mul: e.mul, name: d };
+  }
+  return null;
+}
+
 // Append a stereonet layer (planes / lines / poles) to an existing
 // Plot of family 'stereonet'. Validates the Plot family, normalizes
 // scalar args into 1-element lists, converts radians → degrees.
-function _withStereonetLayer(fnName, kind, args) {
-  const plot = args[0];
-  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+function _withStereonetLayer(fnName, kind, allArgs) {
+  const { plot, rest: args } = _takePlot(fnName, allArgs);
   if (plot.family !== 'stereonet') {
     throw new Error(`${fnName}: cannot add a stereonet layer to a '${plot.family}' plot`);
   }
-  let xs = args[1], ys = args[2];
+  let xs = args[0], ys = args[1];
   if (!Array.isArray(xs)) xs = [xs];
   if (!Array.isArray(ys)) ys = [ys];
   if (xs.length !== ys.length) {
@@ -577,19 +615,18 @@ function _withStereonetLayer(fnName, kind, args) {
   }
   const pairs = [];
   for (let i = 0; i < xs.length; i++) pairs.push([_angleToDeg(xs[i]), _angleToDeg(ys[i])]);
-  const layer = { kind, pairs, label: typeof args[3] === 'string' ? args[3] : '' };
+  const layer = { kind, pairs, label: typeof args[2] === 'string' ? args[2] : '' };
   return { ...plot, layers: [...plot.layers, layer] };
 }
 
 // Append an xy layer (line / scatter) to a plot of family 'xy'.
 // xs / ys are List<Quantity>; canonical values + unit hint go onto
 // the layer.
-function _withXyLayer(fnName, kind, args) {
-  const plot = args[0];
-  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+function _withXyLayer(fnName, kind, allArgs) {
+  const { plot, rest: args } = _takePlot(fnName, allArgs);
   if (plot.family !== 'xy') throw new Error(`${fnName}: cannot add an xy layer to a '${plot.family}' plot`);
-  const xs = _listToNumbers(args[1]);
-  const ys = _listToNumbers(args[2]);
+  const xs = _listToNumbers(args[0]);
+  const ys = _listToNumbers(args[1]);
   if (xs.values.length !== ys.values.length) {
     throw new Error(`${fnName}: xs and ys must be the same length (got ${xs.values.length} and ${ys.values.length})`);
   }
@@ -599,7 +636,7 @@ function _withXyLayer(fnName, kind, args) {
     ys: ys.values,
     xUnit: xs.unit,
     yUnit: ys.unit,
-    label: typeof args[3] === 'string' ? args[3] : '',
+    label: typeof args[2] === 'string' ? args[2] : '',
   };
   return { ...plot, layers: [...plot.layers, layer] };
 }
@@ -611,13 +648,12 @@ function _withXyLayer(fnName, kind, args) {
 //   line_plot()
 //     |> with_band(xs, percentile(ys, 5), percentile(ys, 95), "P5–P95")
 //     |> with_line(xs, percentile(ys, 50), "median")
-function _withBandLayer(fnName, args) {
-  const plot = args[0];
-  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+function _withBandLayer(fnName, allArgs) {
+  const { plot, rest: args } = _takePlot(fnName, allArgs);
   if (plot.family !== 'xy') throw new Error(`${fnName}: cannot add an xy layer to a '${plot.family}' plot`);
-  const xs = _listToNumbers(args[1]);
-  const lo = _listToNumbers(args[2]);
-  const hi = _listToNumbers(args[3]);
+  const xs = _listToNumbers(args[0]);
+  const lo = _listToNumbers(args[1]);
+  const hi = _listToNumbers(args[2]);
   if (xs.values.length !== lo.values.length || xs.values.length !== hi.values.length) {
     throw new Error(`${fnName}: xs / lo / hi must be the same length (got ${xs.values.length}, ${lo.values.length}, ${hi.values.length})`);
   }
@@ -628,7 +664,7 @@ function _withBandLayer(fnName, args) {
     hi: hi.values,
     xUnit: xs.unit,
     yUnit: lo.unit,
-    label: typeof args[4] === 'string' ? args[4] : '',
+    label: typeof args[3] === 'string' ? args[3] : '',
   };
   return { ...plot, layers: [...plot.layers, layer] };
 }
@@ -636,13 +672,12 @@ function _withBandLayer(fnName, args) {
 // Append a values-shaped layer (bar / hist bins) to the matching
 // family. Accepts a List<Quantity> or an Uncertain (samples taken
 // directly).
-function _withValuesLayer(fnName, requiredFamily, kind, args) {
-  const plot = args[0];
-  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+function _withValuesLayer(fnName, requiredFamily, kind, allArgs) {
+  const { plot, rest: args } = _takePlot(fnName, allArgs);
   if (plot.family !== requiredFamily) {
     throw new Error(`${fnName}: cannot add a '${kind}' layer to a '${plot.family}' plot`);
   }
-  const v = args[1];
+  const v = args[0];
   let values, valueUnit;
   if (v && v.__uncertain) {
     values = Array.from(v.samples);
@@ -662,7 +697,7 @@ function _withValuesLayer(fnName, requiredFamily, kind, args) {
     kind,
     values,
     valueUnit,
-    label: typeof args[2] === 'string' ? args[2] : '',
+    label: typeof args[1] === 'string' ? args[1] : '',
   };
   return { ...plot, layers: [...plot.layers, layer] };
 }
@@ -860,8 +895,7 @@ function _optimize(fnName, args, sign) {
 // loudly if the plot has no layers yet — styling without an anchor
 // layer is almost certainly a typo.
 function _styleLastLayer(fnName, args, styleField, value) {
-  const plot = args[0];
-  if (!(plot && plot.__plot)) throw new Error(`${fnName}: first arg must be a Plot`);
+  const { plot } = _takePlot(fnName, args);
   const layers = plot.layers || [];
   if (layers.length === 0) {
     throw new Error(`${fnName}: no layer to style — call a with_* layer adder first`);
@@ -1104,41 +1138,41 @@ const BUILTIN_PROCS = {
   // Plot-level common adders.
   with_title(args) {
     if (args.length !== 2) throw new Error(`with_title: expected 2 args (plot, title), got ${args.length}`);
-    const plot = args[0];
-    if (!(plot && plot.__plot)) throw new Error('with_title: first arg must be a Plot');
-    return { ...plot, title: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+    const { plot, rest } = _takePlot('with_title', args);
+    return { ...plot, title: typeof rest[0] === 'string' ? rest[0] : String(rest[0] ?? '') };
   },
   with_xlabel(args) {
     if (args.length !== 2) throw new Error(`with_xlabel: expected 2 args (plot, label), got ${args.length}`);
-    const plot = args[0];
-    if (!(plot && plot.__plot)) throw new Error('with_xlabel: first arg must be a Plot');
-    return { ...plot, xLabel: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+    const { plot, rest } = _takePlot('with_xlabel', args);
+    return { ...plot, xLabel: typeof rest[0] === 'string' ? rest[0] : String(rest[0] ?? '') };
   },
   with_ylabel(args) {
     if (args.length !== 2) throw new Error(`with_ylabel: expected 2 args (plot, label), got ${args.length}`);
-    const plot = args[0];
-    if (!(plot && plot.__plot)) throw new Error('with_ylabel: first arg must be a Plot');
-    return { ...plot, yLabel: typeof args[1] === 'string' ? args[1] : String(args[1] ?? '') };
+    const { plot, rest } = _takePlot('with_ylabel', args);
+    return { ...plot, yLabel: typeof rest[0] === 'string' ? rest[0] : String(rest[0] ?? '') };
   },
   // ── Per-layer style adders ───────────────────────────────────────
   // Each targets the most-recently-added layer, returning a new Plot
   // with the override applied. Chain after a `with_*` layer adder:
   //   plot |> with_line(xs, ys, "fit") |> with_color("indigo") |> with_width(2)
+  // (The style value is whichever argument is not the Plot — first when
+  // piped, second when called directly.)
   with_color(args) {
     if (args.length !== 2) throw new Error(`with_color: expected 2 args (plot, color), got ${args.length}`);
-    const color = args[1];
+    const color = _takePlot('with_color', args).rest[0];
     if (typeof color !== 'string' || color.length === 0) throw new Error('with_color: color must be a non-empty string (CSS color name or hex)');
     return _styleLastLayer('with_color', args, 'color', color);
   },
   with_width(args) {
     if (args.length !== 2) throw new Error(`with_width: expected 2 args (plot, width), got ${args.length}`);
-    const w = args[1] instanceof Quantity ? args[1].value : Number(args[1]);
+    const v = _takePlot('with_width', args).rest[0];
+    const w = v instanceof Quantity ? v.value : Number(v);
     if (!Number.isFinite(w) || w <= 0) throw new Error('with_width: width must be a positive number');
     return _styleLastLayer('with_width', args, 'width', w);
   },
   with_dash(args) {
     if (args.length !== 2) throw new Error(`with_dash: expected 2 args (plot, dash), got ${args.length}`);
-    const arr = args[1];
+    const arr = _takePlot('with_dash', args).rest[0];
     if (!Array.isArray(arr)) throw new Error('with_dash: dash must be a list of numbers');
     const dash = arr.map(v => v instanceof Quantity ? v.value : Number(v));
     if (dash.some(v => !Number.isFinite(v) || v < 0)) throw new Error('with_dash: dash entries must be non-negative finite numbers');
@@ -1146,13 +1180,15 @@ const BUILTIN_PROCS = {
   },
   with_alpha(args) {
     if (args.length !== 2) throw new Error(`with_alpha: expected 2 args (plot, alpha), got ${args.length}`);
-    const a = args[1] instanceof Quantity ? args[1].value : Number(args[1]);
+    const v = _takePlot('with_alpha', args).rest[0];
+    const a = v instanceof Quantity ? v.value : Number(v);
     if (!Number.isFinite(a) || a < 0 || a > 1) throw new Error('with_alpha: alpha must be in [0, 1]');
     return _styleLastLayer('with_alpha', args, 'alpha', a);
   },
   with_marker_size(args) {
     if (args.length !== 2) throw new Error(`with_marker_size: expected 2 args (plot, size), got ${args.length}`);
-    const s = args[1] instanceof Quantity ? args[1].value : Number(args[1]);
+    const v = _takePlot('with_marker_size', args).rest[0];
+    const s = v instanceof Quantity ? v.value : Number(v);
     if (!Number.isFinite(s) || s <= 0) throw new Error('with_marker_size: size must be a positive number');
     return _styleLastLayer('with_marker_size', args, 'markerSize', s);
   },
@@ -2060,6 +2096,101 @@ const BUILTIN_PROCS = {
     return Number.isFinite(r) && Math.abs(r - Math.round(r)) <= 1e-9 * Math.max(1, Math.abs(r));
   },
 
+  // ── core::quantities / core::numbers / math externs ──────────────
+  // Declared bodiless upstream; the host supplies them. Values are
+  // read in the quantity's written unit when it carries one.
+  value_of(args) {
+    if (args.length !== 1) throw new Error(`value_of: expected 1 arg, got ${args.length}`);
+    const q = args[0];
+    if (!(q instanceof Quantity)) throw new Error('value_of: argument must be a quantity');
+    const u = _carriedUnit(q);
+    return new Quantity(q.value / (u ? u.mul : 1), {});
+  },
+  unit_name(args) {
+    if (args.length !== 1) throw new Error(`unit_name: expected 1 arg, got ${args.length}`);
+    const q = args[0];
+    if (!(q instanceof Quantity)) throw new Error('unit_name: argument must be a quantity');
+    const u = _carriedUnit(q);
+    if (u && u.name) return u.name;
+    if (typeof q.disp === 'string' && q.disp) return q.disp;
+    if (dimEmpty(q.dim)) return '';
+    const f = formatQuantity(q);
+    return (f && f.unit) || dimFormat(q.dim);
+  },
+  base_unit_of(args) {
+    if (args.length !== 1) throw new Error(`base_unit_of: expected 1 arg, got ${args.length}`);
+    const q = args[0];
+    if (!(q instanceof Quantity)) throw new Error('base_unit_of: argument must be a quantity');
+    if (q.value === 0) throw new Error('base_unit_of: cannot be called on a value that evaluates to 0');
+    // The prefix is whatever the host's unit registry says the written
+    // unit carries (setUnitResolver); without one, or for an unprefixed
+    // unit, the unit itself is the base.
+    const u = _carriedUnit(q);
+    const entry = _unitResolver && u && u.name ? _unitResolver(u.name) : null;
+    if (entry) {
+      // Registry-expanded entries record their prefix; curated ones
+      // (`km` in the v0.1 table) don't, so also try each metric prefix
+      // and accept the split only when the remainder is a unit of the
+      // same dimension whose multiplier accounts for the prefix exactly
+      // (`min` is not milli-inches: 0.0254 × 10⁻³ ≠ 60).
+      const name = u.name;
+      const candidates = entry.prefix && entry.displayName && entry.displayName.startsWith(entry.prefix)
+        ? [[entry.prefix, null]]
+        : METRIC_PREFIXES.flatMap(([long, short, factor]) => [[short, factor], [long, factor]]);
+      for (const [prefix, factor] of candidates) {
+        if (!name.startsWith(prefix) || name.length <= prefix.length) continue;
+        const baseName = name.slice(prefix.length);
+        const base = _unitResolver(baseName);
+        if (!base || !base.mul || !dimEq(base.dim, entry.dim)) continue;
+        if (factor != null && Math.abs(base.mul * factor - entry.mul) > 1e-9 * Math.abs(entry.mul)) continue;
+        return new Quantity(base.mul, q.dim, { mul: base.mul, name: baseName });
+      }
+    }
+    return u ? new Quantity(u.mul, q.dim, { mul: u.mul, name: u.name }) : new Quantity(1, q.dim);
+  },
+  is_dimensionless(args) {
+    if (args.length !== 1) throw new Error(`is_dimensionless: expected 1 arg, got ${args.length}`);
+    const q = args[0];
+    if (!(q instanceof Quantity)) throw new Error('is_dimensionless: argument must be a quantity');
+    return dimEmpty(q.dim) || q.value === 0;
+  },
+  quantity_cast(args) {
+    if (args.length !== 2) throw new Error(`quantity_cast: expected 2 args (value, target), got ${args.length}`);
+    const [f, t] = args;
+    if (!(f instanceof Quantity) || !(t instanceof Quantity)) throw new Error('quantity_cast: arguments must be quantities');
+    return new Quantity(f.value, t.dim, t.disp);
+  },
+  is_nan(args) {
+    if (args.length !== 1) throw new Error(`is_nan: expected 1 arg, got ${args.length}`);
+    return args[0] instanceof Quantity ? Number.isNaN(args[0].value) : Number.isNaN(Number(args[0]));
+  },
+  is_infinite(args) {
+    if (args.length !== 1) throw new Error(`is_infinite: expected 1 arg, got ${args.length}`);
+    const v = args[0] instanceof Quantity ? args[0].value : Number(args[0]);
+    return v === Infinity || v === -Infinity;
+  },
+  atan2(args) {
+    if (args.length !== 2) throw new Error(`atan2: expected 2 args (y, x), got ${args.length}`);
+    const [y, x] = args;
+    if (!(y instanceof Quantity) || !(x instanceof Quantity)) throw new Error('atan2: arguments must be quantities');
+    if (!dimEq(y.dim, x.dim)) throw new Error(`atan2: arguments must share a dimension (got ${dimFormat(y.dim)} and ${dimFormat(x.dim)})`);
+    return new Quantity(Math.atan2(y.value, x.value), {});
+  },
+  // Γ(x) by the Lanczos approximation (g = 7, n = 9), reflected for x < ½.
+  gamma(args) {
+    if (args.length !== 1) throw new Error(`gamma: expected 1 arg, got ${args.length}`);
+    mustBeDimensionless(args[0], 'gamma');
+    const G = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    const lanczos = (x) => {
+      if (x < 0.5) return Math.PI / (Math.sin(Math.PI * x) * lanczos(1 - x));
+      x -= 1;
+      let a = G[0];
+      const t = x + 7.5;
+      for (let i = 1; i < 9; i++) a += G[i] / (x + i);
+      return Math.sqrt(2 * Math.PI) * Math.pow(t, x + 0.5) * Math.exp(-t) * a;
+    };
+    return new Quantity(lanczos(args[0].value), {});
+  },
   exchange_rate(args) {
     // Live currency rates aren't a thing in a static-file browser app.
     // Stub returns 1; users wanting accurate FX should pre-bind their
@@ -2358,6 +2489,11 @@ function formatQuantity(q) {
 }
 let _quantityFormatter = null;
 export function setQuantityFormatter(fn) { _quantityFormatter = fn; }
+// Unit lookup for procs that need to know what a written unit IS
+// (base_unit_of strips a metric prefix): the host passes its registry's
+// resolve(name) → entry | null.
+let _unitResolver = null;
+export function setUnitResolver(fn) { _unitResolver = typeof fn === 'function' ? fn : null; }
 
 // Print sink: hosts (or tests) set a callback that receives each
 // `print(args)` call's rendered text. ep leaves this null in production

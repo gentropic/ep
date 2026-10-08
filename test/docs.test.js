@@ -21,3 +21,18 @@ test('DOC_GROUPS: every listed name resolves to a DOCS entry', () => {
   }
   assert.deepEqual(missing, [], 'phantom names in DOC_GROUPS: ' + missing.join(', '));
 });
+
+// The other direction: every function the autocomplete offers has a doc
+// entry, so the info panel never comes up empty. Prelude helpers that
+// are deliberately undocumented go in the allow-list with a reason.
+test('completion: every offered function has a DOCS entry', async () => {
+  const { getCompletionData, evaluate } = await import('../src/js/evaluator.js');
+  evaluate([{ src: 'x = 1' }]);
+  const { functions, decorators } = getCompletionData();
+  const ALLOW = new Set([
+    'args',   // upstream CLI argv — meaningless in a sheet, kept for Numbat compatibility
+    'parse',  // upstream extern with no host implementation yet (would need the evaluator inside a proc)
+  ]);
+  const missing = [...functions, ...decorators].filter(n => !DOCS[n] && !ALLOW.has(n) && !n.startsWith('_'));
+  assert.deepEqual(missing, [], 'offered without docs: ' + missing.join(', '));
+});

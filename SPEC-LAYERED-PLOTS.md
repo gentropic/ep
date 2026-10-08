@@ -28,7 +28,7 @@ A bare expression whose value is a `Plot` auto-renders — no explicit `show()` 
 
 A `Plot` is a tagged struct value: `{__plot: true, family, layers, title, xLabel, yLabel, …}`. The `family` field — `'line'`, `'scatter'`, `'bar'`, `'hist'`, `'stereonet'` — chooses the rendering path. `layers` is a `List<Layer>` accumulated by `with_*` adder functions. A row whose final value is a `Plot` auto-renders by emitting the Plot to `_plotSink`, the same path the existing one-shot builders use.
 
-Each `with_*` adder takes the plot as its first argument and returns a new plot (immutable update), so `|>` threads naturally. Layer features ride per-family: line plots accept `with_line` / `with_scatter` / `with_band`; stereonets accept `with_planes` / `with_lines` / `with_poles` / `with_contours`. Plot-level attributes — `with_title` / `with_xlabel` / `with_ylabel` — work on every family.
+Each `with_*` adder takes the plot as its first argument when called directly, or as its last argument when piped (`|>` appends the piped value as the last argument, as in upstream Numbat), and returns a new plot (immutable update); the adders find the Plot by its tag, so either spelling works. Layer features ride per-family: line plots accept `with_line` / `with_scatter` / `with_band`; stereonets accept `with_planes` / `with_lines` / `with_poles` / `with_contours`. Plot-level attributes — `with_title` / `with_xlabel` / `with_ylabel` — work on every family.
 
 The architecture has **five single-point-of-extension layers**, mirroring SPEC-UNCERTAINTY's pattern.
 
@@ -130,7 +130,7 @@ Each takes no arguments and returns an empty Plot of that family. Optional opts 
 
 ### 3. Adders
 
-All `with_*` functions take the Plot as their first argument (to thread through `|>`) and return a new Plot with the change applied. Plots are immutable; adders never mutate in place.
+All `with_*` functions accept the Plot as their first argument (direct call) or their last (piped: `x |> f(a)` is `f(a, x)`, upstream's order) and return a new Plot with the change applied. Plots are immutable; adders never mutate in place.
 
 ```ep
 line_plot()

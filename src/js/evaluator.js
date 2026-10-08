@@ -25,7 +25,7 @@
 // don't accumulate stale bindings in the host.
 
 import { dEq, dMul, dDiv, dEmpty, fmtDim, setDispResolver } from './units.js';
-import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, setRecordSource, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
+import { Numbat, Quantity, DateTime, Uncertain, tokenize, parse, evalValueExpr, makeEnv, loadModule, VENDORED_MODULES, setQuantityFormatter, formatParts, setPrintSink, setPlotSink, setRecordSource, setUnitResolver, typecheckStatement, buildTypeEnv, resetUncertaintyRng } from '../../ext/numbat/dist/numbat.js';
 import { SENSOR_SOURCES, parseSensorArgs } from './sensor-table.js';
 import { traceBlame } from './blame.js';
 
@@ -45,6 +45,9 @@ function host() {
   // registry — the vendored modules below add prefixed units that the
   // bare formatting instance in units.js doesn't have. See setDispResolver.
   setDispResolver((name) => _host.registry.resolve(name));
+  // And the engine's own procs that need to know what a written unit
+  // is (base_unit_of strips the metric prefix the registry recorded).
+  setUnitResolver((name) => _host.registry.resolve(name));
 
   // Layer the vendored Numbat function modules on top of v0.1's curated
   // unit table. registerAllVendoredModules() only makes the .nbt sources
@@ -156,6 +159,24 @@ function host() {
   ].join('\n'));
   try { _host.use('structural::functions'); }
   catch (e) { console.warn('ep: structural::functions load failed:', e && e.message || e); }
+  // Upstream declares these in modules ep doesn't load wholesale
+  // (math::trigonometry, math::transcendental, core::numbers); the
+  // signatures alone are enough — the implementations are engine procs.
+  _host.registerModule('numeric::extras', [
+    '@description("Two-argument arctangent: the angle of the point (x, y), full circle. Both arguments share a dimension.")',
+    '@example("atan2(1 m, -1 m) -> deg")',
+    'fn atan2<T: Dim>(y: T, x: T) -> Scalar',
+    '@description("The gamma function Γ(x); Γ(n) = (n − 1)! for positive integers.")',
+    '@example("gamma(5)")',
+    'fn gamma(x: Scalar) -> Scalar',
+    '@description("True when the value is NaN (e.g. 0/0).")',
+    'fn is_nan<T: Dim>(x: T) -> Bool',
+    '@description("True when the value is ±∞ (e.g. 1/0).")',
+    'fn is_infinite<T: Dim>(x: T) -> Bool',
+    '',
+  ].join('\n'));
+  try { _host.use('numeric::extras'); }
+  catch (e) { console.warn('ep: numeric::extras load failed:', e && e.message || e); }
   // `format_datetime`: the vendored datetime module declares it strictly
   // 2-arg (`format_datetime(format, input)`), but numbat-js's FFI proc
   // accepts an optional 3rd `tz` arg. Drop the .nbt fn record so calls
@@ -552,9 +573,12 @@ export function getCompletionData() {
   // exposed; keeping a small whitelist here is cheap and keeps the
   // autocomplete useful for the procs ep actively encourages (print,
   // assert, the plot family, mod/max/min).
-  const userFns  = h.fns ? [...h.fns.keys()] : [];
+  // Underscore-prefixed prelude helpers (`_add`, `_today_str`, …) are
+  // implementation details — keep them out of the completion list.
+  const userFns  = h.fns ? [...h.fns.keys()].filter(n => !n.startsWith('_')) : [];
   const procFns  = ['print', 'println', 'assert', 'assert_eq', 'error',
                     'mod', 'max', 'min', 'random', 'random_list', 'type',
+                    'asinh', 'acosh', 'atanh', 'factorial',
                     'plot', 'scatter', 'bar_chart', 'hist',
                     'zeros', 'ones', 'linspace', 'arange'];
   const functions = [...new Set([...userFns, ...procFns])].sort();

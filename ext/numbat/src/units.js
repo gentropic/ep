@@ -7,7 +7,7 @@ import { dimEq } from './dimensions.js';
 
 // Full SI prefix set (per BIPM 2022). Both 'µ' (micro sign U+00B5) and 'u'
 // register for micro; both 'μ' (greek mu U+03BC) is added below.
-const METRIC_PREFIXES = [
+export const METRIC_PREFIXES = [
   ['quetta', 'Q',  1e30],
   ['ronna',  'R',  1e27],
   ['yotta',  'Y',  1e24],
